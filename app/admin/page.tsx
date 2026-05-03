@@ -50,7 +50,6 @@ export default function AdminDashboard() {
   const [translating, setTranslating] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
 
-  // Ana grubu başlangıçta boş bırakıyoruz
   const [newCategory, setNewCategory] = useState({ name: "", main_group: "" });
   
   const [newProduct, setNewProduct] = useState({ 
@@ -221,7 +220,7 @@ export default function AdminDashboard() {
     const { data, error } = await supabase.from("categories").insert([{ 
         restaurant_id: restaurant.id, 
         name: newCategory.name, 
-        main_group: newCategory.main_group || "DİĞER", // Boş bırakılırsa DİĞER atanır
+        main_group: newCategory.main_group || "DİĞER",
         sort_order: categories.length 
     }]).select().single();
     
@@ -232,13 +231,11 @@ export default function AdminDashboard() {
     }
   };
 
-  // YENİ: Kategori Silme Fonksiyonu
   const handleDeleteCategory = async (id: string, name: string) => {
     if (window.confirm(`"${name}" kategorisini tamamen silmek istediğinize emin misiniz?`)) {
       const { error } = await supabase.from("categories").delete().eq("id", id);
       if (!error) {
         setCategories(categories.filter((c: any) => c.id !== id));
-        // Kategori silindiğinde o kategoriye ait ürünleri de listeden temizleyelim (görsel olarak)
         setProducts(products.filter((p: any) => p.category_id !== id));
       } else {
         alert("Kategori silinirken bir hata oluştu.");
@@ -382,9 +379,43 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4">
             <div className="bg-white rounded-[2rem] w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[95vh] md:max-h-[90vh]">
                 <div className="p-4 md:p-8 border-b flex justify-between items-center"><h3 className="font-black text-xl md:text-2xl text-gray-900 tracking-tighter">{editingProductId ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h3><button type="button" onClick={() => {setIsProductModalOpen(false); setEditingProductId(null);}} className="text-gray-300 hover:text-gray-900 bg-gray-100 p-1 md:p-2 rounded-full"><X size={24} /></button></div>
+                
+                {/* GÜNCELLENEN FORM BURASI: İNGİLİZCE VE RUSÇA KUTULARI EKLENDİ */}
                 <form onSubmit={handleProductSubmit} className="p-4 md:p-8 space-y-4 md:space-y-6 overflow-y-auto text-gray-900 pb-20 md:pb-8">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><select required className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base" value={newProduct.category_id} onChange={e => setNewProduct({...newProduct, category_id: e.target.value})}><option value="">Kategori Seç</option>{categories.map((cat: any) => <option key={cat.id} value={cat.id}>{cat.name} ({cat.main_group || 'YİYECEKLER'})</option>)}</select><input required type="text" placeholder="Fiyat (Örn: 250 ₺)" className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-black outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} /></div>
-                    <div className="p-4 md:p-6 bg-blue-50 rounded-2xl md:rounded-[2rem] border border-blue-100 space-y-3 md:space-y-4"><input required placeholder="Ürün Adı" className="w-full bg-white p-3 md:p-4 rounded-xl font-black text-gray-900 outline-none shadow-sm text-sm md:text-base" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} /><textarea placeholder="Açıklama..." className="w-full bg-white p-3 md:p-4 rounded-xl font-medium text-gray-600 text-xs md:text-sm outline-none shadow-sm" rows={2} value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} /></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <select required className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base" value={newProduct.category_id} onChange={e => setNewProduct({...newProduct, category_id: e.target.value})}>
+                            <option value="">Kategori Seç</option>
+                            {categories.map((cat: any) => <option key={cat.id} value={cat.id}>{cat.name} ({cat.main_group || 'YİYECEKLER'})</option>)}
+                        </select>
+                        <input required type="text" placeholder="Fiyat (Örn: 250 ₺)" className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-black outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
+                    </div>
+
+                    <div className="p-4 md:p-6 bg-blue-50 rounded-2xl md:rounded-[2rem] border border-blue-100 space-y-3 md:space-y-4">
+                        {/* ÇEVİR BUTONU BURAYA GERİ GELDİ */}
+                        <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe Bilgiler</span>
+                            <button type="button" onClick={handleAutoTranslate} disabled={translating} className="text-[9px] md:text-[10px] font-black bg-white text-blue-600 px-3 md:px-4 py-1.5 md:py-2 rounded-full shadow-sm flex items-center gap-1 md:gap-2">
+                                <Sparkles size={12}/> {translating ? "..." : "ÇEVİR"}
+                            </button>
+                        </div>
+                        <input required placeholder="Ürün Adı" className="w-full bg-white p-3 md:p-4 rounded-xl font-black text-gray-900 outline-none shadow-sm text-sm md:text-base" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
+                        <textarea placeholder="Açıklama..." className="w-full bg-white p-3 md:p-4 rounded-xl font-medium text-gray-600 text-xs md:text-sm outline-none shadow-sm" rows={2} value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
+                    </div>
+
+                    {/* İNGİLİZCE VE RUSÇA KUTULARI BURAYA GERİ GELDİ */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">🇬🇧 English</label>
+                            <input placeholder="Name" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_en} onChange={e => setNewProduct({...newProduct, name_en: e.target.value})} />
+                            <textarea placeholder="Description" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_en} onChange={e => setNewProduct({...newProduct, description_en: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">🇷🇺 Russian</label>
+                            <input placeholder="Название" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_ru} onChange={e => setNewProduct({...newProduct, name_ru: e.target.value})} />
+                            <textarea placeholder="Описание" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_ru} onChange={e => setNewProduct({...newProduct, description_ru: e.target.value})} />
+                        </div>
+                    </div>
+
                     <div className="p-4 md:p-5 border-2 border-gray-50 rounded-2xl"><div className="flex flex-wrap gap-1.5 md:gap-2">{ALLERGEN_OPTIONS.map((alg: any) => (<button key={alg.id} type="button" onClick={() => toggleAllergen(alg.id)} className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 transition-all ${newProduct.allergens?.includes(alg.id) ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}><span>{alg.icon}</span> {alg.label}</button>))}</div></div>
                     <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase ml-2">Ürün Görseli</label><input type="file" className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700" onChange={e => setNewProduct({...newProduct, file: e.target.files ? e.target.files[0] : null})} /></div>
                     <button disabled={uploading} type="submit" className="w-full bg-blue-600 text-white py-4 md:py-5 rounded-2xl md:rounded-[1.5rem] font-black text-base md:text-lg shadow-xl hover:bg-blue-700 transition-all uppercase mt-4">{uploading ? "İŞLENİYOR..." : editingProductId ? "KAYDET" : "EKLE"}</button>
@@ -393,14 +424,11 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* YENİ: Akıllı Ana Grup Girişi */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-3xl w-full max-w-sm p-6 md:p-8 shadow-2xl">
                 <h3 className="font-black text-lg md:text-xl mb-6 text-gray-900">Yeni Kategori</h3>
                 <form onSubmit={handleAddCategory}>
-                  
-                  {/* Akıllı Input Başlangıcı */}
                   <input 
                     list="main-groups-list"
                     required 
@@ -412,12 +440,10 @@ export default function AdminDashboard() {
                   <datalist id="main-groups-list">
                     <option value="YİYECEKLER" />
                     <option value="İÇECEKLER" />
-                    {/* Bu restorana ait daha önceden girilmiş farklı ana grupları otomatik listele */}
                     {Array.from(new Set(categories.map((c: any) => c.main_group))).filter(mg => mg && mg !== 'YİYECEKLER' && mg !== 'İÇECEKLER').map((mg: any) => (
                         <option key={mg} value={mg} />
                     ))}
                   </datalist>
-                  {/* Akıllı Input Sonu */}
 
                   <input required placeholder="Alt Kategori (Örn: Kahvaltı, Burger)" className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl mb-6 font-black text-gray-900 outline-none text-sm md:text-base" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
                   <div className="flex gap-3 md:gap-4"><button type="button" onClick={() => setIsCategoryModalOpen(false)} className="flex-1 font-bold text-gray-400 text-sm md:text-base">İptal</button><button type="submit" className="flex-1 bg-blue-600 text-white py-3 md:py-4 rounded-2xl font-black shadow-lg text-sm md:text-base">Ekle</button></div>
