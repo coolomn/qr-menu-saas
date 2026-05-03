@@ -58,12 +58,20 @@ export default function AdminDashboard() {
     allergens: [] as string[]
   });
 
-  useEffect(() => {
+useEffect(() => {
     const fetchData = async () => {
+      // 1. Kullanıcı oturumunu kontrol et
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push("/admin/login"); return; }
       setUser(session.user);
-      const { data: resData } = await supabase.from("restaurants").select("*").eq("owner_id", session.user.id).single();
+      
+      // 2. KULLANICININ KENDİ RESTORANINI BUL (RLS sayesinde başkasını zaten bulamaz)
+      const { data: resData } = await supabase
+        .from("restaurants")
+        .select("*")
+        .eq("owner_id", session.user.id)
+        .single();
+        
       if (resData) {
         setRestaurant(resData);
         setSettings({ 
@@ -71,10 +79,31 @@ export default function AdminDashboard() {
             primary_color: resData.primary_color || "#2563eb",
             slider_images: resData.slider_images || []
         });
-        const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
+        
+        // 3. SADECE BU RESTORANIN KATEGORİLERİNİ GETİR
+        const { data: catData } = await supabase
+          .from("categories")
+          .select("*")
+          .eq("restaurant_id", resData.id)
+          .order('sort_order');
+          
         setCategories(catData || []);
-        const { data: prodData } = await supabase.from("products").select("*, categories(name)").eq("categories.restaurant_id", resData.id);
-        setProducts(prodData || []);
+        
+        // 4. SADECE BU RESTORANIN ÜRÜNLERİNİ GETİR (ZIRHLI SORGULAMA)
+        // Eğer kategori yoksa hiç sorgu yapma (başka restoranın ürünleri sızmasın diye)
+        if (catData && catData.length > 0) {
+          const categoryIds = catData.map(c => c.id);
+          
+          const { data: prodData } = await supabase
+            .from("products")
+            .select("*, categories(name)")
+            .in("category_id", categoryIds); // KESİN FİLTRELEME! Sadece elimizdeki kategori ID'lerine uyan ürünler.
+            
+          setProducts(prodData || []);
+        } else {
+          // Restoranın henüz hiç kategorisi yoksa, ürün listesini boş bırak.
+          setProducts([]);
+        }
       }
       setLoading(false);
     };
