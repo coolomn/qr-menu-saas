@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useParams } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu as MenuIcon, X } from "lucide-react";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,130 +31,163 @@ export default function CustomerMenu() {
   
   const [language, setLanguage] = useState("tr");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-
   const [currentSlide, setCurrentSlide] = useState(0);
+
+  // YENİ: Arayüz State'leri
+  const [view, setView] = useState<"welcome" | "menu">("welcome");
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchMenu = async () => {
       const { data: resData } = await supabase.from("restaurants").select("*").eq("slug", slug).single();
-      
       if (resData) {
         setRestaurant(resData);
         const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
         setCategories(catData || []);
-        if (catData && catData.length > 0) setActiveCategory(catData[0].id);
-
-        const { data: prodData } = await supabase.from("products").select("*, categories!inner(restaurant_id)").eq("categories.restaurant_id", resData.id).eq("is_active", true);
-        setProducts(prodData || []);
+        
+        if (catData && catData.length > 0) {
+          const catIds = catData.map(c => c.id);
+          const { data: prodData } = await supabase.from("products").select("*, categories!inner(restaurant_id)").in("category_id", catIds).eq("is_active", true);
+          setProducts(prodData || []);
+        }
       }
       setLoading(false);
     };
     fetchMenu();
   }, [slug]);
 
-  // 3 Saniyede Bir Otomatik Değişim
   useEffect(() => {
-    if (!restaurant?.slider_images || restaurant.slider_images.length <= 1) return;
-    
-    const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev === restaurant.slider_images.length - 1 ? 0 : prev + 1));
-    }, 3000);
-
+    if (view === "welcome" || !restaurant?.slider_images || restaurant.slider_images.length <= 1) return;
+    const timer = setInterval(() => setCurrentSlide((prev) => (prev === restaurant.slider_images.length - 1 ? 0 : prev + 1)), 3000);
     return () => clearInterval(timer);
-  }, [restaurant?.slider_images]);
+  }, [restaurant?.slider_images, view]);
 
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-gray-400">Menü Hazırlanıyor...</div>;
   if (!restaurant) return <div className="h-screen flex items-center justify-center font-bold text-red-500 text-xl">Restoran bulunamadı.</div>;
 
   const themeColor = restaurant.primary_color || "#2563eb";
-
   const getText = (item: any, field: string) => {
     if (language === "en" && item[`${field}_en`]) return item[`${field}_en`];
     if (language === "ru" && item[`${field}_ru`]) return item[`${field}_ru`];
     return item[field];
   };
 
-  const nextSlide = () => setCurrentSlide(prev => prev === restaurant.slider_images.length - 1 ? 0 : prev + 1);
-  const prevSlide = () => setCurrentSlide(prev => prev === 0 ? restaurant.slider_images.length - 1 : prev - 1);
+  // Kategorileri Ana Gruplarına (YİYECEKLER, İÇECEKLER vb.) göre grupla
+  const groupedCategories = categories.reduce((acc, cat) => {
+    const group = cat.main_group || "DİĞER";
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(cat);
+    return acc;
+  }, {} as Record<string, any[]>);
 
+  // GÖRÜNÜM 1: TAM EKRAN KARŞILAMA EKRANI (Senin gönderdiğin tasarım)
+  if (view === "welcome") {
+    return (
+      <div 
+        className="relative min-h-screen flex flex-col items-center justify-between bg-cover bg-center bg-no-repeat font-sans"
+        style={{ backgroundImage: `url(${restaurant.welcome_bg_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1934&auto=format&fit=crop'})` }}
+      >
+        {/* Karartma Overlay */}
+        <div className="absolute inset-0 bg-black/30 pointer-events-none" />
+
+        {/* Üst Kısım: Dil Seçimi */}
+        <div className="relative z-10 w-full p-6 flex justify-end">
+            <div className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3">
+              <span onClick={() => setLanguage("tr")} className={language === 'tr' ? 'text-black' : 'opacity-40 grayscale'}>TR</span>
+              <span onClick={() => setLanguage("en")} className={language === 'en' ? 'text-black' : 'opacity-40 grayscale'}>EN</span>
+              <span onClick={() => setLanguage("ru")} className={language === 'ru' ? 'text-black' : 'opacity-40 grayscale'}>RU</span>
+            </div>
+        </div>
+
+        {/* Orta Kısım: Logo Kutusu */}
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-6">
+           <div className="px-10 py-8 shadow-2xl backdrop-blur-sm flex items-center justify-center min-w-[200px]" style={{ backgroundColor: `${themeColor}E6` /* Rengin şeffaf hali */ }}>
+             {restaurant.logo_url ? (
+                <img src={restaurant.logo_url} alt="Logo" className="max-h-24 object-contain filter drop-shadow-md" />
+             ) : (
+                <h1 className="text-4xl font-black tracking-widest text-white">{restaurant.name}</h1>
+             )}
+           </div>
+        </div>
+
+        {/* Alt Kısım: Akordeon Butonlar (Birebir Tasarım) */}
+        <div className="relative z-10 w-full max-w-md mx-auto px-6 pb-12 space-y-3">
+            {Object.entries(groupedCategories).map(([groupName, cats]) => {
+              const isExpanded = expandedGroup === groupName;
+              return (
+                <div key={groupName} className="flex flex-col gap-1.5">
+                  {/* Ana Buton (YİYECEKLER ≡) */}
+                  <button 
+                    onClick={() => setExpandedGroup(isExpanded ? null : groupName)}
+                    className="w-full bg-[#E5DFD3] text-[#1F3B2B] flex items-center justify-between px-6 py-5 rounded-lg font-black text-lg tracking-widest uppercase shadow-lg active:scale-[0.98] transition-transform"
+                  >
+                    <span>{groupName}</span>
+                    {isExpanded ? <X size={24} strokeWidth={3} /> : <MenuIcon size={24} strokeWidth={3} />}
+                  </button>
+
+                  {/* Açılan Alt Kategoriler (KAHVALTI vb.) */}
+                  {isExpanded && (
+                    <div className="flex flex-col gap-1.5 animate-in slide-in-from-top-2 fade-in duration-200">
+                      {cats.map(cat => (
+                        <button 
+                          key={cat.id}
+                          onClick={() => {
+                            setActiveCategory(cat.id);
+                            setView("menu"); // Tıklanınca menüye geç
+                          }}
+                          className="w-full bg-[#E5DFD3] text-[#1F3B2B] py-4 rounded-lg font-bold text-base tracking-widest uppercase shadow-md active:scale-[0.98] transition-transform opacity-95"
+                        >
+                          {cat.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      </div>
+    );
+  }
+
+  // GÖRÜNÜM 2: MENÜ LİSTESİ (Önceki sayfa, sadece Geri Dön butonu eklendi)
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans selection:bg-gray-200">
       
       <header className="bg-white shadow-sm sticky top-0 z-30">
-        <div className="p-5 flex items-center justify-between max-w-2xl mx-auto">
+        <div className="p-4 flex items-center justify-between max-w-2xl mx-auto border-b border-gray-50">
+          <button onClick={() => setView("welcome")} className="flex items-center gap-1 text-sm font-black text-gray-500 hover:text-gray-900 bg-gray-100 px-3 py-1.5 rounded-lg transition-colors">
+            <ChevronLeft size={16} /> KARŞILAMA
+          </button>
           {restaurant.logo_url ? (
-            <img src={restaurant.logo_url} alt="Logo" className="h-10 object-contain" />
+            <img src={restaurant.logo_url} alt="Logo" className="h-8 object-contain" />
           ) : (
-            <h1 style={{ color: themeColor }} className="text-2xl font-black tracking-tighter uppercase">{restaurant.name}</h1>
+            <h1 style={{ color: themeColor }} className="text-xl font-black tracking-tighter uppercase">{restaurant.name}</h1>
           )}
-          
-          <div className="flex gap-3 bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
-            <button onClick={() => setLanguage("tr")} className={`text-xl transition-all ${language === 'tr' ? 'scale-110 drop-shadow-md' : 'opacity-40 grayscale'}`}>🇹🇷</button>
-            <button onClick={() => setLanguage("en")} className={`text-xl transition-all ${language === 'en' ? 'scale-110 drop-shadow-md' : 'opacity-40 grayscale'}`}>🇬🇧</button>
-            <button onClick={() => setLanguage("ru")} className={`text-xl transition-all ${language === 'ru' ? 'scale-110 drop-shadow-md' : 'opacity-40 grayscale'}`}>🇷🇺</button>
-          </div>
         </div>
 
-        {/* SİNEMATİK SLIDER (Cross-Dissolve & Zoom-in) */}
         {restaurant.slider_images && restaurant.slider_images.length > 0 && (
-          <div className="w-full bg-white pb-4">
+          <div className="w-full bg-white pb-3 pt-3">
              <div className="max-w-2xl mx-auto px-4">
-                <div className="relative overflow-hidden rounded-3xl shadow-sm border border-gray-100 aspect-[16/9] bg-gray-900">
-                  
+                <div className="relative overflow-hidden rounded-2xl shadow-sm border border-gray-100 aspect-[16/9] bg-gray-900">
                   {restaurant.slider_images.map((img: string, idx: number) => {
                     const isActive = currentSlide === idx;
                     return (
-                      <div 
-                        key={idx}
-                        className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${isActive ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}
-                      >
-                        <img 
-                          src={img} 
-                          // Zoom efekti: Aktifken %110 büyür, pasifken %100'de durur. Çok yavaş bir geçiş (4 saniye) ekledik.
-                          className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${isActive ? 'scale-110' : 'scale-100'}`} 
-                          alt={`Slider ${idx}`} 
-                        />
+                      <div key={idx} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${isActive ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
+                        <img src={img} className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${isActive ? 'scale-110' : 'scale-100'}`} alt={`Slider ${idx}`} />
                       </div>
                     );
                   })}
-
-                  {/* OKLAR VE NOKTALAR (z-20 ile fotoğrafların üstünde tutuyoruz) */}
-                  {restaurant.slider_images.length > 1 && (
-                    <div className="absolute inset-0 z-20 pointer-events-none">
-                      {/* Sol Ok */}
-                      <button onClick={prevSlide} className="pointer-events-auto absolute left-3 top-1/2 -translate-y-1/2 bg-black/30 text-white p-2 rounded-full backdrop-blur-md active:scale-95 hover:bg-black/50 transition-all">
-                        <ChevronLeft size={20} />
-                      </button>
-                      
-                      {/* Sağ Ok */}
-                      <button onClick={nextSlide} className="pointer-events-auto absolute right-3 top-1/2 -translate-y-1/2 bg-black/30 text-white p-2 rounded-full backdrop-blur-md active:scale-95 hover:bg-black/50 transition-all">
-                        <ChevronRight size={20} />
-                      </button>
-
-                      {/* İlerleme Noktaları */}
-                      <div className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                        {restaurant.slider_images.map((_: any, idx: number) => (
-                          <button 
-                            key={idx} 
-                            onClick={() => setCurrentSlide(idx)} 
-                            className={`h-2 rounded-full transition-all duration-500 ${currentSlide === idx ? 'bg-white w-6 shadow-md' : 'bg-white/50 w-2 hover:bg-white/80'}`} 
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
              </div>
           </div>
         )}
 
-        <div className="flex overflow-x-auto gap-3 p-4 max-w-2xl mx-auto no-scrollbar scroll-smooth">
+        <div className="flex overflow-x-auto gap-2 p-3 max-w-2xl mx-auto no-scrollbar scroll-smooth">
           {categories.map(cat => (
             <button 
-              key={cat.id} 
-              onClick={() => setActiveCategory(cat.id)}
-              style={activeCategory === cat.id ? { backgroundColor: themeColor, color: '#fff' } : {}}
-              className={`whitespace-nowrap px-6 py-3 rounded-2xl font-black text-sm transition-all ${activeCategory === cat.id ? 'shadow-lg shadow-gray-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              key={cat.id} onClick={() => setActiveCategory(cat.id)} style={activeCategory === cat.id ? { backgroundColor: themeColor, color: '#fff' } : {}}
+              className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${activeCategory === cat.id ? 'shadow-md shadow-gray-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
             >
               {cat.name}
             </button>
@@ -162,49 +195,24 @@ export default function CustomerMenu() {
         </div>
       </header>
 
-      <main className="p-4 max-w-2xl mx-auto space-y-4 mt-2">
+      <main className="p-3 max-w-2xl mx-auto space-y-3 mt-1">
         {products.filter(p => p.category_id === activeCategory).map(product => (
-          <div key={product.id} className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-4 hover:border-gray-200 transition-colors">
-            
-            {product.image_url && (
-              <div className="w-28 h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative">
-                <img src={product.image_url} className="w-full h-full object-cover" />
-              </div>
-            )}
-            
+          <div key={product.id} className="bg-white p-3 md:p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-3 md:gap-4 hover:border-gray-200 transition-colors">
+            {product.image_url && (<div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative"><img src={product.image_url} className="w-full h-full object-cover" /></div>)}
             <div className="flex-1 flex flex-col justify-center">
-              <div className="flex justify-between items-start gap-2 mb-1">
-                <h3 className="font-black text-gray-900 leading-tight text-lg">{getText(product, 'name')}</h3>
-                <span style={{ color: themeColor }} className="font-black text-xl whitespace-nowrap">{product.price}</span>
-              </div>
-              
-              {getText(product, 'description') && (
-                <p className="text-sm text-gray-500 font-medium leading-snug mb-3 line-clamp-2">{getText(product, 'description')}</p>
-              )}
-
+              <div className="flex justify-between items-start gap-2 mb-1"><h3 className="font-black text-gray-900 leading-tight text-base md:text-lg">{getText(product, 'name')}</h3><span style={{ color: themeColor }} className="font-black text-lg md:text-xl whitespace-nowrap">{product.price}</span></div>
+              {getText(product, 'description') && (<p className="text-xs md:text-sm text-gray-500 font-medium leading-snug mb-2 line-clamp-2">{getText(product, 'description')}</p>)}
               {product.allergens && product.allergens.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-auto">
+                <div className="flex flex-wrap gap-1 mt-auto">
                   {product.allergens.map((aId: string) => {
                     const alg = ALLERGEN_OPTIONS.find(a => a.id === aId);
-                    return alg ? (
-                      <div key={aId} className="flex items-center gap-1 bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">
-                        <span className="text-[12px]">{alg.icon}</span>
-                        <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">{alg.label}</span>
-                      </div>
-                    ) : null;
+                    return alg ? (<div key={aId} className="flex items-center gap-1 bg-gray-50 border border-gray-100 px-1.5 py-0.5 rounded-lg"><span className="text-[10px]">{alg.icon}</span><span className="text-[8px] font-black text-gray-500 uppercase tracking-widest">{alg.label}</span></div>) : null;
                   })}
                 </div>
               )}
             </div>
           </div>
         ))}
-        
-        {products.filter(p => p.category_id === activeCategory).length === 0 && (
-          <div className="text-center py-20">
-            <div className="text-4xl mb-4">🍽️</div>
-            <div className="text-gray-400 font-bold">Bu kategoride henüz ürün yok.</div>
-          </div>
-        )}
       </main>
     </div>
   );
