@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2 } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2 } from "lucide-react";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,7 +50,8 @@ export default function AdminDashboard() {
   const [translating, setTranslating] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
 
-  const [newCategory, setNewCategory] = useState({ name: "", main_group: "YİYECEKLER" });
+  // Ana grubu başlangıçta boş bırakıyoruz
+  const [newCategory, setNewCategory] = useState({ name: "", main_group: "" });
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
@@ -220,14 +221,28 @@ export default function AdminDashboard() {
     const { data, error } = await supabase.from("categories").insert([{ 
         restaurant_id: restaurant.id, 
         name: newCategory.name, 
-        main_group: newCategory.main_group,
+        main_group: newCategory.main_group || "DİĞER", // Boş bırakılırsa DİĞER atanır
         sort_order: categories.length 
     }]).select().single();
     
     if (!error && data) {
       setCategories([...categories, data]);
-      setNewCategory({ name: "", main_group: "YİYECEKLER" });
+      setNewCategory({ name: "", main_group: "" });
       setIsCategoryModalOpen(false);
+    }
+  };
+
+  // YENİ: Kategori Silme Fonksiyonu
+  const handleDeleteCategory = async (id: string, name: string) => {
+    if (window.confirm(`"${name}" kategorisini tamamen silmek istediğinize emin misiniz?`)) {
+      const { error } = await supabase.from("categories").delete().eq("id", id);
+      if (!error) {
+        setCategories(categories.filter((c: any) => c.id !== id));
+        // Kategori silindiğinde o kategoriye ait ürünleri de listeden temizleyelim (görsel olarak)
+        setProducts(products.filter((p: any) => p.category_id !== id));
+      } else {
+        alert("Kategori silinirken bir hata oluştu.");
+      }
     }
   };
 
@@ -308,7 +323,19 @@ export default function AdminDashboard() {
             {activeTab === "categories" && (
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 md:p-8">
                 <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6 md:mb-8"><h2 className="text-lg md:text-xl font-black text-gray-900 uppercase">Kategoriler</h2><button onClick={() => setIsCategoryModalOpen(true)} className="w-full md:w-auto justify-center bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 hover:bg-blue-700 shadow-lg transition-all"><Plus size={18}/> Yeni Kategori</button></div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{categories.map((c: any) => <div key={c.id} className="p-4 bg-gray-50 rounded-2xl font-black text-gray-700 border border-gray-100 text-center md:text-left flex flex-col"><span className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">{c.main_group || 'YİYECEKLER'}</span>{c.name}</div>)}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {categories.map((c: any) => (
+                    <div key={c.id} className="p-4 bg-gray-50 rounded-2xl font-black text-gray-700 border border-gray-100 flex justify-between items-center group transition-all">
+                      <div className="flex flex-col text-left">
+                         <span className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">{c.main_group || 'YİYECEKLER'}</span>
+                         {c.name}
+                      </div>
+                      <button onClick={() => handleDeleteCategory(c.id, c.name)} title="Kategoriyi Sil" className="text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -366,17 +393,32 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* YENİ: Akıllı Ana Grup Girişi */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-3xl w-full max-w-sm p-6 md:p-8 shadow-2xl">
                 <h3 className="font-black text-lg md:text-xl mb-6 text-gray-900">Yeni Kategori</h3>
                 <form onSubmit={handleAddCategory}>
-                  <select required className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl mb-4 font-black text-gray-900 outline-none text-sm md:text-base" value={newCategory.main_group} onChange={e => setNewCategory({...newCategory, main_group: e.target.value})}>
-                      <option value="YİYECEKLER">YİYECEKLER (Ana Grup)</option>
-                      <option value="İÇECEKLER">İÇECEKLER (Ana Grup)</option>
-                      <option value="NARGİLE">NARGİLE (Ana Grup)</option>
-                      <option value="DİĞER">DİĞER</option>
-                  </select>
+                  
+                  {/* Akıllı Input Başlangıcı */}
+                  <input 
+                    list="main-groups-list"
+                    required 
+                    placeholder="Ana Grup (Örn: TATLILAR, YİYECEKLER)" 
+                    className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl mb-4 font-black text-gray-900 outline-none text-sm md:text-base uppercase" 
+                    value={newCategory.main_group} 
+                    onChange={e => setNewCategory({...newCategory, main_group: e.target.value.toLocaleUpperCase('tr-TR')})} 
+                  />
+                  <datalist id="main-groups-list">
+                    <option value="YİYECEKLER" />
+                    <option value="İÇECEKLER" />
+                    {/* Bu restorana ait daha önceden girilmiş farklı ana grupları otomatik listele */}
+                    {Array.from(new Set(categories.map((c: any) => c.main_group))).filter(mg => mg && mg !== 'YİYECEKLER' && mg !== 'İÇECEKLER').map((mg: any) => (
+                        <option key={mg} value={mg} />
+                    ))}
+                  </datalist>
+                  {/* Akıllı Input Sonu */}
+
                   <input required placeholder="Alt Kategori (Örn: Kahvaltı, Burger)" className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl mb-6 font-black text-gray-900 outline-none text-sm md:text-base" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
                   <div className="flex gap-3 md:gap-4"><button type="button" onClick={() => setIsCategoryModalOpen(false)} className="flex-1 font-bold text-gray-400 text-sm md:text-base">İptal</button><button type="submit" className="flex-1 bg-blue-600 text-white py-3 md:py-4 rounded-2xl font-black shadow-lg text-sm md:text-base">Ekle</button></div>
                 </form>
