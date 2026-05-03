@@ -81,29 +81,51 @@ export default function AdminDashboard() {
     fetchData();
   }, [router]);
 
-  const handleSaveSettings = async () => {
+const handleSaveSettings = async () => {
+    // 1. ZIRH: Eğer restoran bulunamadıysa sistemin çökmesini engelle
+    if (!restaurant) {
+      alert("Hata: Bu hesaba bağlı bir restoran bulunamadı! Lütfen Supabase'den restoran kaydınızı kontrol edin.");
+      setIsSaving(false);
+      return;
+    }
+
     setIsSaving(true);
-    let finalLogoUrl = settings.logo_url;
+    try {
+      let finalLogoUrl = settings.logo_url;
 
-    if (logoFile) {
-      const fileName = `logo-${Math.random()}.${logoFile.name.split('.').pop()}`;
-      const { error: uploadError } = await supabase.storage.from('menu-images').upload(fileName, logoFile);
-      if (!uploadError) finalLogoUrl = supabase.storage.from('menu-images').getPublicUrl(fileName).data.publicUrl;
-      else alert("Logo yüklenirken bir hata oluştu.");
-    }
+      // Logo yüklenecekse önce onu hallet
+      if (logoFile) {
+        const fileName = `logo-${Math.random()}.${logoFile.name.split('.').pop()}`;
+        const { error: uploadError } = await supabase.storage.from('menu-images').upload(fileName, logoFile);
+        
+        // 2. ZIRH: Storage'da hata olursa fırlat
+        if (uploadError) throw new Error("Logo yüklenemedi: " + uploadError.message);
+        
+        finalLogoUrl = supabase.storage.from('menu-images').getPublicUrl(fileName).data.publicUrl;
+      }
 
-    const { error } = await supabase.from("restaurants").update({ 
-        primary_color: settings.primary_color, 
-        logo_url: finalLogoUrl,
-        slider_images: settings.slider_images
-    }).eq("id", restaurant.id);
-    
-    if (!error) {
-        alert("Görünüm ayarları başarıyla kaydedildi!");
-        setSettings({ ...settings, logo_url: finalLogoUrl });
-        setLogoFile(null);
+      // Veritabanını güncelle
+      const { error: dbError } = await supabase.from("restaurants").update({ 
+          primary_color: settings.primary_color, 
+          logo_url: finalLogoUrl,
+          slider_images: settings.slider_images
+      }).eq("id", restaurant.id);
+      
+      // 3. ZIRH: Veritabanı yazma izni (RLS) hatası olursa fırlat
+      if (dbError) throw new Error("Ayarlar kaydedilemedi: " + dbError.message);
+
+      // Her şey başarılıysa
+      alert("Görünüm ayarları başarıyla kaydedildi!");
+      setSettings({ ...settings, logo_url: finalLogoUrl });
+      setLogoFile(null);
+
+    } catch (error: any) {
+      // Bir hata olursa donup kalmak yerine ekranda uyarı göster
+      alert(error.message || "Bilinmeyen bir hata oluştu.");
+    } finally {
+      // İşlem bitince (başarılı ya da başarısız) butonu her zaman normale döndür
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   const handleSliderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
