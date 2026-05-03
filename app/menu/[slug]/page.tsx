@@ -105,7 +105,7 @@ export default function CustomerMenu() {
         </div>
 
         <div className="relative z-10 w-full max-w-md mx-auto px-6 pb-12 space-y-3">
-            {Object.entries(groupedCategories).map(([groupName, cats]) => {
+            {(Object.entries(groupedCategories) as [string, any[]][]).map(([groupName, cats]) => {
               const isExpanded = expandedGroup === groupName;
               return (
                 <div key={groupName} className="flex flex-col gap-1.5">
@@ -119,7 +119,7 @@ export default function CustomerMenu() {
 
                   {isExpanded && (
                     <div className="flex flex-col gap-1.5 animate-in slide-in-from-top-2 fade-in duration-200">
-                      {cats.map(cat => (
+                      {cats.map((cat: any) => (
                         <button 
                           key={cat.id}
                           onClick={() => {
@@ -174,7 +174,7 @@ export default function CustomerMenu() {
         )}
 
         <div className="flex overflow-x-auto gap-2 p-3 max-w-2xl mx-auto no-scrollbar scroll-smooth">
-          {categories.map(cat => (
+          {categories.map((cat: any) => (
             <button 
               key={cat.id} onClick={() => setActiveCategory(cat.id)} style={activeCategory === cat.id ? { backgroundColor: themeColor, color: '#fff' } : {}}
               className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${activeCategory === cat.id ? 'shadow-md shadow-gray-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
@@ -186,7 +186,7 @@ export default function CustomerMenu() {
       </header>
 
       <main className="p-3 max-w-2xl mx-auto space-y-3 mt-1">
-        {products.filter(p => p.category_id === activeCategory).map(product => (
+        {products.filter((p: any) => p.category_id === activeCategory).map((product: any) => (
           <div key={product.id} className="bg-white p-3 md:p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-3 md:gap-4 hover:border-gray-200 transition-colors">
             {product.image_url && (<div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative"><img src={product.image_url} alt={product.name || 'Ürün Görseli'} className="w-full h-full object-cover" /></div>)}
             <div className="flex-1 flex flex-col justify-center">
@@ -195,7 +195,7 @@ export default function CustomerMenu() {
               {product.allergens && product.allergens.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-auto">
                   {product.allergens.map((aId: string) => {
-                    const alg = ALLERGEN_OPTIONS.find(a => a.id === aId);
+                    const alg = ALLERGEN_OPTIONS.find((a: any) => a.id === aId);
                     return alg ? (<div key={aId} className="flex items-center gap-1 bg-gray-50 border border-gray-100 px-1.5 py-0.5 rounded-lg"><span className="text-[10px]">{alg.icon}</span><span className="text-[8px] font-black text-gray-500 uppercase tracking-widest">{alg.label}</span></div>) : null;
                   })}
                 </div>
