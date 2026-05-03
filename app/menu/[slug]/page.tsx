@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Menu as MenuIcon, X } from "lucide-react";
+import { ChevronLeft, Menu as MenuIcon, X } from "lucide-react";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,7 +33,6 @@ export default function CustomerMenu() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
 
-  // YENİ: Arayüz State'leri
   const [view, setView] = useState<"welcome" | "menu">("welcome");
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
@@ -72,7 +71,6 @@ export default function CustomerMenu() {
     return item[field];
   };
 
-  // Kategorileri Ana Gruplarına (YİYECEKLER, İÇECEKLER vb.) göre grupla
   const groupedCategories = categories.reduce((acc, cat) => {
     const group = cat.main_group || "DİĞER";
     if (!acc[group]) acc[group] = [];
@@ -80,17 +78,14 @@ export default function CustomerMenu() {
     return acc;
   }, {} as Record<string, any[]>);
 
-  // GÖRÜNÜM 1: TAM EKRAN KARŞILAMA EKRANI (Senin gönderdiğin tasarım)
   if (view === "welcome") {
     return (
       <div 
         className="relative min-h-screen flex flex-col items-center justify-between bg-cover bg-center bg-no-repeat font-sans"
         style={{ backgroundImage: `url(${restaurant.welcome_bg_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1934&auto=format&fit=crop'})` }}
       >
-        {/* Karartma Overlay */}
         <div className="absolute inset-0 bg-black/30 pointer-events-none" />
 
-        {/* Üst Kısım: Dil Seçimi */}
         <div className="relative z-10 w-full p-6 flex justify-end">
             <div className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3">
               <span onClick={() => setLanguage("tr")} className={language === 'tr' ? 'text-black' : 'opacity-40 grayscale'}>TR</span>
@@ -99,24 +94,21 @@ export default function CustomerMenu() {
             </div>
         </div>
 
-        {/* Orta Kısım: Logo Kutusu */}
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-6">
-           <div className="px-10 py-8 shadow-2xl backdrop-blur-sm flex items-center justify-center min-w-[200px]" style={{ backgroundColor: `${themeColor}E6` /* Rengin şeffaf hali */ }}>
+           <div className="px-10 py-8 shadow-2xl backdrop-blur-sm flex items-center justify-center min-w-[200px]" style={{ backgroundColor: `${themeColor}E6` }}>
              {restaurant.logo_url ? (
-                <img src={restaurant.logo_url} alt="Logo" className="max-h-24 object-contain filter drop-shadow-md" />
+                <img src={restaurant.logo_url} alt="Restoran Logosu" className="max-h-24 object-contain filter drop-shadow-md" />
              ) : (
                 <h1 className="text-4xl font-black tracking-widest text-white">{restaurant.name}</h1>
              )}
            </div>
         </div>
 
-        {/* Alt Kısım: Akordeon Butonlar (Birebir Tasarım) */}
         <div className="relative z-10 w-full max-w-md mx-auto px-6 pb-12 space-y-3">
             {Object.entries(groupedCategories).map(([groupName, cats]) => {
               const isExpanded = expandedGroup === groupName;
               return (
                 <div key={groupName} className="flex flex-col gap-1.5">
-                  {/* Ana Buton (YİYECEKLER ≡) */}
                   <button 
                     onClick={() => setExpandedGroup(isExpanded ? null : groupName)}
                     className="w-full bg-[#E5DFD3] text-[#1F3B2B] flex items-center justify-between px-6 py-5 rounded-lg font-black text-lg tracking-widest uppercase shadow-lg active:scale-[0.98] transition-transform"
@@ -125,7 +117,6 @@ export default function CustomerMenu() {
                     {isExpanded ? <X size={24} strokeWidth={3} /> : <MenuIcon size={24} strokeWidth={3} />}
                   </button>
 
-                  {/* Açılan Alt Kategoriler (KAHVALTI vb.) */}
                   {isExpanded && (
                     <div className="flex flex-col gap-1.5 animate-in slide-in-from-top-2 fade-in duration-200">
                       {cats.map(cat => (
@@ -133,7 +124,7 @@ export default function CustomerMenu() {
                           key={cat.id}
                           onClick={() => {
                             setActiveCategory(cat.id);
-                            setView("menu"); // Tıklanınca menüye geç
+                            setView("menu");
                           }}
                           className="w-full bg-[#E5DFD3] text-[#1F3B2B] py-4 rounded-lg font-bold text-base tracking-widest uppercase shadow-md active:scale-[0.98] transition-transform opacity-95"
                         >
@@ -150,7 +141,6 @@ export default function CustomerMenu() {
     );
   }
 
-  // GÖRÜNÜM 2: MENÜ LİSTESİ (Önceki sayfa, sadece Geri Dön butonu eklendi)
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans selection:bg-gray-200">
       
@@ -160,7 +150,7 @@ export default function CustomerMenu() {
             <ChevronLeft size={16} /> KARŞILAMA
           </button>
           {restaurant.logo_url ? (
-            <img src={restaurant.logo_url} alt="Logo" className="h-8 object-contain" />
+            <img src={restaurant.logo_url} alt="Restoran Logosu" className="h-8 object-contain" />
           ) : (
             <h1 style={{ color: themeColor }} className="text-xl font-black tracking-tighter uppercase">{restaurant.name}</h1>
           )}
@@ -174,7 +164,7 @@ export default function CustomerMenu() {
                     const isActive = currentSlide === idx;
                     return (
                       <div key={idx} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${isActive ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
-                        <img src={img} className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${isActive ? 'scale-110' : 'scale-100'}`} alt={`Slider ${idx}`} />
+                        <img src={img} alt={`Menü Görseli ${idx + 1}`} className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${isActive ? 'scale-110' : 'scale-100'}`} />
                       </div>
                     );
                   })}
@@ -198,7 +188,7 @@ export default function CustomerMenu() {
       <main className="p-3 max-w-2xl mx-auto space-y-3 mt-1">
         {products.filter(p => p.category_id === activeCategory).map(product => (
           <div key={product.id} className="bg-white p-3 md:p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-3 md:gap-4 hover:border-gray-200 transition-colors">
-            {product.image_url && (<div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative"><img src={product.image_url} className="w-full h-full object-cover" /></div>)}
+            {product.image_url && (<div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative"><img src={product.image_url} alt={product.name || 'Ürün Görseli'} className="w-full h-full object-cover" /></div>)}
             <div className="flex-1 flex flex-col justify-center">
               <div className="flex justify-between items-start gap-2 mb-1"><h3 className="font-black text-gray-900 leading-tight text-base md:text-lg">{getText(product, 'name')}</h3><span style={{ color: themeColor }} className="font-black text-lg md:text-xl whitespace-nowrap">{product.price}</span></div>
               {getText(product, 'description') && (<p className="text-xs md:text-sm text-gray-500 font-medium leading-snug mb-2 line-clamp-2">{getText(product, 'description')}</p>)}
