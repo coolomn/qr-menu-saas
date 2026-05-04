@@ -10,6 +10,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+function AdminInstagramGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2m-.2 2A3.6 3.6 0 0 0 4 7.6v8.8A3.6 3.6 0 0 0 7.6 20h8.8A3.6 3.6 0 0 0 20 16.4V7.6A3.6 3.6 0 0 0 16.4 4H7.6m9.65 1.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10m0 2a3 3 0 1 0 .001 6.001A3 3 0 0 0 12 9z" />
+    </svg>
+  );
+}
+
 const ALLERGEN_OPTIONS = [
   { id: 'gluten', label: 'Gluten', icon: '🌾' },
   { id: 'dairy', label: 'Süt', icon: '🥛' },
@@ -37,7 +45,8 @@ export default function AdminDashboard() {
     logo_url: "", 
     primary_color: "#2563eb",
     slider_images: [] as string[],
-    welcome_bg_url: ""
+    welcome_bg_url: "",
+    instagram: "",
   });
   
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -50,7 +59,14 @@ export default function AdminDashboard() {
   const [translating, setTranslating] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
 
-  const [newCategory, setNewCategory] = useState({ name: "", main_group: "" });
+  const [newCategory, setNewCategory] = useState({
+    name: "",
+    main_group: "",
+    name_en: "",
+    name_ru: "",
+    main_group_en: "",
+    main_group_ru: "",
+  });
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
@@ -73,7 +89,11 @@ export default function AdminDashboard() {
             logo_url: resData.logo_url || "", 
             primary_color: resData.primary_color || "#2563eb",
             slider_images: resData.slider_images || [],
-            welcome_bg_url: resData.welcome_bg_url || ""
+            welcome_bg_url: resData.welcome_bg_url || "",
+            instagram:
+              resData.instagram != null && String(resData.instagram).trim() !== ""
+                ? String(resData.instagram).trim()
+                : "",
         });
         
         const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
@@ -81,7 +101,11 @@ export default function AdminDashboard() {
         
         if (catData && catData.length > 0) {
           const categoryIds = catData.map((c: any) => c.id);
-          const { data: prodData } = await supabase.from("products").select("*, categories(name, main_group)").in("category_id", categoryIds);
+          const { data: prodData, error: prodErr } = await supabase
+            .from("products")
+            .select("*, categories(*)")
+            .in("category_id", categoryIds);
+          if (prodErr) console.error(prodErr);
           setProducts(prodData || []);
         } else {
           setProducts([]);
@@ -113,17 +137,49 @@ export default function AdminDashboard() {
         if (!error) finalWelcomeBgUrl = supabase.storage.from('menu-images').getPublicUrl(fileName).data.publicUrl;
       }
 
-      const { error: dbError } = await supabase.from("restaurants").update({ 
-          primary_color: settings.primary_color, 
-          logo_url: finalLogoUrl,
-          slider_images: settings.slider_images,
-          welcome_bg_url: finalWelcomeBgUrl
-      }).eq("id", restaurant.id);
-      
-      if (dbError) throw new Error(dbError.message);
+      const ig = settings.instagram.trim();
+      const payload = {
+        primary_color: settings.primary_color,
+        logo_url: finalLogoUrl,
+        slider_images: settings.slider_images,
+        welcome_bg_url: finalWelcomeBgUrl,
+        instagram: ig || null,
+      };
+
+      const { data: updatedRow, error: dbError } = await supabase
+        .from("restaurants")
+        .update(payload)
+        .eq("id", restaurant.id)
+        .select("id, instagram, primary_color, logo_url, welcome_bg_url, slider_images")
+        .single();
+
+      if (dbError) {
+        const hint = [dbError.message, (dbError as { details?: string }).details]
+          .filter(Boolean)
+          .join(" — ");
+        throw new Error(hint || "Veritabanı hatası.");
+      }
+
+      const savedIg =
+        updatedRow?.instagram != null && String(updatedRow.instagram).trim() !== ""
+          ? String(updatedRow.instagram).trim()
+          : "";
+      if (ig && savedIg !== ig) {
+        throw new Error(
+          "Instagram kaydedilemedi: veritabanında `restaurants.instagram` sütunu yok veya API tarafından yok sayılıyor. Supabase SQL Editor’de şunu çalıştırın: alter table public.restaurants add column if not exists instagram text;"
+        );
+      }
 
       alert("Görünüm ayarları kaydedildi!");
-      setSettings({ ...settings, logo_url: finalLogoUrl, welcome_bg_url: finalWelcomeBgUrl });
+      setSettings({
+        ...settings,
+        logo_url: finalLogoUrl,
+        welcome_bg_url: finalWelcomeBgUrl,
+        instagram: savedIg,
+      });
+      setRestaurant((r: any) =>
+        r ? { ...r, ...updatedRow, instagram: savedIg || null } : r
+      );
       setLogoFile(null);
       setWelcomeBgFile(null);
     } catch (error: any) {
@@ -204,10 +260,10 @@ export default function AdminDashboard() {
     };
 
     if (editingProductId) {
-      const { data, error } = await supabase.from("products").update(payload).eq("id", editingProductId).select("*, categories(name, main_group)").single();
+      const { data, error } = await supabase.from("products").update(payload).eq("id", editingProductId).select("*, categories(*)").single();
       if (!error) setProducts(products.map((p: any) => p.id === editingProductId ? data : p));
     } else {
-      const { data, error } = await supabase.from("products").insert([{ ...payload, is_active: true }]).select("*, categories(name, main_group)").single();
+      const { data, error } = await supabase.from("products").insert([{ ...payload, is_active: true }]).select("*, categories(*)").single();
       if (!error) setProducts([...products, data]);
     }
     setIsProductModalOpen(false);
@@ -217,17 +273,79 @@ export default function AdminDashboard() {
 
   const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { data, error } = await supabase.from("categories").insert([{ 
-        restaurant_id: restaurant.id, 
-        name: newCategory.name, 
-        main_group: newCategory.main_group || "DİĞER",
-        sort_order: categories.length 
-    }]).select().single();
-    
+    const base = {
+      restaurant_id: restaurant.id,
+      name: newCategory.name,
+      main_group: newCategory.main_group || "DİĞER",
+      sort_order: categories.length,
+    };
+    const withI18n = {
+      ...base,
+      name_en: newCategory.name_en || null,
+      name_ru: newCategory.name_ru || null,
+      main_group_en: newCategory.main_group_en || null,
+      main_group_ru: newCategory.main_group_ru || null,
+    };
+    let { data, error } = await supabase.from("categories").insert([withI18n]).select().single();
+    const schemaMismatch =
+      error &&
+      (/column|schema cache|does not exist|42703/i.test(error.message) || (error as { code?: string }).code === "42703");
+    if (error && schemaMismatch) {
+      ({ data, error } = await supabase.from("categories").insert([base]).select().single());
+      if (!error && data) {
+        alert(
+          "Kategori eklendi (Türkçe alanlar). EN/RU ve ana grup çevirileri için Supabase’te migration SQL’lerini çalıştırın: supabase/migrations/"
+        );
+      }
+    }
     if (!error && data) {
       setCategories([...categories, data]);
-      setNewCategory({ name: "", main_group: "" });
+      setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
       setIsCategoryModalOpen(false);
+    } else if (error) {
+      alert(error.message || "Kategori eklenemedi.");
+    }
+  };
+
+  const translateLine = async (q: string, lang: "en" | "ru") => {
+    const res = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=tr|${lang}`
+    );
+    const data = await res.json();
+    return data.responseData?.translatedText as string | undefined;
+  };
+
+  const handleAutoTranslateCategoryMainGroup = async () => {
+    const q = newCategory.main_group.trim();
+    if (!q) return;
+    setTranslating(true);
+    try {
+      const updated = { ...newCategory };
+      const en = await translateLine(q, "en");
+      const ru = await translateLine(q, "ru");
+      if (en) updated.main_group_en = en;
+      if (ru) updated.main_group_ru = ru;
+      setNewCategory(updated);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const handleAutoTranslateCategory = async () => {
+    if (!newCategory.name.trim()) return;
+    setTranslating(true);
+    try {
+      const updated = { ...newCategory };
+      for (const target of [{ t: "en" as const, f: "name_en" as const }, { t: "ru" as const, f: "name_ru" as const }]) {
+        const res = await fetch(
+          `https://api.mymemory.translated.net/get?q=${encodeURIComponent(newCategory.name)}&langpair=tr|${target.t}`
+        );
+        const data = await res.json();
+        if (data.responseData?.translatedText) updated[target.f] = data.responseData.translatedText;
+      }
+      setNewCategory(updated);
+    } finally {
+      setTranslating(false);
     }
   };
 
@@ -319,7 +437,7 @@ export default function AdminDashboard() {
 
             {activeTab === "categories" && (
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 md:p-8">
-                <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6 md:mb-8"><h2 className="text-lg md:text-xl font-black text-gray-900 uppercase">Kategoriler</h2><button onClick={() => setIsCategoryModalOpen(true)} className="w-full md:w-auto justify-center bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 hover:bg-blue-700 shadow-lg transition-all"><Plus size={18}/> Yeni Kategori</button></div>
+                <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6 md:mb-8"><h2 className="text-lg md:text-xl font-black text-gray-900 uppercase">Kategoriler</h2><button onClick={() => { setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" }); setIsCategoryModalOpen(true); }} className="w-full md:w-auto justify-center bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 hover:bg-blue-700 shadow-lg transition-all"><Plus size={18}/> Yeni Kategori</button></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {categories.map((c: any) => (
                     <div key={c.id} className="p-4 bg-gray-50 rounded-2xl font-black text-gray-700 border border-gray-100 flex justify-between items-center group transition-all">
@@ -358,6 +476,21 @@ export default function AdminDashboard() {
                     <p className="text-[10px] md:text-xs font-bold text-gray-500 mb-4">Müşteri QR okuttuğunda çıkan tam ekran dikey arka plan (Örn: Mekan fotoğrafı).</p>
                     {settings.welcome_bg_url && !welcomeBgFile && (<div className="mb-4 w-24 h-32 rounded-xl overflow-hidden border-2 border-green-200"><img src={settings.welcome_bg_url} alt="Karşılama" className="w-full h-full object-cover" /></div>)}
                     <input type="file" accept="image/*" onChange={e => setWelcomeBgFile(e.target.files ? e.target.files[0] : null)} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-green-100 file:text-green-800 hover:file:bg-green-200 outline-none" />
+                  </div>
+
+                  <div className="p-4 md:p-6 border-2 border-pink-100 rounded-3xl bg-pink-50/40">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AdminInstagramGlyph className="h-[18px] w-[18px] text-pink-600" />
+                      <label className="text-xs md:text-sm font-black text-gray-900 uppercase">Instagram</label>
+                    </div>
+                    <p className="text-[10px] md:text-xs font-bold text-gray-500 mb-3">Karşılama ekranında görünür. Kullanıcı adı (ör. mekanadi) veya tam profil linki.</p>
+                    <input
+                      type="text"
+                      placeholder="@mekanadi veya instagram.com/…"
+                      className="w-full border-2 border-pink-100 bg-white p-3 md:p-4 rounded-2xl font-bold text-gray-900 outline-none text-sm focus:border-pink-300"
+                      value={settings.instagram}
+                      onChange={(e) => setSettings({ ...settings, instagram: e.target.value })}
+                    />
                   </div>
 
                   <div className="p-4 md:p-6 border-2 border-gray-100 rounded-3xl bg-gray-50/50">
@@ -426,17 +559,9 @@ export default function AdminDashboard() {
 
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-3xl w-full max-w-sm p-6 md:p-8 shadow-2xl">
+            <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 md:p-8 shadow-2xl">
                 <h3 className="font-black text-lg md:text-xl mb-6 text-gray-900">Yeni Kategori</h3>
-                <form onSubmit={handleAddCategory}>
-                  <input 
-                    list="main-groups-list"
-                    required 
-                    placeholder="Ana Grup (Örn: TATLILAR, YİYECEKLER)" 
-                    className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl mb-4 font-black text-gray-900 outline-none text-sm md:text-base uppercase" 
-                    value={newCategory.main_group} 
-                    onChange={e => setNewCategory({...newCategory, main_group: e.target.value.toLocaleUpperCase('tr-TR')})} 
-                  />
+                <form onSubmit={handleAddCategory} className="space-y-4 text-gray-900">
                   <datalist id="main-groups-list">
                     <option value="YİYECEKLER" />
                     <option value="İÇECEKLER" />
@@ -445,8 +570,58 @@ export default function AdminDashboard() {
                     ))}
                   </datalist>
 
-                  <input required placeholder="Alt Kategori (Örn: Kahvaltı, Burger)" className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl mb-6 font-black text-gray-900 outline-none text-sm md:text-base" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
-                  <div className="flex gap-3 md:gap-4"><button type="button" onClick={() => setIsCategoryModalOpen(false)} className="flex-1 font-bold text-gray-400 text-sm md:text-base">İptal</button><button type="submit" className="flex-1 bg-blue-600 text-white py-3 md:py-4 rounded-2xl font-black shadow-lg text-sm md:text-base">Ekle</button></div>
+                  <div className="p-4 md:p-5 bg-stone-100 rounded-2xl border border-stone-200 space-y-3">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-[10px] font-black text-stone-700 uppercase tracking-widest">🇹🇷 Ana grup</span>
+                      <button type="button" onClick={handleAutoTranslateCategoryMainGroup} disabled={translating} className="text-[9px] md:text-[10px] font-black bg-white text-stone-700 px-3 md:px-4 py-1.5 md:py-2 rounded-full shadow-sm flex items-center gap-1 md:gap-2 shrink-0">
+                        <Sparkles size={12}/> {translating ? "..." : "ÇEVİR"}
+                      </button>
+                    </div>
+                    <input
+                      list="main-groups-list"
+                      required
+                      placeholder="Örn: YİYECEKLER, İÇECEKLER"
+                      className="w-full bg-white p-3 md:p-4 rounded-xl font-black outline-none shadow-sm text-sm md:text-base uppercase"
+                      value={newCategory.main_group}
+                      onChange={e => setNewCategory({ ...newCategory, main_group: e.target.value.toLocaleUpperCase("tr-TR") })}
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-500 uppercase ml-1">🇬🇧 English</label>
+                        <input placeholder="Foods, Drinks…" className="w-full border-2 border-white p-3 rounded-xl text-xs md:text-sm font-bold outline-none bg-white" value={newCategory.main_group_en} onChange={e => setNewCategory({ ...newCategory, main_group_en: e.target.value })} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-500 uppercase ml-1">🇷🇺 Russian</label>
+                        <input placeholder="Еда, Напитки…" className="w-full border-2 border-white p-3 rounded-xl text-xs md:text-sm font-bold outline-none bg-white" value={newCategory.main_group_ru} onChange={e => setNewCategory({ ...newCategory, main_group_ru: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 md:p-5 bg-blue-50 rounded-2xl border border-blue-100 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe ad</span>
+                      <button type="button" onClick={handleAutoTranslateCategory} disabled={translating} className="text-[9px] md:text-[10px] font-black bg-white text-blue-600 px-3 md:px-4 py-1.5 md:py-2 rounded-full shadow-sm flex items-center gap-1 md:gap-2">
+                        <Sparkles size={12}/> {translating ? "..." : "ÇEVİR"}
+                      </button>
+                    </div>
+                    <input required placeholder="Alt Kategori (Örn: Kahvaltı, Burger)" className="w-full bg-white p-3 md:p-4 rounded-xl font-black outline-none shadow-sm text-sm md:text-base" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase ml-1">🇬🇧 English</label>
+                      <input placeholder="Name" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold outline-none" value={newCategory.name_en} onChange={e => setNewCategory({...newCategory, name_en: e.target.value})} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase ml-1">🇷🇺 Russian</label>
+                      <input placeholder="Название" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold outline-none" value={newCategory.name_ru} onChange={e => setNewCategory({...newCategory, name_ru: e.target.value})} />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 md:gap-4 pt-2">
+                    <button type="button" onClick={() => { setIsCategoryModalOpen(false); setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" }); }} className="flex-1 font-bold text-gray-400 text-sm md:text-base">İptal</button>
+                    <button type="submit" className="flex-1 bg-blue-600 text-white py-3 md:py-4 rounded-2xl font-black shadow-lg text-sm md:text-base">Ekle</button>
+                  </div>
                 </form>
             </div>
         </div>
