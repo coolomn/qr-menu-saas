@@ -3,6 +3,7 @@ import { parseJsonFromModelContent } from "./parse-json";
 import {
   enforceProductLimit,
   importMenuPayloadSchema,
+  MENU_IMPORT_EMPTY_RESULT_MESSAGE,
   type ImportMenuPayload,
 } from "./schema";
 
@@ -48,7 +49,12 @@ const MENU_JSON_INSTRUCTION = `Çıktı YALNIZCA geçerli bir JSON nesnesi olmal
   ]
 }
 
-Genel kurallar: Gerçek menüdeki yemek/içecek isimlerini kullan; uydurma kategori ekleme. Fiyat yoksa null.
+Genel kurallar:
+- categories dizisi en az 1 kategori içermeli.
+- Menüde okunabilir en az bir ürün/yemek/içecek satırı varsa mutlaka bir kategoriye yaz.
+- Bölüm başlığı net değilse veya tek parça menüyse kategori adı olarak "Genel" kullan (main_group: "DİĞER" veya null).
+- Yalnızca menüde gerçekten görünen ürünleri yaz; uydurma ürün veya fiyat ekleme.
+- Fiyat menüde yoksa null; açıklama yoksa null.
 ${DESCRIPTION_RULES}`;
 
 function getClient() {
@@ -87,6 +93,28 @@ function mergeDescriptionsOnly(base: ImportMenuPayload, enriched: ImportMenuPayl
   return { categories };
 }
 
+function hasNonEmptyCategories(value: unknown): boolean {
+  if (!value || typeof value !== "object" || !("categories" in value)) {
+    return false;
+  }
+  const categories = (value as { categories?: unknown }).categories;
+  return Array.isArray(categories) && categories.length > 0;
+}
+
+function formatImportValidationError(parsed: unknown, zodMessage: string): string {
+  if (!hasNonEmptyCategories(parsed)) {
+    return MENU_IMPORT_EMPTY_RESULT_MESSAGE;
+  }
+  const lower = zodMessage.toLowerCase();
+  if (lower.includes("categories") && lower.includes("too_small")) {
+    return MENU_IMPORT_EMPTY_RESULT_MESSAGE;
+  }
+  if (lower.includes("too_small") || lower.includes("invalid_type")) {
+    return "Menü verisi eksik veya hatalı. Daha net bir PDF veya menü görseli yükleyin.";
+  }
+  return "Menü verisi doğrulanamadı. Lütfen dosyayı kontrol edip tekrar deneyin.";
+}
+
 async function parseMenuJsonResponse(raw: string | null | undefined): Promise<ImportMenuPayload> {
   if (!raw) throw new Error("AI yanıtı boş.");
   let parsed: unknown;
@@ -95,11 +123,26 @@ async function parseMenuJsonResponse(raw: string | null | undefined): Promise<Im
   } catch {
     throw new Error("AI çıktısı JSON olarak çözülemedi.");
   }
+
+  if (!hasNonEmptyCategories(parsed)) {
+    console.warn("[menu-import] AI returned no categories:", parsed);
+    throw new Error(MENU_IMPORT_EMPTY_RESULT_MESSAGE);
+  }
+
   const validated = importMenuPayloadSchema.safeParse(parsed);
   if (!validated.success) {
-    throw new Error(`AI çıktısı doğrulanamadı: ${validated.error.message}`);
+    console.warn("[menu-import] Zod validation failed:", validated.error.flatten());
+    throw new Error(formatImportValidationError(parsed, validated.error.message));
   }
-  return enforceProductLimit(validated.data);
+
+  try {
+    return enforceProductLimit(validated.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === MENU_IMPORT_EMPTY_RESULT_MESSAGE) {
+      console.warn("[menu-import] No valid products after filtering:", validated.data);
+    }
+    throw e;
+  }
 }
 
 /** Ham metin + taslak JSON ile açıklamaları zenginleştir (PDF / metin menü) */

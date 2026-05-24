@@ -35,6 +35,9 @@ export type ImportProduct = z.infer<typeof importProductSchema>;
 
 const MAX_TOTAL_PRODUCTS = 400;
 
+export const MENU_IMPORT_EMPTY_RESULT_MESSAGE =
+  "Menüden ürün veya kategori tespit edilemedi. Daha net bir PDF veya menü görseli yükleyin.";
+
 /** Boş kategorileri atar, ürün üst sınırını uygular. */
 export function enforceProductLimit(payload: ImportMenuPayload): ImportMenuPayload {
   let count = 0;
@@ -56,7 +59,7 @@ export function enforceProductLimit(payload: ImportMenuPayload): ImportMenuPaylo
     }
   }
   if (out.length === 0) {
-    throw new Error("İçe aktarılacak geçerli ürün bulunamadı.");
+    throw new Error(MENU_IMPORT_EMPTY_RESULT_MESSAGE);
   }
   return { categories: out };
 }
