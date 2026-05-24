@@ -1,15 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { useParams } from "next/navigation";
 import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
 import { formatPriceForDisplay } from "@/lib/format-price";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 const ALLERGEN_OPTIONS = [
   { id: 'gluten', label: 'Gluten', icon: '🌾' },
@@ -204,22 +198,37 @@ export default function CustomerMenu() {
 
   useEffect(() => {
     const fetchMenu = async () => {
-      const { data: resData } = await supabase.from("restaurants").select("*").eq("slug", slug).single();
-      if (resData) {
-        setRestaurant(resData);
-        const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
-        const visibleCats = (catData || []).filter((c: { is_active?: boolean }) => c.is_active !== false);
-        setCategories(visibleCats);
-        
-        if (visibleCats.length > 0) {
-          const catIds = visibleCats.map(c => c.id);
-          const { data: prodData } = await supabase.from("products").select("*, categories!inner(restaurant_id)").in("category_id", catIds).eq("is_active", true);
-          setProducts(prodData || []);
-        } else {
-          setProducts([]);
-        }
+      const slugValue = Array.isArray(slug) ? slug[0] : slug;
+      if (!slugValue) {
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+
+      try {
+        const response = await fetch(`/api/public-menu/${encodeURIComponent(slugValue)}`);
+        if (!response.ok) {
+          setRestaurant(null);
+          setCategories([]);
+          setProducts([]);
+          return;
+        }
+
+        const data = (await response.json()) as {
+          restaurant: any;
+          categories: any[];
+          products: any[];
+        };
+        setRestaurant(data.restaurant || null);
+        setCategories(data.categories || []);
+        setProducts(data.products || []);
+      } catch (error) {
+        console.error(error);
+        setRestaurant(null);
+        setCategories([]);
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
     };
     fetchMenu();
   }, [slug]);
