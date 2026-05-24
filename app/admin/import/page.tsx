@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { ImportMenuPayload } from "@/lib/menu-import/schema";
+import { MENU_IMPORTS_BUCKET, buildImportStoragePath } from "@/lib/menu-import/paths";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -129,8 +130,8 @@ export default function AdminMenuImportPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) throw new Error("Oturum bulunamadı.");
-      const path = `imports/${session.user.id}/${Date.now()}-${safeFileName(file.name)}`;
-      const { error: upErr } = await supabase.storage.from("menu-images").upload(path, file, {
+      const path = buildImportStoragePath(restaurantId, session.user.id, safeFileName(file.name));
+      const { error: upErr } = await supabase.storage.from(MENU_IMPORTS_BUCKET).upload(path, file, {
         cacheControl: "3600",
         upsert: false,
         contentType: file.type || undefined,

@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
-import { assertImportStoragePath } from "@/lib/menu-import/paths";
+import {
+  assertImportStoragePath,
+  isLegacyImportPath,
+  MENU_IMPORTS_BUCKET,
+  resolveImportDownloadTarget,
+} from "@/lib/menu-import/paths";
 import { isImageMime, isPdfMime } from "@/lib/menu-import/mime";
 import {
   structureMenuFromImageBase64,
@@ -18,9 +23,25 @@ type Body = {
   mimeType?: string;
 };
 
+async function cleanupImportFile(
+  admin: SupabaseClient,
+  storagePath: string,
+  userId: string
+): Promise<void> {
+  if (isLegacyImportPath(storagePath, userId)) {
+    return;
+  }
+  const { error } = await admin.storage.from(MENU_IMPORTS_BUCKET).remove([storagePath]);
+  if (error) {
+    console.error("Import file cleanup failed:", storagePath, error.message);
+  }
+}
+
 export async function POST(request: Request) {
   let jobId: string | null = null;
   let admin: SupabaseClient | undefined;
+  let storagePathForCleanup: string | null = null;
+  let userIdForCleanup: string | null = null;
 
   try {
     const { user, error: authErr } = await getUserFromBearer(request);
@@ -49,7 +70,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "restaurantId ve storagePath zorunlu." }, { status: 400 });
     }
 
-    assertImportStoragePath(storagePath, user.id);
+    assertImportStoragePath(storagePath, restaurantId, user.id);
+    storagePathForCleanup = storagePath;
+    userIdForCleanup = user.id;
 
     const { data: restaurant, error: resErr } = await admin
       .from("restaurants")
@@ -108,7 +131,8 @@ export async function POST(request: Request) {
     }
     jobId = jobRow.id;
 
-    const { data: blob, error: dlErr } = await admin.storage.from("menu-images").download(storagePath);
+    const { bucket, path: downloadPath } = resolveImportDownloadTarget(storagePath, user.id);
+    const { data: blob, error: dlErr } = await admin.storage.from(bucket).download(downloadPath);
     if (dlErr || !blob) {
       throw new Error(dlErr?.message || "Dosya indirilemedi.");
     }
@@ -140,6 +164,8 @@ export async function POST(request: Request) {
       })
       .eq("id", jobId);
 
+    await cleanupImportFile(admin, storagePath, user.id);
+
     return NextResponse.json({ ok: true, jobId, payload });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Bilinmeyen hata";
@@ -151,6 +177,9 @@ export async function POST(request: Request) {
           error_message: message.slice(0, 2000),
         })
         .eq("id", jobId);
+    }
+    if (admin && storagePathForCleanup && userIdForCleanup) {
+      await cleanupImportFile(admin, storagePathForCleanup, userIdForCleanup);
     }
     console.error(e);
     return NextResponse.json({ error: message }, { status: 422 });
