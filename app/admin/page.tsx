@@ -14,6 +14,41 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const MENU_PUBLIC_BUCKET = "menu-public";
+
+type PublicAssetKind = "logo" | "background" | "slider" | "products";
+
+function sanitizeFileExtension(raw: string | undefined, fallback = "jpg"): string {
+  const ext = (raw || fallback).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return ext || fallback;
+}
+
+function buildPublicAssetPath(restaurantId: string, kind: PublicAssetKind, ext: string): string {
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  return `restaurants/${restaurantId}/${kind}/${unique}.${sanitizeFileExtension(ext)}`;
+}
+
+async function uploadPublicAsset(
+  restaurantId: string,
+  kind: PublicAssetKind,
+  file: File | Blob,
+  options?: { ext?: string; contentType?: string }
+): Promise<{ url: string } | { error: string }> {
+  const ext =
+    options?.ext ??
+    (file instanceof File && file.name.includes(".") ? file.name.split(".").pop() : "jpg");
+  const path = buildPublicAssetPath(restaurantId, kind, ext ?? "jpg");
+  const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, file, {
+    contentType: options?.contentType ?? (file instanceof File ? file.type || undefined : undefined),
+    upsert: false,
+  });
+  if (error) {
+    return { error: error.message || "Görsel yüklenemedi." };
+  }
+  const url = supabase.storage.from(MENU_PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl;
+  return { url };
+}
+
 function AdminInstagramGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -176,15 +211,23 @@ export default function AdminDashboard() {
       let finalWelcomeBgUrl = settings.welcome_bg_url;
 
       if (logoFile) {
-        const fileName = `logo-${Math.random()}.${logoFile.name.split('.').pop()}`;
-        const { error } = await supabase.storage.from('menu-images').upload(fileName, logoFile);
-        if (!error) finalLogoUrl = supabase.storage.from('menu-images').getPublicUrl(fileName).data.publicUrl;
+        const logoUpload = await uploadPublicAsset(restaurant.id, "logo", logoFile, {
+          ext: logoFile.name.split(".").pop(),
+        });
+        if ("error" in logoUpload) {
+          throw new Error(logoUpload.error);
+        }
+        finalLogoUrl = logoUpload.url;
       }
 
       if (welcomeBgFile) {
-        const fileName = `bg-${Math.random()}.${welcomeBgFile.name.split('.').pop()}`;
-        const { error } = await supabase.storage.from('menu-images').upload(fileName, welcomeBgFile);
-        if (!error) finalWelcomeBgUrl = supabase.storage.from('menu-images').getPublicUrl(fileName).data.publicUrl;
+        const bgUpload = await uploadPublicAsset(restaurant.id, "background", welcomeBgFile, {
+          ext: welcomeBgFile.name.split(".").pop(),
+        });
+        if ("error" in bgUpload) {
+          throw new Error(bgUpload.error);
+        }
+        finalWelcomeBgUrl = bgUpload.url;
       }
 
       const ig = settings.instagram.trim();
@@ -242,13 +285,19 @@ export default function AdminDashboard() {
   const handleSliderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!restaurant?.id) {
+      alert("Restoran bulunamadı.");
+      return;
+    }
     if (file.size > 2 * 1024 * 1024) { alert("Maksimum 2MB!"); return; }
     setUploadingSlider(true);
-    const fileName = `slider-${Math.random()}.${file.name.split('.').pop()}`;
-    const { error } = await supabase.storage.from('menu-images').upload(fileName, file);
-    if (!error) {
-      const url = supabase.storage.from('menu-images').getPublicUrl(fileName).data.publicUrl;
-      setSettings(prev => ({ ...prev, slider_images: [...prev.slider_images, url] }));
+    const sliderUpload = await uploadPublicAsset(restaurant.id, "slider", file, {
+      ext: file.name.split(".").pop(),
+    });
+    if ("url" in sliderUpload) {
+      setSettings((prev) => ({ ...prev, slider_images: [...prev.slider_images, sliderUpload.url] }));
+    } else {
+      alert(sliderUpload.error);
     }
     setUploadingSlider(false);
   };
@@ -346,15 +395,15 @@ export default function AdminDashboard() {
           prep.blob === newProduct.file && newProduct.file.name.includes(".")
             ? (newProduct.file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg"
             : "jpg";
-        const fileName = `${Math.random()}.${ext}`;
-        const { error: uploadError } = await supabase.storage.from("menu-images").upload(fileName, prep.blob, {
+        const productUpload = await uploadPublicAsset(restaurant.id, "products", prep.blob, {
+          ext,
           contentType: prep.contentType,
         });
-        if (uploadError) {
-          alert(uploadError.message || "Görsel yüklenemedi.");
+        if ("error" in productUpload) {
+          alert(productUpload.error);
           return;
         }
-        imageUrl = supabase.storage.from("menu-images").getPublicUrl(fileName).data.publicUrl;
+        imageUrl = productUpload.url;
       }
 
       const payload = {
