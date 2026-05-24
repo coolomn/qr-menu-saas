@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2 } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff } from "lucide-react";
+import { formatPriceForDisplay } from "@/lib/format-price";
+import { prepareProductImageForUpload } from "@/lib/prepare-product-image-client";
+import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
+import Link from "next/link";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,9 +59,25 @@ export default function AdminDashboard() {
   const [tableNumber, setTableNumber] = useState("");
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+
+  const [isResetMenuModalOpen, setIsResetMenuModalOpen] = useState(false);
+  const [resetMenuPhrase, setResetMenuPhrase] = useState("");
+  const [resetMenuBusy, setResetMenuBusy] = useState(false);
+
+  const [categoryDeleteCtx, setCategoryDeleteCtx] = useState<{
+    id: string;
+    name: string;
+    productCount: number;
+    moveToId: string;
+  } | null>(null);
+  const [categoryDeleteBusy, setCategoryDeleteBusy] = useState(false);
+  const [categoryDragId, setCategoryDragId] = useState<string | null>(null);
+  const [categoryDragOverId, setCategoryDragOverId] = useState<string | null>(null);
+  const [categoryReorderBusy, setCategoryReorderBusy] = useState(false);
 
   const [newCategory, setNewCategory] = useState({
     name: "",
@@ -74,6 +94,36 @@ export default function AdminDashboard() {
     price: "", category_id: "", file: null as File | null, image_url: "",
     allergens: [] as string[]
   });
+
+  const productFileInputRef = useRef<HTMLInputElement>(null);
+  const newProductRef = useRef(newProduct);
+  const [productImageObjectUrl, setProductImageObjectUrl] = useState<string | null>(null);
+  const [allergenSuggestMessage, setAllergenSuggestMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    newProductRef.current = newProduct;
+  }, [newProduct]);
+
+  useEffect(() => {
+    setAllergenSuggestMessage(null);
+  }, [
+    newProduct.name,
+    newProduct.description,
+    newProduct.name_en,
+    newProduct.description_en,
+    newProduct.name_ru,
+    newProduct.description_ru,
+  ]);
+
+  useEffect(() => {
+    if (!newProduct.file || !isProductModalOpen) {
+      setProductImageObjectUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(newProduct.file);
+    setProductImageObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [newProduct.file, isProductModalOpen]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -231,7 +281,41 @@ export default function AdminDashboard() {
     });
   };
 
+  const clearProductImage = () => {
+    setNewProduct((prev: any) => ({ ...prev, file: null, image_url: "" }));
+    if (productFileInputRef.current) productFileInputRef.current.value = "";
+  };
+
+  const handleSuggestAllergens = () => {
+    const prev = newProductRef.current;
+    const ids = suggestAllergenIdsFromText([
+      prev.name,
+      prev.description,
+      prev.name_en,
+      prev.description_en,
+      prev.name_ru,
+      prev.description_ru,
+    ]);
+    if (ids.length === 0) {
+      setAllergenSuggestMessage("Metinde eşleşen alerjen anahtar kelimesi bulunamadı. Elle seçebilirsiniz.");
+      return;
+    }
+    const already = new Set(prev.allergens || []);
+    const newIds = ids.filter((id: string) => !already.has(id));
+    if (newIds.length === 0) {
+      setAllergenSuggestMessage("Önerilenler zaten işaretli; yeni bir eşleşme yok.");
+      return;
+    }
+    setNewProduct({
+      ...prev,
+      allergens: [...new Set([...(prev.allergens || []), ...ids])],
+    });
+    const labels = newIds.map((id: string) => ALLERGEN_OPTIONS.find((a) => a.id === id)?.label || id);
+    setAllergenSuggestMessage(`Eklendi: ${labels.join(", ")}`);
+  };
+
   const openEditModal = (product: any) => {
+    setAllergenSuggestMessage(null);
     setEditingProductId(product.id);
     setNewProduct({
       name: product.name || "", name_en: product.name_en || "", name_ru: product.name_ru || "",
@@ -246,52 +330,117 @@ export default function AdminDashboard() {
     e.preventDefault();
     setUploading(true);
     let imageUrl = newProduct.image_url;
-    
-    if (newProduct.file) {
-      const fileName = `${Math.random()}.${newProduct.file.name.split('.').pop()}`;
-      const { error: uploadError } = await supabase.storage.from('menu-images').upload(fileName, newProduct.file);
-      if (!uploadError) imageUrl = supabase.storage.from('menu-images').getPublicUrl(fileName).data.publicUrl;
-    }
+    try {
+      if (newProduct.file) {
+        const prep = await prepareProductImageForUpload(newProduct.file);
+        const ext =
+          prep.blob === newProduct.file && newProduct.file.name.includes(".")
+            ? (newProduct.file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg"
+            : "jpg";
+        const fileName = `${Math.random()}.${ext}`;
+        const { error: uploadError } = await supabase.storage.from("menu-images").upload(fileName, prep.blob, {
+          contentType: prep.contentType,
+        });
+        if (uploadError) {
+          alert(uploadError.message || "Görsel yüklenemedi.");
+          return;
+        }
+        imageUrl = supabase.storage.from("menu-images").getPublicUrl(fileName).data.publicUrl;
+      }
 
-    const payload = {
-      category_id: newProduct.category_id, name: newProduct.name, name_en: newProduct.name_en, name_ru: newProduct.name_ru,
-      description: newProduct.description, description_en: newProduct.description_en, description_ru: newProduct.description_ru,
-      price: newProduct.price, image_url: imageUrl, allergens: newProduct.allergens
-    };
+      const payload = {
+        category_id: newProduct.category_id, name: newProduct.name, name_en: newProduct.name_en, name_ru: newProduct.name_ru,
+        description: newProduct.description, description_en: newProduct.description_en, description_ru: newProduct.description_ru,
+        price: newProduct.price, image_url: imageUrl, allergens: newProduct.allergens
+      };
 
-    if (editingProductId) {
-      const { data, error } = await supabase.from("products").update(payload).eq("id", editingProductId).select("*, categories(*)").single();
-      if (!error) setProducts(products.map((p: any) => p.id === editingProductId ? data : p));
-    } else {
-      const { data, error } = await supabase.from("products").insert([{ ...payload, is_active: true }]).select("*, categories(*)").single();
-      if (!error) setProducts([...products, data]);
+      if (editingProductId) {
+        const { data, error } = await supabase.from("products").update(payload).eq("id", editingProductId).select("*, categories(*)").single();
+        if (!error) setProducts(products.map((p: any) => p.id === editingProductId ? data : p));
+        else {
+          alert(error.message || "Kayıt başarısız.");
+          return;
+        }
+      } else {
+        const { data, error } = await supabase.from("products").insert([{ ...payload, is_active: true }]).select("*, categories(*)").single();
+        if (!error) setProducts([...products, data]);
+        else {
+          alert(error.message || "Kayıt başarısız.");
+          return;
+        }
+      }
+      setIsProductModalOpen(false);
+      setEditingProductId(null);
+      setAllergenSuggestMessage(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Görsel işlenemedi.");
+    } finally {
+      setUploading(false);
     }
-    setIsProductModalOpen(false);
-    setUploading(false);
-    setEditingProductId(null);
   };
 
-  const handleAddCategory = async (e: React.FormEvent) => {
+  const handleCategorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const base = {
-      restaurant_id: restaurant.id,
+    if (!restaurant?.id) return;
+
+    const mainGroup = (newCategory.main_group || "DİĞER").toLocaleUpperCase("tr-TR");
+
+    const withI18n = {
       name: newCategory.name,
-      main_group: newCategory.main_group || "DİĞER",
+      main_group: mainGroup,
+      name_en: newCategory.name_en.trim() || null,
+      name_ru: newCategory.name_ru.trim() || null,
+      main_group_en: newCategory.main_group_en.trim() || null,
+      main_group_ru: newCategory.main_group_ru.trim() || null,
+    };
+
+    const base = {
+      name: newCategory.name,
+      main_group: mainGroup,
+    };
+
+    const schemaMismatch = (err: { message?: string; code?: string } | null) =>
+      err &&
+      (/column|schema cache|does not exist|42703/i.test(err.message || "") || err.code === "42703");
+
+    if (editingCategoryId) {
+      let { data, error } = await supabase.from("categories").update(withI18n).eq("id", editingCategoryId).select().single();
+      if (error && schemaMismatch(error)) {
+        ({ data, error } = await supabase.from("categories").update(base).eq("id", editingCategoryId).select().single());
+        if (!error && data) {
+          alert(
+            "Kategori güncellendi (Türkçe alanlar). EN/RU ve ana grup çevirileri için Supabase’te migration SQL’lerini çalıştırın: supabase/migrations/"
+          );
+        }
+      }
+      if (!error && data) {
+        setCategories(categories.map((c: any) => (c.id === editingCategoryId ? data : c)));
+        setProducts(products.map((p: any) => (p.category_id === editingCategoryId ? { ...p, categories: data } : p)));
+        setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+        setEditingCategoryId(null);
+        setIsCategoryModalOpen(false);
+      } else if (error) {
+        alert(error.message || "Kategori güncellenemedi.");
+      }
+      return;
+    }
+
+    const insertBase = {
+      restaurant_id: restaurant.id,
+      ...base,
       sort_order: categories.length,
     };
-    const withI18n = {
-      ...base,
-      name_en: newCategory.name_en || null,
-      name_ru: newCategory.name_ru || null,
-      main_group_en: newCategory.main_group_en || null,
-      main_group_ru: newCategory.main_group_ru || null,
+    const insertWithI18n = {
+      ...insertBase,
+      name_en: withI18n.name_en,
+      name_ru: withI18n.name_ru,
+      main_group_en: withI18n.main_group_en,
+      main_group_ru: withI18n.main_group_ru,
+      is_active: true,
     };
-    let { data, error } = await supabase.from("categories").insert([withI18n]).select().single();
-    const schemaMismatch =
-      error &&
-      (/column|schema cache|does not exist|42703/i.test(error.message) || (error as { code?: string }).code === "42703");
-    if (error && schemaMismatch) {
-      ({ data, error } = await supabase.from("categories").insert([base]).select().single());
+    let { data, error } = await supabase.from("categories").insert([insertWithI18n]).select().single();
+    if (error && schemaMismatch(error)) {
+      ({ data, error } = await supabase.from("categories").insert([insertBase]).select().single());
       if (!error && data) {
         alert(
           "Kategori eklendi (Türkçe alanlar). EN/RU ve ana grup çevirileri için Supabase’te migration SQL’lerini çalıştırın: supabase/migrations/"
@@ -301,10 +450,167 @@ export default function AdminDashboard() {
     if (!error && data) {
       setCategories([...categories, data]);
       setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+      setEditingCategoryId(null);
       setIsCategoryModalOpen(false);
     } else if (error) {
       alert(error.message || "Kategori eklenemedi.");
     }
+  };
+
+  const openEditCategoryModal = (c: any) => {
+    setEditingCategoryId(c.id);
+    setNewCategory({
+      name: c.name || "",
+      main_group: String(c.main_group || "").toLocaleUpperCase("tr-TR"),
+      name_en: c.name_en != null ? String(c.name_en) : "",
+      name_ru: c.name_ru != null ? String(c.name_ru) : "",
+      main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
+      main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+    });
+    setIsCategoryModalOpen(true);
+  };
+
+  const closeCategoryModal = () => {
+    setIsCategoryModalOpen(false);
+    setEditingCategoryId(null);
+    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+  };
+
+  const openDuplicateCategoryModal = (c: any) => {
+    setEditingCategoryId(null);
+    setNewCategory({
+      name: `${c.name || "Kategori"} (kopya)`,
+      main_group: String(c.main_group || "").toLocaleUpperCase("tr-TR"),
+      name_en: c.name_en != null ? String(c.name_en) : "",
+      name_ru: c.name_ru != null ? String(c.name_ru) : "",
+      main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
+      main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+    });
+    setIsCategoryModalOpen(true);
+  };
+
+  const persistCategoryOrder = async (ordered: any[]) => {
+    setCategoryReorderBusy(true);
+    try {
+      const results = await Promise.all(
+        ordered.map((cat, index) =>
+          supabase.from("categories").update({ sort_order: index }).eq("id", cat.id).select("id").single()
+        )
+      );
+      const firstErr = results.find((r) => r.error);
+      if (firstErr?.error) {
+        alert(firstErr.error.message || "Sıra kaydedilemedi.");
+        return;
+      }
+      setCategories(ordered.map((c, i) => ({ ...c, sort_order: i })));
+    } finally {
+      setCategoryReorderBusy(false);
+    }
+  };
+
+  const handleCategoryDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData("text/category-id", id);
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.effectAllowed = "move";
+    setCategoryDragId(id);
+  };
+
+  const handleCategoryDragEnd = () => {
+    setCategoryDragId(null);
+    setCategoryDragOverId(null);
+  };
+
+  const handleCategoryDrop = async (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData("text/category-id") || e.dataTransfer.getData("text/plain");
+    setCategoryDragOverId(null);
+    setCategoryDragId(null);
+    if (!sourceId || sourceId === targetId) return;
+    const list = [...categories];
+    const si = list.findIndex((c: any) => c.id === sourceId);
+    const ti = list.findIndex((c: any) => c.id === targetId);
+    if (si < 0 || ti < 0) return;
+    const [removed] = list.splice(si, 1);
+    list.splice(ti, 0, removed);
+    setCategories(list);
+    await persistCategoryOrder(list);
+  };
+
+  const openDeleteCategoryModal = (c: any) => {
+    const productCount = products.filter((p: any) => p.category_id === c.id).length;
+    const others = categories.filter((x: any) => x.id !== c.id);
+    setCategoryDeleteCtx({
+      id: c.id,
+      name: c.name || "Kategori",
+      productCount,
+      moveToId: others[0]?.id ?? "",
+    });
+  };
+
+  const closeCategoryDeleteModal = () => {
+    setCategoryDeleteCtx(null);
+  };
+
+  const handleConfirmCategoryDelete = async () => {
+    if (!categoryDeleteCtx) return;
+    const { id, productCount, moveToId } = categoryDeleteCtx;
+    setCategoryDeleteBusy(true);
+    try {
+      if (productCount === 0) {
+        const { error } = await supabase.from("categories").delete().eq("id", id);
+        if (error) {
+          alert(error.message || "Kategori silinemedi.");
+          return;
+        }
+        setCategories(categories.filter((c: any) => c.id !== id));
+        setProducts(products.filter((p: any) => p.category_id !== id));
+        closeCategoryDeleteModal();
+        return;
+      }
+      const others = categories.filter((x: any) => x.id !== id);
+      if (others.length === 0) return;
+      if (!moveToId) {
+        alert("Taşıma için hedef kategori seçin.");
+        return;
+      }
+      const targetCat = others.find((x: any) => x.id === moveToId);
+      const { error: uErr } = await supabase.from("products").update({ category_id: moveToId }).eq("category_id", id);
+      if (uErr) {
+        alert(uErr.message || "Ürünler taşınamadı.");
+        return;
+      }
+      const { error: dErr } = await supabase.from("categories").delete().eq("id", id);
+      if (dErr) {
+        alert(dErr.message || "Kategori silinemedi.");
+        return;
+      }
+      setCategories(categories.filter((c: any) => c.id !== id));
+      setProducts(
+        products.map((p: any) =>
+          p.category_id === id ? { ...p, category_id: moveToId, categories: targetCat || p.categories } : p
+        )
+      );
+      closeCategoryDeleteModal();
+    } finally {
+      setCategoryDeleteBusy(false);
+    }
+  };
+
+  const handleToggleCategoryMenuVisible = async (c: any) => {
+    const visible = c.is_active !== false;
+    const next = !visible;
+    const { data, error } = await supabase.from("categories").update({ is_active: next }).eq("id", c.id).select().single();
+    if (error) {
+      if (/42703|does not exist|column|schema cache/i.test(error.message || "") || (error as { code?: string }).code === "42703") {
+        alert(
+          "Menüde gizle özelliği için Supabase’te migration çalıştırın: supabase/migrations/20260514100000_categories_is_active.sql"
+        );
+      } else {
+        alert(error.message || "Güncellenemedi.");
+      }
+      return;
+    }
+    if (data) setCategories(categories.map((x: any) => (x.id === c.id ? data : x)));
   };
 
   const translateLine = async (q: string, lang: "en" | "ru") => {
@@ -349,15 +655,39 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteCategory = async (id: string, name: string) => {
-    if (window.confirm(`"${name}" kategorisini tamamen silmek istediğinize emin misiniz?`)) {
-      const { error } = await supabase.from("categories").delete().eq("id", id);
-      if (!error) {
-        setCategories(categories.filter((c: any) => c.id !== id));
-        setProducts(products.filter((p: any) => p.category_id !== id));
-      } else {
-        alert("Kategori silinirken bir hata oluştu.");
+  const MENU_RESET_PHRASE = "MENÜYÜ SİL";
+
+  const handleConfirmResetMenu = async () => {
+    if (!restaurant?.id || resetMenuPhrase !== MENU_RESET_PHRASE) return;
+    setResetMenuBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert("Oturum bulunamadı.");
+        return;
       }
+      const res = await fetch("/api/menu/reset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ restaurantId: restaurant.id }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        alert(json.error || "Menü silinemedi.");
+        return;
+      }
+      setCategories([]);
+      setProducts([]);
+      setIsResetMenuModalOpen(false);
+      setResetMenuPhrase("");
+      setActiveTab("categories");
+    } catch {
+      alert("Bağlantı hatası.");
+    } finally {
+      setResetMenuBusy(false);
     }
   };
 
@@ -385,6 +715,9 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-gray-400 italic">TapMenu Hazırlanıyor...</div>;
 
+  const productPreviewSrc = newProduct.file ? productImageObjectUrl : newProduct.image_url || null;
+  const showProductImagePanel = Boolean(newProduct.file || newProduct.image_url);
+
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900 overflow-hidden font-sans">
       {isMobileMenuOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setIsMobileMenuOpen(false)} />}
@@ -394,6 +727,13 @@ export default function AdminDashboard() {
           <button onClick={() => {setActiveTab("products"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'products' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><UtensilsCrossed size={20} /> Ürünler</button>
           <button onClick={() => {setActiveTab("categories"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'categories' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><List size={20} /> Kategoriler</button>
           <button onClick={() => {setActiveTab("qr"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'qr' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><QrCode size={20} /> QR Kod Üretici</button>
+          <Link
+            href="/admin/import"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all text-gray-500 hover:bg-gray-50"
+          >
+            <FileUp size={20} /> Menü içe aktar
+          </Link>
           <button onClick={() => {setActiveTab("settings"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><Palette size={20} /> Görünüm Ayarları</button>
         </nav>
         <div className="p-6 border-t"><button onClick={() => supabase.auth.signOut().then(() => router.push("/admin/login"))} className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold hover:bg-red-50 rounded-xl transition-all"><LogOut size={20} /> Çıkış Yap</button></div>
@@ -409,7 +749,7 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-4 md:p-8 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-50/50">
                   <h2 className="text-lg md:text-xl font-black">Ürün Yönetimi</h2>
-                  <button onClick={() => { setEditingProductId(null); setNewProduct({name:"", name_en:"", name_ru:"", description:"", description_en:"", description_ru:"", price:"", category_id:"", file:null, image_url:"", allergens: []}); setIsProductModalOpen(true); }} className="w-full md:w-auto justify-center bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"><Plus size={20} /> Yeni Ürün</button>
+                  <button onClick={() => { setEditingProductId(null); setAllergenSuggestMessage(null); setNewProduct({name:"", name_en:"", name_ru:"", description:"", description_en:"", description_ru:"", price:"", category_id:"", file:null, image_url:"", allergens: []}); setIsProductModalOpen(true); }} className="w-full md:w-auto justify-center bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"><Plus size={20} /> Yeni Ürün</button>
                 </div>
                 <div className="p-3 md:p-4 grid gap-3">
                   {products.map((p: any) => (
@@ -427,7 +767,7 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex items-center justify-between md:justify-end gap-2 md:gap-4 w-full md:w-auto pt-3 md:pt-0 border-t md:border-0 border-gray-100 mt-2 md:mt-0">
                         <div className="flex gap-2"><button onClick={() => openEditModal(p)} className="p-2 md:p-3 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Düzenle"><Edit3 size={18} /></button><button onClick={() => handleToggleActive(p.id, p.is_active)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] md:text-xs font-black transition-all ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{p.is_active ? <Power size={12} /> : <PowerOff size={12} />} {p.is_active ? 'SATIŞTA' : 'TÜKENDİ'}</button></div>
-                        <div className="text-right min-w-[70px]"><div className="text-lg md:text-xl font-black text-blue-600 leading-none">{p.price}</div><button onClick={() => handleUpdatePrice(p.id, p.price)} className="text-[10px] font-bold text-gray-400 hover:text-blue-600 uppercase mt-1">Fiyatı Değiştir</button></div>
+                        <div className="text-right min-w-[70px]"><div className="text-lg md:text-xl font-black text-blue-600 leading-none">{formatPriceForDisplay(p.price)}</div><button onClick={() => handleUpdatePrice(p.id, p.price)} className="text-[10px] font-bold text-gray-400 hover:text-blue-600 uppercase mt-1">Fiyatı Değiştir</button></div>
                       </div>
                     </div>
                   ))}
@@ -437,19 +777,108 @@ export default function AdminDashboard() {
 
             {activeTab === "categories" && (
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 md:p-8">
-                <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6 md:mb-8"><h2 className="text-lg md:text-xl font-black text-gray-900 uppercase">Kategoriler</h2><button onClick={() => { setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" }); setIsCategoryModalOpen(true); }} className="w-full md:w-auto justify-center bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 hover:bg-blue-700 shadow-lg transition-all"><Plus size={18}/> Yeni Kategori</button></div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {categories.map((c: any) => (
-                    <div key={c.id} className="p-4 bg-gray-50 rounded-2xl font-black text-gray-700 border border-gray-100 flex justify-between items-center group transition-all">
-                      <div className="flex flex-col text-left">
-                         <span className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">{c.main_group || 'YİYECEKLER'}</span>
-                         {c.name}
+                <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-2">
+                  <h2 className="text-lg md:text-xl font-black text-gray-900 uppercase">Kategoriler</h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCategoryId(null);
+                      setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+                      setIsCategoryModalOpen(true);
+                    }}
+                    className="w-full md:w-auto justify-center bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 hover:bg-blue-700 shadow-lg transition-all"
+                  >
+                    <Plus size={18} /> Yeni Kategori
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 font-medium mb-4 leading-relaxed">
+                  Sırayı sol tutacak simgeden sürükleyip başka bir kartın üzerine bırakın. Müşteri menüsündeki kategori şeridi bu sırayı kullanır.
+                </p>
+                {categoryReorderBusy && (
+                  <p className="text-xs font-bold text-blue-600 mb-3" role="status">
+                    Sıra kaydediliyor…
+                  </p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                  {categories.map((c: any) => {
+                    const productCount = products.filter((p: any) => p.category_id === c.id).length;
+                    const menuHidden = c.is_active === false;
+                    return (
+                      <div
+                        key={c.id}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setCategoryDragOverId(c.id);
+                        }}
+                        onDrop={(e) => void handleCategoryDrop(e, c.id)}
+                        className={`p-3 md:p-4 bg-gray-50 rounded-2xl border font-bold text-gray-700 flex items-stretch gap-2 group transition-all ${
+                          categoryDragOverId === c.id && categoryDragId && categoryDragId !== c.id
+                            ? "ring-2 ring-blue-400 border-blue-200 bg-blue-50/40"
+                            : "border-gray-100"
+                        } ${menuHidden ? "opacity-75" : ""}`}
+                      >
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={(e) => handleCategoryDragStart(e, c.id)}
+                          onDragEnd={handleCategoryDragEnd}
+                          className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-200/80 shrink-0 self-center touch-none"
+                          title="Sürükleyerek sırala"
+                          aria-label="Sürükleyerek sırala"
+                        >
+                          <GripVertical size={20} aria-hidden />
+                        </button>
+                        <div className="flex flex-col text-left min-w-0 flex-1 justify-center py-0.5">
+                          <span className="text-[10px] text-gray-400 uppercase tracking-widest mb-0.5">{c.main_group || "YİYECEKLER"}</span>
+                          <span className="truncate font-black text-gray-800">{c.name}</span>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                            <span className="text-[9px] font-bold bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-md">{productCount} ürün</span>
+                            {menuHidden && (
+                              <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md uppercase tracking-wide">Menüde gizli</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap justify-end content-center gap-1 shrink-0 max-w-[9rem] sm:max-w-none">
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleCategoryMenuVisible(c)}
+                            title={menuHidden ? "Menüde göster" : "Menüde gizle"}
+                            className={`p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 ${
+                              menuHidden
+                                ? "text-amber-700 bg-amber-100 hover:bg-amber-200"
+                                : "text-gray-500 bg-white border border-gray-200 hover:bg-gray-100"
+                            }`}
+                          >
+                            {menuHidden ? <Eye size={17} aria-hidden /> : <EyeOff size={17} aria-hidden />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDuplicateCategoryModal(c)}
+                            title="Kopyadan oluştur"
+                            className="text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                          >
+                            <Copy size={17} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditCategoryModal(c)}
+                            title="Düzenle"
+                            className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                          >
+                            <Edit3 size={17} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDeleteCategoryModal(c)}
+                            title="Kategoriyi sil"
+                            className="text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                          >
+                            <Trash2 size={17} aria-hidden />
+                          </button>
+                        </div>
                       </div>
-                      <button onClick={() => handleDeleteCategory(c.id, c.name)} title="Kategoriyi Sil" className="text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100">
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -500,6 +929,27 @@ export default function AdminDashboard() {
                     {settings.slider_images.length < 3 && (<div className="relative mt-2"><input type="file" accept="image/*" onChange={handleSliderUpload} disabled={uploadingSlider} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 md:file:mr-4 file:py-2 md:file:py-3 file:px-4 md:file:px-6 file:rounded-xl file:border-0 file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer disabled:opacity-50" />{uploadingSlider && <div className="absolute top-3 right-4 text-xs font-black text-blue-600 animate-pulse">Yükleniyor...</div>}</div>)}
                   </div>
                   <div><label className="block text-[10px] md:text-xs font-black text-gray-400 mb-2 md:mb-3 uppercase tracking-widest">Marka Rengi</label><div className="flex gap-3 md:gap-4 p-3 md:p-4 bg-gray-50 rounded-2xl border-2 border-gray-50"><input type="color" className="w-12 h-12 md:w-16 md:h-16 rounded-xl cursor-pointer border-0 p-0 bg-transparent" value={settings.primary_color} onChange={e => setSettings({...settings, primary_color: e.target.value})} /><input type="text" className="flex-1 bg-transparent font-mono font-black text-lg md:text-xl text-gray-900 outline-none w-full" value={settings.primary_color} onChange={e => setSettings({...settings, primary_color: e.target.value})} /></div></div>
+
+                  <div className="p-4 md:p-6 border-2 border-red-200 rounded-3xl bg-red-50/50 space-y-3">
+                    <div className="flex items-center gap-2 text-red-800">
+                      <AlertTriangle size={20} className="shrink-0" />
+                      <span className="text-sm md:text-base font-black uppercase tracking-tight">Tehlikeli işlem</span>
+                    </div>
+                    <p className="text-xs md:text-sm text-red-900/90 font-medium leading-relaxed">
+                      <strong>Menüyü tamamen sil</strong> düğmesi bu restorandaki <strong>tüm kategorileri ve tüm ürünleri</strong> kalıcı olarak kaldırır. Logo, renk, karşılama görseli ve hesabınız silinmez. Bu işlemin <strong>geri al tuşu yoktur</strong>.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetMenuPhrase("");
+                        setIsResetMenuModalOpen(true);
+                      }}
+                      className="w-full py-3 rounded-2xl font-black text-sm border-2 border-red-300 bg-white text-red-700 hover:bg-red-100 transition-colors"
+                    >
+                      Menüyü tamamen sil…
+                    </button>
+                  </div>
+
                   <button onClick={handleSaveSettings} disabled={isSaving} className="w-full bg-blue-600 text-white py-4 md:py-5 rounded-2xl font-black shadow-xl hover:bg-blue-700 transition-all">{isSaving ? "KAYDEDİLİYOR..." : "AYARLARI KAYDET"}</button>
                 </div>
               </div>
@@ -508,10 +958,70 @@ export default function AdminDashboard() {
         </main>
       </div>
 
+      {isResetMenuModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-red-100 overflow-hidden">
+            <div className="p-6 border-b border-red-100 bg-red-50/80 flex justify-between items-start gap-3">
+              <div>
+                <h3 className="font-black text-lg text-red-900">Menüyü tamamen sil</h3>
+                <p className="text-xs text-red-800/90 mt-1 font-medium leading-relaxed">
+                  Tüm ürünler ve kategoriler silinecek. Emin misiniz?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResetMenuModalOpen(false);
+                  setResetMenuPhrase("");
+                }}
+                className="text-gray-400 hover:text-gray-800 p-2 rounded-full bg-white/80"
+                aria-label="Kapat"
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 font-medium">
+                Devam etmek için aşağıdaki kutuya tam olarak şunu yazın:{" "}
+                <span className="font-mono font-black text-gray-900 bg-gray-100 px-2 py-0.5 rounded">{MENU_RESET_PHRASE}</span>
+              </p>
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder={MENU_RESET_PHRASE}
+                className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 font-mono text-sm outline-none focus:border-red-400"
+                value={resetMenuPhrase}
+                onChange={(e) => setResetMenuPhrase(e.target.value)}
+              />
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsResetMenuModalOpen(false);
+                    setResetMenuPhrase("");
+                  }}
+                  className="flex-1 py-3 rounded-xl font-bold text-gray-500 border-2 border-gray-100 hover:bg-gray-50"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  disabled={resetMenuPhrase !== MENU_RESET_PHRASE || resetMenuBusy}
+                  onClick={handleConfirmResetMenu}
+                  className="flex-1 py-3 rounded-xl font-black bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  {resetMenuBusy ? "Siliniyor…" : "Evet, sil"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4">
             <div className="bg-white rounded-[2rem] w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[95vh] md:max-h-[90vh]">
-                <div className="p-4 md:p-8 border-b flex justify-between items-center"><h3 className="font-black text-xl md:text-2xl text-gray-900 tracking-tighter">{editingProductId ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h3><button type="button" onClick={() => {setIsProductModalOpen(false); setEditingProductId(null);}} className="text-gray-300 hover:text-gray-900 bg-gray-100 p-1 md:p-2 rounded-full"><X size={24} /></button></div>
+                <div className="p-4 md:p-8 border-b flex justify-between items-center"><h3 className="font-black text-xl md:text-2xl text-gray-900 tracking-tighter">{editingProductId ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h3><button type="button" onClick={() => { setIsProductModalOpen(false); setEditingProductId(null); setAllergenSuggestMessage(null); }} className="text-gray-300 hover:text-gray-900 bg-gray-100 p-1 md:p-2 rounded-full"><X size={24} /></button></div>
                 
                 {/* GÜNCELLENEN FORM BURASI: İNGİLİZCE VE RUSÇA KUTULARI EKLENDİ */}
                 <form onSubmit={handleProductSubmit} className="p-4 md:p-8 space-y-4 md:space-y-6 overflow-y-auto text-gray-900 pb-20 md:pb-8">
@@ -549,19 +1059,190 @@ export default function AdminDashboard() {
                         </div>
                     </div>
 
-                    <div className="p-4 md:p-5 border-2 border-gray-50 rounded-2xl"><div className="flex flex-wrap gap-1.5 md:gap-2">{ALLERGEN_OPTIONS.map((alg: any) => (<button key={alg.id} type="button" onClick={() => toggleAllergen(alg.id)} className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 transition-all ${newProduct.allergens?.includes(alg.id) ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}><span>{alg.icon}</span> {alg.label}</button>))}</div></div>
-                    <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase ml-2">Ürün Görseli</label><input type="file" className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700" onChange={e => setNewProduct({...newProduct, file: e.target.files ? e.target.files[0] : null})} /></div>
+                    <div className="p-4 md:p-5 border-2 border-gray-50 rounded-2xl space-y-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-wide">Alerjenler</span>
+                        <button
+                          type="button"
+                          onClick={handleSuggestAllergens}
+                          className="self-start sm:self-auto inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase text-blue-700 hover:bg-blue-100"
+                        >
+                          <Sparkles size={14} aria-hidden />
+                          Alerjen öner
+                        </button>
+                      </div>
+                      <p className="text-[9px] font-medium text-gray-500 leading-snug">
+                        Otomatik öneridir; menü ve sorumluluğu kontrol edin. Mevcut seçimlerinize eklenir (üzerine yazılmaz).
+                        <span className="block mt-1 text-gray-400">
+                          Taranır: Türkçe ürün adı ve açıklama, İngilizce ve Rusça ad / açıklama alanları.
+                        </span>
+                      </p>
+                      {allergenSuggestMessage && (
+                        <p className="text-[10px] font-bold text-blue-800 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 leading-snug" role="status">
+                          {allergenSuggestMessage}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5 md:gap-2">
+                        {ALLERGEN_OPTIONS.map((alg: any) => (
+                          <button
+                            key={alg.id}
+                            type="button"
+                            onClick={() => toggleAllergen(alg.id)}
+                            className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 transition-all ${newProduct.allergens?.includes(alg.id) ? "bg-blue-600 text-white shadow-md" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+                          >
+                            <span>{alg.icon}</span> {alg.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Ürün Görseli</label>
+                      <p className="text-[10px] text-gray-500 font-medium leading-snug">
+                        En fazla 5 MB. Uzun kenar 2048 px üzerindeyse otomatik küçültülür. Çok büyük kaynak dosya (25 MB üstü) kabul edilmez.
+                      </p>
+                      {showProductImagePanel ? (
+                        <div className="flex flex-col sm:flex-row sm:items-start gap-3 rounded-2xl border-2 border-gray-100 bg-gray-50/80 p-3">
+                          <div className="relative h-32 w-full sm:w-40 shrink-0 rounded-xl overflow-hidden border border-gray-200 bg-white">
+                            {productPreviewSrc ? (
+                              <img
+                                src={productPreviewSrc}
+                                alt="Ürün önizleme"
+                                className="h-full w-full object-contain"
+                              />
+                            ) : (
+                              <div className="flex h-full items-center justify-center px-2 text-center text-[10px] font-bold text-gray-400">
+                                Önizleme hazırlanıyor…
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-2 min-w-0 flex-1 justify-center">
+                            {newProduct.file ? (
+                              <p className="text-[10px] font-bold text-gray-600">Kaydetmeden önce yalnızca önizleme; yükleme kayıtta yapılır.</p>
+                            ) : newProduct.image_url ? (
+                              <p className="text-[10px] font-bold text-gray-600">Kayıtlı görsel. Yenisini seçerek değiştirebilirsiniz.</p>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={clearProductImage}
+                              className="self-start inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-[10px] font-black uppercase text-red-600 hover:bg-red-50"
+                            >
+                              <Trash2 size={14} aria-hidden />
+                              Görseli kaldır
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] font-medium text-gray-400">Henüz görsel yok; aşağıdan seçebilirsiniz.</p>
+                      )}
+                      <input
+                        ref={productFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"
+                        onChange={e => setNewProduct({ ...newProduct, file: e.target.files?.[0] ?? null })}
+                      />
+                    </div>
                     <button disabled={uploading} type="submit" className="w-full bg-blue-600 text-white py-4 md:py-5 rounded-2xl md:rounded-[1.5rem] font-black text-base md:text-lg shadow-xl hover:bg-blue-700 transition-all uppercase mt-4">{uploading ? "İŞLENİYOR..." : editingProductId ? "KAYDET" : "EKLE"}</button>
                 </form>
             </div>
         </div>
       )}
 
+      {categoryDeleteCtx && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-gray-100 overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-start gap-3">
+              <div>
+                <h3 className="font-black text-lg text-gray-900">Kategoriyi sil</h3>
+                <p className="text-sm font-bold text-gray-600 mt-1">&quot;{categoryDeleteCtx.name}&quot;</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCategoryDeleteModal}
+                disabled={categoryDeleteBusy}
+                className="text-gray-400 hover:text-gray-900 bg-gray-100 p-2 rounded-full shrink-0 disabled:opacity-40"
+                aria-label="Kapat"
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-gray-900">
+              {categoryDeleteCtx.productCount === 0 ? (
+                <p className="text-sm text-gray-600 font-medium leading-relaxed">Bu kategoride ürün yok. Silmek istediğinize emin misiniz?</p>
+              ) : categories.filter((x: any) => x.id !== categoryDeleteCtx.id).length === 0 ? (
+                <p className="text-sm text-gray-600 font-medium leading-relaxed">
+                  Bu kategoride <strong>{categoryDeleteCtx.productCount}</strong> ürün var. Taşıyabilmek için önce başka bir kategori oluşturun; ardından ürünleri düzenleyerek taşıyın veya bu pencereden silin.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600 font-medium leading-relaxed">
+                    Bu kategoride <strong>{categoryDeleteCtx.productCount}</strong> ürün var. Kategoriyi silmeden önce ürünleri aşağıdaki kategoriye taşıyın.
+                  </p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-wide">Hedef kategori</label>
+                    <select
+                      className="w-full border-2 border-gray-100 bg-gray-50 p-3 rounded-xl font-bold outline-none focus:border-blue-500"
+                      value={categoryDeleteCtx.moveToId}
+                      onChange={(e) =>
+                        setCategoryDeleteCtx((prev) => (prev ? { ...prev, moveToId: e.target.value } : null))
+                      }
+                      disabled={categoryDeleteBusy}
+                    >
+                      {categories
+                        .filter((x: any) => x.id !== categoryDeleteCtx.id)
+                        .map((x: any) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name} ({x.main_group || "YİYECEKLER"})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </>
+              )}
+              <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeCategoryDeleteModal}
+                  disabled={categoryDeleteBusy}
+                  className="flex-1 py-3 rounded-xl font-bold text-gray-500 border-2 border-gray-100 hover:bg-gray-50 disabled:opacity-40"
+                >
+                  İptal
+                </button>
+                {categoryDeleteCtx.productCount === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmCategoryDelete()}
+                    disabled={categoryDeleteBusy}
+                    className="flex-1 py-3 rounded-xl font-black bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+                  >
+                    {categoryDeleteBusy ? "Siliniyor…" : "Sil"}
+                  </button>
+                ) : categories.filter((x: any) => x.id !== categoryDeleteCtx.id).length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmCategoryDelete()}
+                    disabled={categoryDeleteBusy || !categoryDeleteCtx.moveToId}
+                    className="flex-1 py-3 rounded-xl font-black bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+                  >
+                    {categoryDeleteBusy ? "İşleniyor…" : "Ürünleri taşı ve sil"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 md:p-8 shadow-2xl">
-                <h3 className="font-black text-lg md:text-xl mb-6 text-gray-900">Yeni Kategori</h3>
-                <form onSubmit={handleAddCategory} className="space-y-4 text-gray-900">
+                <div className="flex justify-between items-start gap-3 mb-6">
+                  <h3 className="font-black text-lg md:text-xl text-gray-900 pr-2">{editingCategoryId ? "Kategoriyi düzenle" : "Yeni kategori"}</h3>
+                  <button type="button" onClick={closeCategoryModal} className="text-gray-400 hover:text-gray-900 bg-gray-100 p-2 rounded-full shrink-0" aria-label="Kapat">
+                    <X size={22} />
+                  </button>
+                </div>
+                <form onSubmit={handleCategorySubmit} className="space-y-4 text-gray-900">
                   <datalist id="main-groups-list">
                     <option value="YİYECEKLER" />
                     <option value="İÇECEKLER" />
@@ -619,8 +1300,8 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="flex gap-3 md:gap-4 pt-2">
-                    <button type="button" onClick={() => { setIsCategoryModalOpen(false); setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" }); }} className="flex-1 font-bold text-gray-400 text-sm md:text-base">İptal</button>
-                    <button type="submit" className="flex-1 bg-blue-600 text-white py-3 md:py-4 rounded-2xl font-black shadow-lg text-sm md:text-base">Ekle</button>
+                    <button type="button" onClick={closeCategoryModal} className="flex-1 font-bold text-gray-400 text-sm md:text-base">İptal</button>
+                    <button type="submit" className="flex-1 bg-blue-600 text-white py-3 md:py-4 rounded-2xl font-black shadow-lg text-sm md:text-base">{editingCategoryId ? "Kaydet" : "Ekle"}</button>
                   </div>
                 </form>
             </div>

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useParams } from "next/navigation";
-import { ChevronLeft, Menu as MenuIcon, X } from "lucide-react";
+import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
+import { formatPriceForDisplay } from "@/lib/format-price";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -121,6 +122,52 @@ function isIOSMobileClient(): boolean {
   return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 }
 
+function MenuLoadingScreen() {
+  return (
+    <div
+      className="relative h-screen flex flex-col items-center justify-center overflow-hidden bg-[#F5F1EB]"
+      role="status"
+      aria-live="polite"
+      aria-label="Menü hazırlanıyor"
+    >
+      <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-[#E5DFD3]/60 blur-3xl animate-pulse" />
+      <div
+        className="pointer-events-none absolute -bottom-32 -left-20 h-72 w-72 rounded-full bg-[#1F3B2B]/10 blur-3xl animate-pulse"
+        style={{ animationDelay: "600ms" }}
+      />
+
+      <div className="relative z-10 flex flex-col items-center gap-8 px-6">
+        <div className="relative flex h-24 w-24 items-center justify-center">
+          <span className="absolute inset-0 rounded-full border-4 border-[#E5DFD3]" />
+          <span className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-[#1F3B2B]" />
+          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-[#E5DFD3] shadow-lg animate-[menu-icon-pop_2s_ease-in-out_infinite]">
+            <UtensilsCrossed className="h-7 w-7 text-[#1F3B2B]" strokeWidth={2.5} aria-hidden />
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-sm font-black uppercase tracking-[0.35em] text-[#1F3B2B] sm:text-base">
+            Menü Hazırlanıyor
+          </p>
+          <div className="flex items-center gap-2" aria-hidden>
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="h-2 w-2 rounded-full bg-[#1F3B2B] animate-bounce"
+                style={{ animationDelay: `${i * 160}ms` }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="absolute bottom-14 left-1/2 h-1 w-44 -translate-x-1/2 overflow-hidden rounded-full bg-[#E5DFD3]">
+        <div className="h-full w-1/2 rounded-full bg-[#1F3B2B] animate-[menu-loading-bar_1.4s_ease-in-out_infinite]" />
+      </div>
+    </div>
+  );
+}
+
 function openInstagramIOSAggressive(webUrl: string, username: string) {
   const appUrl = `instagram://user?username=${encodeURIComponent(username)}`;
   let leftPage = false;
@@ -161,12 +208,15 @@ export default function CustomerMenu() {
       if (resData) {
         setRestaurant(resData);
         const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
-        setCategories(catData || []);
+        const visibleCats = (catData || []).filter((c: { is_active?: boolean }) => c.is_active !== false);
+        setCategories(visibleCats);
         
-        if (catData && catData.length > 0) {
-          const catIds = catData.map(c => c.id);
+        if (visibleCats.length > 0) {
+          const catIds = visibleCats.map(c => c.id);
           const { data: prodData } = await supabase.from("products").select("*, categories!inner(restaurant_id)").in("category_id", catIds).eq("is_active", true);
           setProducts(prodData || []);
+        } else {
+          setProducts([]);
         }
       }
       setLoading(false);
@@ -175,12 +225,24 @@ export default function CustomerMenu() {
   }, [slug]);
 
   useEffect(() => {
+    if (view !== "menu") return;
+    if (categories.length === 0) {
+      setActiveCategory(null);
+      return;
+    }
+    setActiveCategory((prev) => {
+      if (prev && categories.some((c) => c.id === prev)) return prev;
+      return categories[0].id;
+    });
+  }, [categories, view]);
+
+  useEffect(() => {
     if (view === "welcome" || !restaurant?.slider_images || restaurant.slider_images.length <= 1) return;
     const timer = setInterval(() => setCurrentSlide((prev) => (prev === restaurant.slider_images.length - 1 ? 0 : prev + 1)), 3000);
     return () => clearInterval(timer);
   }, [restaurant?.slider_images, view]);
 
-  if (loading) return <div className="h-screen flex items-center justify-center font-bold text-gray-400">Menü Hazırlanıyor...</div>;
+  if (loading) return <MenuLoadingScreen />;
   if (!restaurant) return <div className="h-screen flex items-center justify-center font-bold text-red-500 text-xl">Restoran bulunamadı.</div>;
 
   const themeColor = restaurant.primary_color || "#2563eb";
@@ -372,7 +434,7 @@ export default function CustomerMenu() {
           <div key={product.id} className="bg-white p-3 md:p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-3 md:gap-4 hover:border-gray-200 transition-colors">
             {product.image_url && (<div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative"><img src={product.image_url} alt={product.name || 'Ürün Görseli'} className="w-full h-full object-cover" /></div>)}
             <div className="flex-1 flex flex-col justify-center">
-              <div className="flex justify-between items-start gap-2 mb-1"><h3 className="font-black text-gray-900 leading-tight text-base md:text-lg">{getText(product, 'name')}</h3><span style={{ color: themeColor }} className="font-black text-lg md:text-xl whitespace-nowrap">{product.price}</span></div>
+              <div className="flex justify-between items-start gap-2 mb-1"><h3 className="font-black text-gray-900 leading-tight text-base md:text-lg">{getText(product, 'name')}</h3><span style={{ color: themeColor }} className="font-black text-lg md:text-xl whitespace-nowrap">{formatPriceForDisplay(product.price)}</span></div>
               {getText(product, 'description') && (<p className="text-xs md:text-sm text-gray-500 font-medium leading-snug mb-2 line-clamp-2">{getText(product, 'description')}</p>)}
               {product.allergens && product.allergens.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-auto">

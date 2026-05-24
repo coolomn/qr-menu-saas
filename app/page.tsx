@@ -16,7 +16,7 @@ export default function Home() {
             Canlı Demo
           </Link>
           <Link href="/admin/login" className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-50 transition-all">
-            Müşteri Girişi
+            Restoran girişi
           </Link>
         </div>
       </nav>
