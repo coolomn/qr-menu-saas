@@ -328,6 +328,15 @@ export default function AdminDashboard() {
 
   const handleProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!restaurant?.id) {
+      alert("Restoran bulunamadı.");
+      return;
+    }
+    const selectedCategory = categories.find((c: any) => c.id === newProduct.category_id);
+    if (!selectedCategory) {
+      alert("Geçerli bir kategori seçin.");
+      return;
+    }
     setUploading(true);
     let imageUrl = newProduct.image_url;
     try {
@@ -349,6 +358,7 @@ export default function AdminDashboard() {
       }
 
       const payload = {
+        restaurant_id: restaurant.id,
         category_id: newProduct.category_id, name: newProduct.name, name_en: newProduct.name_en, name_ru: newProduct.name_ru,
         description: newProduct.description, description_en: newProduct.description_en, description_ru: newProduct.description_ru,
         price: newProduct.price, image_url: imageUrl, allergens: newProduct.allergens
