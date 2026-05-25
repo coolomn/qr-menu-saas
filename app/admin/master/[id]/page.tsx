@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Copy, ExternalLink, Loader2, Shield } from "lucide-react";
+import { OnboardingCard } from "@/app/admin/master/_components/onboarding-card";
 import { masterJsonFetch } from "@/lib/master-admin/client-api";
 import { masterLoginUrl } from "@/lib/master-admin/client-auth";
 import {
@@ -167,9 +168,12 @@ export default function MasterRestaurantDetailPage() {
     return fn(session.access_token);
   };
 
+  const ownerLoginUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/admin/login` : "/admin/login";
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form) return;
+    if (!form || saving) return;
     setSaving(true);
     setError(null);
     setSuccessMessage(null);
@@ -344,6 +348,8 @@ export default function MasterRestaurantDetailPage() {
             {error}
           </div>
         )}
+
+        <OnboardingCard item={item} loginUrl={ownerLoginUrl} />
 
         <section className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
           <h2 className="text-sm font-black text-gray-900 uppercase tracking-wide">Hızlı işlemler</h2>
@@ -545,11 +551,11 @@ export default function MasterRestaurantDetailPage() {
             />
           </section>
 
-          <button
-            type="submit"
-            disabled={saving || Boolean(previewDates.error)}
-            className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:bg-blue-300"
-          >
+            <button
+              type="submit"
+              disabled={saving || Boolean(actionBusy) || Boolean(previewDates.error)}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+            >
             {saving && <Loader2 size={18} className="animate-spin" />}
             {saving ? "Kaydediliyor…" : "Kaydet"}
           </button>

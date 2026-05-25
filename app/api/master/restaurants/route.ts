@@ -4,6 +4,7 @@ import { requireMasterAdmin } from "@/lib/master-admin/auth";
 import { parseCreateRestaurantBody } from "@/lib/master-admin/create-payload";
 import { resolveOwnerByEmail } from "@/lib/master-admin/owners";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
+import { buildOwnerLoginUrl } from "@/lib/master-admin/create-response";
 import type { MasterRestaurantListItem } from "@/lib/master-admin/types";
 
 export const runtime = "nodejs";
@@ -237,11 +238,18 @@ export async function POST(request: Request) {
     console.error("subscription_events insert failed:", eventError);
   }
 
+  const loginUrl = buildOwnerLoginUrl(origin);
+  const ownerInvited = ownerResult.invited;
+  const inviteSentAt = ownerInvited ? new Date().toISOString() : null;
+
   return NextResponse.json(
     {
       restaurant,
       owner_email: payload.owner_email,
-      owner_invited: ownerResult.invited,
+      owner_invited: ownerInvited,
+      owner_exists: !ownerInvited,
+      login_url: loginUrl,
+      invite_sent_at: inviteSentAt,
     },
     { status: 201 }
   );

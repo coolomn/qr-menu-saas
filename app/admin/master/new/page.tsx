@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Shield } from "lucide-react";
+import { CreateSuccessPanel } from "@/app/admin/master/_components/create-success-panel";
 import { masterLoginUrl } from "@/lib/master-admin/client-auth";
+import type { MasterCreateRestaurantResponse } from "@/lib/master-admin/create-response";
 import type { PlanType } from "@/lib/master-admin/plans";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
 import { slugifyName } from "@/lib/master-admin/slug";
@@ -58,6 +60,7 @@ export default function MasterNewRestaurantPage() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createResult, setCreateResult] = useState<MasterCreateRestaurantResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +120,7 @@ export default function MasterNewRestaurantPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting || createResult) return;
     setError(null);
     setSubmitting(true);
 
@@ -150,15 +154,22 @@ export default function MasterNewRestaurantPage() {
         body: JSON.stringify(body),
       });
 
-      const data = (await res.json().catch(() => ({}))) as { error?: string; owner_invited?: boolean };
+      const data = (await res.json().catch(() => ({}))) as
+        | MasterCreateRestaurantResponse
+        | { error?: string };
 
       if (!res.ok) {
-        setError(data.error || "Restoran oluşturulamadı.");
+        setError("error" in data && data.error ? data.error : "Restoran oluşturulamadı.");
         return;
       }
 
-      const invited = data.owner_invited ? "&invited=1" : "";
-      router.push(`/admin/master?created=1${invited}`);
+      if (!("restaurant" in data) || !data.restaurant?.id) {
+        setError("Beklenmeyen sunucu yanıtı.");
+        return;
+      }
+
+      setCreateResult(data as MasterCreateRestaurantResponse);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch {
       setError("Beklenmeyen bir hata oluştu.");
     } finally {
@@ -166,10 +177,36 @@ export default function MasterNewRestaurantPage() {
     }
   };
 
+  const resetForAnother = () => {
+    setCreateResult(null);
+    setForm(initialForm);
+    setSlugTouched(false);
+    setError(null);
+  };
+
   if (!authReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-600">
         {error ?? "Yükleniyor…"}
+      </div>
+    );
+  }
+
+  if (createResult) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white border-b border-gray-200">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4">
+            <div className="flex items-center gap-2 text-blue-600 font-black text-xs uppercase tracking-wider">
+              <Shield size={14} />
+              TapMenu Master
+            </div>
+            <h1 className="text-2xl font-black text-gray-900 mt-1">Kurulum tamamlandı</h1>
+          </div>
+        </header>
+        <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+          <CreateSuccessPanel data={createResult} onCreateAnother={resetForAnother} />
+        </main>
       </div>
     );
   }
@@ -366,8 +403,8 @@ export default function MasterNewRestaurantPage() {
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               type="submit"
-              disabled={submitting || Boolean(previewDates.error)}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:bg-blue-300"
+              disabled={submitting || createResult !== null || Boolean(previewDates.error)}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
             >
               {submitting && <Loader2 size={18} className="animate-spin" />}
               {submitting ? "Oluşturuluyor…" : "Restoran oluştur"}
