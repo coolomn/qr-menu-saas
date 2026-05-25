@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireMasterAdmin } from "@/lib/master-admin/auth";
 import { parseCreateRestaurantBody } from "@/lib/master-admin/create-payload";
 import { resolveOwnerByEmail } from "@/lib/master-admin/owners";
+import { createOwnerWithTemporaryPassword } from "@/lib/master-admin/temporary-password";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
 import { buildInviteSetPasswordUrl } from "@/lib/admin-auth/invite-flow";
 import { buildOwnerLoginUrl } from "@/lib/master-admin/create-response";
@@ -164,13 +165,30 @@ export async function POST(request: Request) {
   }
 
   const origin = new URL(request.url).origin;
-  const ownerResult = await resolveOwnerByEmail(
-    auth.admin,
-    payload.owner_email,
-    buildInviteSetPasswordUrl(origin)
-  );
-  if (!ownerResult.ok) {
-    return NextResponse.json({ error: ownerResult.error }, { status: 400 });
+  let ownerUserId: string;
+  let ownerInvited = false;
+  let ownerExists = false;
+  let temporaryPassword: string | undefined;
+
+  if (payload.owner_creation_mode === "temporary_password") {
+    const created = await createOwnerWithTemporaryPassword(auth.admin, payload.owner_email);
+    if (!created.ok) {
+      return NextResponse.json({ error: created.error }, { status: 400 });
+    }
+    ownerUserId = created.userId;
+    temporaryPassword = created.temporaryPassword;
+  } else {
+    const ownerResult = await resolveOwnerByEmail(
+      auth.admin,
+      payload.owner_email,
+      buildInviteSetPasswordUrl(origin)
+    );
+    if (!ownerResult.ok) {
+      return NextResponse.json({ error: ownerResult.error }, { status: 400 });
+    }
+    ownerUserId = ownerResult.userId;
+    ownerInvited = ownerResult.invited;
+    ownerExists = !ownerResult.invited;
   }
 
   const { data: restaurant, error: restaurantError } = await auth.admin
@@ -178,7 +196,7 @@ export async function POST(request: Request) {
     .insert({
       name: payload.name,
       slug: payload.slug,
-      owner_id: ownerResult.userId,
+      owner_id: ownerUserId,
       tenant_status: "active",
       subscription_ends_at: dates.ends_at,
     })
@@ -220,7 +238,7 @@ export async function POST(request: Request) {
       name: payload.name,
       slug: payload.slug,
       owner_email: payload.owner_email,
-      owner_id: ownerResult.userId,
+      owner_id: ownerUserId,
       plan_type: payload.plan_type,
       starts_at: dates.starts_at,
       ends_at: dates.ends_at,
@@ -230,7 +248,8 @@ export async function POST(request: Request) {
       max_imports: payload.max_imports,
       import_period: payload.import_period ?? "monthly",
       admin_notes: payload.admin_notes,
-      owner_invited: ownerResult.invited,
+      owner_invited: ownerInvited,
+      owner_creation_mode: payload.owner_creation_mode,
     },
     created_by: auth.user.id,
   });
@@ -240,18 +259,22 @@ export async function POST(request: Request) {
   }
 
   const loginUrl = buildOwnerLoginUrl(origin);
-  const ownerInvited = ownerResult.invited;
-  const inviteSentAt = ownerInvited ? new Date().toISOString() : null;
+  const inviteSentAt =
+    payload.owner_creation_mode === "invite" && ownerInvited ? new Date().toISOString() : null;
 
-  return NextResponse.json(
-    {
-      restaurant,
-      owner_email: payload.owner_email,
-      owner_invited: ownerInvited,
-      owner_exists: !ownerInvited,
-      login_url: loginUrl,
-      invite_sent_at: inviteSentAt,
-    },
-    { status: 201 }
-  );
+  const responseBody: Record<string, unknown> = {
+    restaurant,
+    owner_email: payload.owner_email,
+    owner_creation_mode: payload.owner_creation_mode,
+    owner_invited: ownerInvited,
+    owner_exists: ownerExists,
+    login_url: loginUrl,
+    invite_sent_at: inviteSentAt,
+  };
+
+  if (temporaryPassword) {
+    responseBody.temporary_password = temporaryPassword;
+  }
+
+  return NextResponse.json(responseBody, { status: 201 });
 }

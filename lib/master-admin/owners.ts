@@ -4,8 +4,12 @@ export type ResolveOwnerResult =
   | { ok: true; userId: string; invited: boolean }
   | { ok: false; error: string };
 
-function normalizeEmail(email: string): string {
+export function normalizeEmailForOwner(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function normalizeEmail(email: string): string {
+  return normalizeEmailForOwner(email);
 }
 
 export function isValidEmail(email: string): boolean {

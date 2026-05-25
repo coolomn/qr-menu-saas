@@ -2,10 +2,13 @@ import type { PlanType } from "@/lib/master-admin/plans";
 import { isValidEmail } from "@/lib/master-admin/owners";
 import { isValidSlug, normalizeSlugInput } from "@/lib/master-admin/slug";
 
+export type OwnerCreationMode = "invite" | "temporary_password";
+
 export type CreateRestaurantPayload = {
   name: string;
   slug: string;
   owner_email: string;
+  owner_creation_mode: OwnerCreationMode;
   plan_type: PlanType;
   starts_at?: string | null;
   ends_at?: string | null;
@@ -36,6 +39,10 @@ export function parseCreateRestaurantBody(
   const name = typeof raw.name === "string" ? raw.name.trim() : "";
   const slugInput = typeof raw.slug === "string" ? raw.slug.trim() : "";
   const ownerEmail = typeof raw.owner_email === "string" ? raw.owner_email.trim() : "";
+  const modeRaw =
+    typeof raw.owner_creation_mode === "string" ? raw.owner_creation_mode.trim() : "invite";
+  const ownerCreationMode: OwnerCreationMode =
+    modeRaw === "temporary_password" ? "temporary_password" : "invite";
   const planType = typeof raw.plan_type === "string" ? raw.plan_type.trim() : "";
 
   if (!name) return { ok: false, error: "Restoran adı zorunlu." };
@@ -86,6 +93,7 @@ export function parseCreateRestaurantBody(
       name,
       slug,
       owner_email: ownerEmail,
+      owner_creation_mode: ownerCreationMode,
       plan_type: planType as PlanType,
       starts_at: startsAt,
       ends_at: endsAt,

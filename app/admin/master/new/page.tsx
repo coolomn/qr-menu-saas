@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Shield } from "lucide-react";
 import { CreateSuccessPanel } from "@/app/admin/master/_components/create-success-panel";
 import { masterLoginUrl } from "@/lib/master-admin/client-auth";
+import type { OwnerCreationMode } from "@/lib/master-admin/create-payload";
 import type { MasterCreateRestaurantResponse } from "@/lib/master-admin/create-response";
 import type { PlanType } from "@/lib/master-admin/plans";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
@@ -22,6 +23,7 @@ type FormState = {
   name: string;
   slug: string;
   owner_email: string;
+  owner_creation_mode: OwnerCreationMode;
   plan_type: PlanType;
   starts_at: string;
   ends_at: string;
@@ -36,6 +38,7 @@ const initialForm: FormState = {
   name: "",
   slug: "",
   owner_email: "",
+  owner_creation_mode: "invite",
   plan_type: "6_months",
   starts_at: "",
   ends_at: "",
@@ -135,6 +138,7 @@ export default function MasterNewRestaurantPage() {
         name: form.name.trim(),
         slug: form.slug.trim(),
         owner_email: form.owner_email.trim(),
+        owner_creation_mode: form.owner_creation_mode,
         plan_type: form.plan_type,
         starts_at: form.starts_at || null,
         ends_at: form.plan_type === "custom" ? form.ends_at || null : null,
@@ -283,8 +287,45 @@ export default function MasterNewRestaurantPage() {
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="sahip@ornek.com"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Kullanıcı yoksa davet e-postası gönderilir.
+            </div>
+            <div>
+              <p className="block text-sm font-semibold text-gray-700 mb-2">Owner oluşturma yöntemi *</p>
+              <div className="space-y-2">
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/50">
+                  <input
+                    type="radio"
+                    name="owner_creation_mode"
+                    className="mt-1"
+                    checked={form.owner_creation_mode === "invite"}
+                    onChange={() => updateField("owner_creation_mode", "invite")}
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-gray-900">Invite e-postası gönder</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Yeni kullanıcıya davet maili gider; müşteri şifresini kendisi belirler.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/50">
+                  <input
+                    type="radio"
+                    name="owner_creation_mode"
+                    className="mt-1"
+                    checked={form.owner_creation_mode === "temporary_password"}
+                    onChange={() => updateField("owner_creation_mode", "temporary_password")}
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-gray-900">Geçici şifre oluştur</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Mail kullanmadan hesap açılır; şifre yalnızca bir kez gösterilir.
+                    </span>
+                  </span>
+                </label>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {form.owner_creation_mode === "invite"
+                  ? "Kullanıcı zaten kayıtlıysa davet gönderilmez, mevcut hesap bağlanır."
+                  : "E-posta sistemde kayıtlıysa işlem reddedilir; davet modunu kullanın."}
               </p>
             </div>
           </section>

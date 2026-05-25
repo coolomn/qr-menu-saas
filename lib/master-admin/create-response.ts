@@ -1,3 +1,5 @@
+import type { OwnerCreationMode } from "@/lib/master-admin/create-payload";
+
 export type MasterCreateRestaurantResponse = {
   restaurant: {
     id: string;
@@ -9,10 +11,13 @@ export type MasterCreateRestaurantResponse = {
     created_at: string;
   };
   owner_email: string;
+  owner_creation_mode: OwnerCreationMode;
   owner_invited: boolean;
   owner_exists: boolean;
   login_url: string;
   invite_sent_at: string | null;
+  /** Yalnızca temporary_password modunda ve yalnızca bu yanıtta; tekrar gösterilmez. */
+  temporary_password?: string;
 };
 
 export function buildOwnerLoginUrl(origin: string): string {
