@@ -1,23 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  isSafeAdminNextPath,
+  setPasswordUrlPreservingAuthParams,
+  shouldRedirectLoginToSetPassword,
+} from "@/lib/admin-auth/invite-flow";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { resolvePostLoginPath } from "@/lib/master-admin/client-auth";
 
 const supabase = getBrowserSupabase();
-
-function isSafeAdminNextPath(path: string | null): path is string {
-  if (!path) return false;
-  return path.startsWith("/admin") && !path.startsWith("/admin/login");
-}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingInvite, setCheckingInvite] = useState(true);
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (shouldRedirectLoginToSetPassword(window.location.search, window.location.hash)) {
+      router.replace(setPasswordUrlPreservingAuthParams());
+      return;
+    }
+    setCheckingInvite(false);
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); // Sayfanın yenilenmesini engeller
@@ -55,6 +65,14 @@ export default function LoginPage() {
     const destination = await resolvePostLoginPath(session.access_token);
     router.push(destination);
   };
+
+  if (checkingInvite) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 text-gray-500 text-sm font-medium">
+        Yönlendiriliyor…
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

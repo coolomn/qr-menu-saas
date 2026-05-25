@@ -4,6 +4,7 @@ import { requireMasterAdmin } from "@/lib/master-admin/auth";
 import { parseCreateRestaurantBody } from "@/lib/master-admin/create-payload";
 import { resolveOwnerByEmail } from "@/lib/master-admin/owners";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
+import { buildInviteSetPasswordUrl } from "@/lib/admin-auth/invite-flow";
 import { buildOwnerLoginUrl } from "@/lib/master-admin/create-response";
 import type { MasterRestaurantListItem } from "@/lib/master-admin/types";
 
@@ -166,7 +167,7 @@ export async function POST(request: Request) {
   const ownerResult = await resolveOwnerByEmail(
     auth.admin,
     payload.owner_email,
-    `${origin}/admin/login`
+    buildInviteSetPasswordUrl(origin)
   );
   if (!ownerResult.ok) {
     return NextResponse.json({ error: ownerResult.error }, { status: 400 });

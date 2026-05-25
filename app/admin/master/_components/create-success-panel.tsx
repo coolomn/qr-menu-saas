@@ -28,7 +28,7 @@ export function CreateSuccessPanel({ data, onCreateAnother }: CreateSuccessPanel
     data;
 
   const shareBlurb = owner_invited
-    ? `TapMenu paneliniz hazır.\n1) ${owner_email} adresine gelen davet mailini açın\n2) Şifrenizi oluşturun\n3) Giriş: ${login_url}`
+    ? `TapMenu paneliniz hazır.\n1) ${owner_email} adresine gelen davet mailini açın\n2) Davet linkinden şifrenizi oluşturun\n3) Sonraki girişler: ${login_url}`
     : `TapMenu paneliniz hazır.\nGiriş adresi: ${login_url}\nHesap: ${owner_email}`;
 
   return (
@@ -74,10 +74,7 @@ export function CreateSuccessPanel({ data, onCreateAnother }: CreateSuccessPanel
             <ol className="list-decimal list-inside space-y-1.5 text-blue-900/95">
               <li>Müşteri <span className="font-semibold">{owner_email}</span> gelen kutusunu kontrol etsin.</li>
               <li>Davet linkinden şifresini oluştursun.</li>
-              <li>
-                <span className="font-mono text-xs bg-white/60 px-1 rounded">/admin/login</span>{" "}
-                üzerinden giriş yapsın.
-              </li>
+              <li>Davet linkinden şifresini oluştursun; sonraki girişler için panel adresini kullansın.</li>
             </ol>
           </div>
         ) : (
