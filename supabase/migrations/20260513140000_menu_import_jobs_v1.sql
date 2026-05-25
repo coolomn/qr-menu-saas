@@ -34,6 +34,7 @@ create trigger menu_import_jobs_set_updated_at
 alter table public.menu_import_jobs enable row level security;
 
 -- Restoran sahibi kendi işlerini görebilir (gelecekte panelden liste için)
+drop policy if exists "menu_import_jobs_select_owner" on public.menu_import_jobs;
 create policy "menu_import_jobs_select_owner"
   on public.menu_import_jobs for select
   using (
@@ -44,6 +45,7 @@ create policy "menu_import_jobs_select_owner"
     )
   );
 
+drop policy if exists "menu_import_jobs_insert_owner" on public.menu_import_jobs;
 create policy "menu_import_jobs_insert_owner"
   on public.menu_import_jobs for insert
   with check (
@@ -55,6 +57,7 @@ create policy "menu_import_jobs_insert_owner"
     )
   );
 
+drop policy if exists "menu_import_jobs_update_owner" on public.menu_import_jobs;
 create policy "menu_import_jobs_update_owner"
   on public.menu_import_jobs for update
   using (
@@ -66,6 +69,7 @@ create policy "menu_import_jobs_update_owner"
   );
 
 -- Storage: sadece kendi klasörüne yükleme (path: imports/{auth.uid()}/...)
+drop policy if exists "menu_imports_insert_own_folder" on storage.objects;
 create policy "menu_imports_insert_own_folder"
   on storage.objects for insert to authenticated
   with check (
@@ -73,6 +77,7 @@ create policy "menu_imports_insert_own_folder"
     and name like ('imports/' || auth.uid()::text || '/%')
   );
 
+drop policy if exists "menu_imports_select_own_folder" on storage.objects;
 create policy "menu_imports_select_own_folder"
   on storage.objects for select to authenticated
   using (
@@ -80,6 +85,7 @@ create policy "menu_imports_select_own_folder"
     and name like ('imports/' || auth.uid()::text || '/%')
   );
 
+drop policy if exists "menu_imports_delete_own_folder" on storage.objects;
 create policy "menu_imports_delete_own_folder"
   on storage.objects for delete to authenticated
   using (
