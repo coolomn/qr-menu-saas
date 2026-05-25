@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  isPublicMenuBlocked,
+  PUBLIC_MENU_UNAVAILABLE_MESSAGE,
+} from "@/lib/public-menu/subscription-gate";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -12,6 +16,8 @@ type RestaurantRow = {
   slider_images: string[] | null;
   welcome_bg_url: string | null;
   instagram: string | null;
+  tenant_status?: string | null;
+  subscription_ends_at?: string | null;
 };
 
 type PublicRestaurant = Omit<RestaurantRow, "id">;
@@ -78,6 +84,8 @@ const RESTAURANT_COLUMNS = [
   "slider_images",
   "welcome_bg_url",
   "instagram",
+  "tenant_status",
+  "subscription_ends_at",
 ].join(",");
 
 const CATEGORY_COLUMNS = [
@@ -125,11 +133,35 @@ export async function GET(
   }
   const supabase = svc.client;
 
-  const { data: restaurant, error: restaurantError } = await supabase
+  let { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
     .select(RESTAURANT_COLUMNS)
     .eq("slug", normalizedSlug)
     .maybeSingle();
+
+  let gateColumnsAvailable = true;
+
+  if (restaurantError && isMissingColumn(restaurantError)) {
+    gateColumnsAvailable = false;
+    const fallback = await supabase
+      .from("restaurants")
+      .select(
+        [
+          "id",
+          "slug",
+          "name",
+          "logo_url",
+          "primary_color",
+          "slider_images",
+          "welcome_bg_url",
+          "instagram",
+        ].join(",")
+      )
+      .eq("slug", normalizedSlug)
+      .maybeSingle();
+    restaurant = fallback.data;
+    restaurantError = fallback.error;
+  }
 
   if (restaurantError) {
     console.error(restaurantError);
@@ -146,6 +178,19 @@ export async function GET(
   }
 
   const restaurantRow: RestaurantRow = restaurant;
+
+  if (
+    gateColumnsAvailable &&
+    isPublicMenuBlocked({
+      tenant_status: restaurantRow.tenant_status,
+      subscription_ends_at: restaurantRow.subscription_ends_at,
+    })
+  ) {
+    return NextResponse.json(
+      { error: PUBLIC_MENU_UNAVAILABLE_MESSAGE },
+      { status: 403 }
+    );
+  }
 
   let categoriesQuery = supabase
     .from("categories")
@@ -189,7 +234,12 @@ export async function GET(
     products = toProductRows(productRows);
   }
 
-  const { id: _restaurantId, ...publicRestaurant } = restaurantRow;
+  const {
+    id: _restaurantId,
+    tenant_status: _tenantStatus,
+    subscription_ends_at: _subscriptionEndsAt,
+    ...publicRestaurant
+  } = restaurantRow;
 
   return NextResponse.json({
     restaurant: publicRestaurant,

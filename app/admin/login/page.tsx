@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { resolvePostLoginPath } from "@/lib/master-admin/client-auth";
 
-// Supabase İstemcisi
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabase = getBrowserSupabase();
+
+function isSafeAdminNextPath(path: string | null): path is string {
+  if (!path) return false;
+  return path.startsWith("/admin") && !path.startsWith("/admin/login");
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -31,10 +33,27 @@ export default function LoginPage() {
     if (error) {
       setError("Giriş başarısız: E-posta veya şifre hatalı.");
       setLoading(false);
-    } else {
-      // Giriş başarılıysa ana admin paneline yönlendir
-      router.push("/admin"); 
+      return;
     }
+
+    const session = data.session;
+    if (!session?.access_token) {
+      setError("Oturum oluşturulamadı. Tekrar deneyin.");
+      setLoading(false);
+      return;
+    }
+
+    const nextParam =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("next")
+        : null;
+    if (isSafeAdminNextPath(nextParam)) {
+      router.push(nextParam);
+      return;
+    }
+
+    const destination = await resolvePostLoginPath(session.access_token);
+    router.push(destination);
   };
 
   return (

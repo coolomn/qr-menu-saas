@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -16,10 +16,7 @@ import {
 import type { ImportMenuPayload } from "@/lib/menu-import/schema";
 import { MENU_IMPORTS_BUCKET, buildImportStoragePath } from "@/lib/menu-import/paths";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabase = getBrowserSupabase();
 
 function safeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120) || "menu";

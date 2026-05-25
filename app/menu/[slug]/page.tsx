@@ -116,6 +116,34 @@ function isIOSMobileClient(): boolean {
   return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 }
 
+function MenuUnavailableScreen() {
+  return (
+    <div
+      className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-[#F5F1EB] px-6"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-[#E5DFD3]/60 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -left-20 h-72 w-72 rounded-full bg-[#1F3B2B]/10 blur-3xl" />
+
+      <div className="relative z-10 flex max-w-md flex-col items-center gap-6 text-center">
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#E5DFD3] shadow-lg">
+          <UtensilsCrossed className="h-9 w-9 text-[#1F3B2B]/70" strokeWidth={2.5} aria-hidden />
+        </div>
+        <div className="space-y-3">
+          <h1 className="text-xl font-black tracking-tight text-[#1F3B2B] sm:text-2xl">
+            Menü şu anda kullanılamıyor
+          </h1>
+          <p className="text-sm leading-relaxed text-[#1F3B2B]/75 sm:text-base">
+            Bu dijital menü geçici olarak kapalıdır. Lütfen daha sonra tekrar deneyin veya işletme ile
+            iletişime geçin.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MenuLoadingScreen() {
   return (
     <div
@@ -186,6 +214,7 @@ export default function CustomerMenu() {
   const [categories, setCategories] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [menuUnavailable, setMenuUnavailable] = useState(false);
   
   const [language, setLanguage] = useState("tr");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -205,8 +234,19 @@ export default function CustomerMenu() {
       }
 
       try {
+        setMenuUnavailable(false);
         const response = await fetch(`/api/public-menu/${encodeURIComponent(slugValue)}`);
+
+        if (response.status === 403) {
+          setMenuUnavailable(true);
+          setRestaurant(null);
+          setCategories([]);
+          setProducts([]);
+          return;
+        }
+
         if (!response.ok) {
+          setMenuUnavailable(false);
           setRestaurant(null);
           setCategories([]);
           setProducts([]);
@@ -218,11 +258,13 @@ export default function CustomerMenu() {
           categories: any[];
           products: any[];
         };
+        setMenuUnavailable(false);
         setRestaurant(data.restaurant || null);
         setCategories(data.categories || []);
         setProducts(data.products || []);
       } catch (error) {
         console.error(error);
+        setMenuUnavailable(false);
         setRestaurant(null);
         setCategories([]);
         setProducts([]);
@@ -252,7 +294,14 @@ export default function CustomerMenu() {
   }, [restaurant?.slider_images, view]);
 
   if (loading) return <MenuLoadingScreen />;
-  if (!restaurant) return <div className="h-screen flex items-center justify-center font-bold text-red-500 text-xl">Restoran bulunamadı.</div>;
+  if (menuUnavailable) return <MenuUnavailableScreen />;
+  if (!restaurant) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#F5F1EB] px-6 text-center font-bold text-[#1F3B2B] text-lg">
+        Restoran bulunamadı.
+      </div>
+    );
+  }
 
   const themeColor = restaurant.primary_color || "#2563eb";
   const getText = (item: any, field: string) => {
