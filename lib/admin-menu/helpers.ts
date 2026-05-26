@@ -151,6 +151,65 @@ export async function getNextMenuCollectionSortOrder(
   return 0;
 }
 
+export async function getMenuCollectionJunctionCounts(
+  admin: SupabaseClient,
+  menuCollectionId: string
+): Promise<{ category_links: number; product_links: number }> {
+  const { count: categoryLinks, error: catErr } = await admin
+    .from("category_menu_collections")
+    .select("*", { count: "exact", head: true })
+    .eq("menu_collection_id", menuCollectionId);
+
+  if (catErr) {
+    console.error(catErr);
+  }
+
+  const { count: productLinks, error: prodErr } = await admin
+    .from("product_menu_collections")
+    .select("*", { count: "exact", head: true })
+    .eq("menu_collection_id", menuCollectionId);
+
+  if (prodErr) {
+    console.error(prodErr);
+  }
+
+  return {
+    category_links: categoryLinks ?? 0,
+    product_links: productLinks ?? 0,
+  };
+}
+
+export async function assertCanDeleteMenuCollection(
+  admin: SupabaseClient,
+  restaurantId: string,
+  menuCollectionId: string,
+  options: { isActive: boolean }
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { data: menus, error } = await admin
+    .from("menu_collections")
+    .select("id, is_active")
+    .eq("restaurant_id", restaurantId);
+
+  if (error) {
+    console.error(error);
+    return { ok: false, message: "Menü durumu kontrol edilemedi." };
+  }
+
+  const all = menus || [];
+  if (all.length <= 1) {
+    return { ok: false, message: "Son menü silinemez. En az bir menü kalmalıdır." };
+  }
+
+  if (options.isActive) {
+    const activeOthers = all.filter((m) => m.is_active && m.id !== menuCollectionId);
+    if (activeOthers.length === 0) {
+      return { ok: false, message: "En az bir aktif menü kalmalıdır." };
+    }
+  }
+
+  return { ok: true };
+}
+
 export async function assertCanDeactivateMenuCollection(
   admin: SupabaseClient,
   restaurantId: string,

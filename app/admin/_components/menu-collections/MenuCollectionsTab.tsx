@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Edit3, LayoutGrid, Loader2, Plus, Power, PowerOff } from "lucide-react";
+import { Edit3, LayoutGrid, Loader2, Plus, Power, PowerOff, Trash2, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import type { AdminMenuCollectionListItem } from "@/lib/admin-menu/types";
 import {
@@ -36,9 +36,25 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
   const [formError, setFormError] = useState<string | null>(null);
   const [formBusy, setFormBusy] = useState(false);
   const [toggleBusyId, setToggleBusyId] = useState<string | null>(null);
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<AdminMenuCollectionListItem | null>(
+    null
+  );
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
 
   const activeCount = items.filter((m) => m.is_active).length;
   const showSingleMenuHint = activeCount <= 1;
+
+  const canDeleteMenu = (item: AdminMenuCollectionListItem): boolean => {
+    if (items.length <= 1) return false;
+    if (item.is_active && activeCount <= 1) return false;
+    return true;
+  };
+
+  const deleteDisabledReason = (item: AdminMenuCollectionListItem): string | null => {
+    if (items.length <= 1) return "Son menü silinemez.";
+    if (item.is_active && activeCount <= 1) return "En az bir aktif menü kalmalıdır.";
+    return null;
+  };
 
   const loadItems = useCallback(async () => {
     setListError(null);
@@ -155,6 +171,32 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
     }
   };
 
+  const handleDelete = async (item: AdminMenuCollectionListItem) => {
+    if (deleteBusyId || !canDeleteMenu(item)) return;
+    setDeleteBusyId(item.id);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Oturum bulunamadı.");
+
+      const res = await fetch(`/api/admin/menu-collections/${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Silinemedi.");
+      }
+      setDeleteConfirmItem(null);
+      await loadItems();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Silinemedi.");
+    } finally {
+      setDeleteBusyId(null);
+    }
+  };
+
   const handleToggleActive = async (item: AdminMenuCollectionListItem) => {
     if (toggleBusyId) return;
     setToggleBusyId(item.id);
@@ -233,6 +275,9 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
         {items.map((item) => {
           const hours = formatHours(item);
           const toggling = toggleBusyId === item.id;
+          const deletable = canDeleteMenu(item);
+          const deleteReason = deleteDisabledReason(item);
+          const deleting = deleteBusyId === item.id;
           return (
             <div
               key={item.id}
@@ -292,6 +337,20 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
                   )}
                   {item.is_active ? "Pasifleştir" : "Aktifleştir"}
                 </button>
+                <button
+                  type="button"
+                  disabled={!deletable || deleting || toggling}
+                  title={deleteReason ?? "Menüyü sil"}
+                  onClick={() => setDeleteConfirmItem(item)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border border-red-100 bg-red-50/80 text-red-700 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-50/80"
+                >
+                  {deleting ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={14} />
+                  )}
+                  Sil
+                </button>
               </div>
             </div>
           );
@@ -314,6 +373,66 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
         onClose={closeModal}
         onSubmit={() => void handleSubmit()}
       />
+
+      {deleteConfirmItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div
+            className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-gray-100 overflow-hidden"
+            role="dialog"
+            aria-labelledby="delete-menu-title"
+          >
+            <div className="p-6 border-b border-gray-100 flex justify-between items-start gap-3">
+              <div>
+                <h3 id="delete-menu-title" className="font-black text-lg text-gray-900">
+                  Menüyü sil
+                </h3>
+                <p className="text-sm font-bold text-gray-600 mt-1">
+                  «{deleteConfirmItem.name}»
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !deleteBusyId && setDeleteConfirmItem(null)}
+                disabled={Boolean(deleteBusyId)}
+                className="text-gray-400 hover:text-gray-900 bg-gray-100 p-2 rounded-full shrink-0 disabled:opacity-40"
+                aria-label="Kapat"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-sm text-gray-700 leading-relaxed">
+              <p>
+                Bu menü silinecek. <strong>Kategoriler ve ürünler silinmez</strong>; yalnızca bu
+                menüde görünmeleri kaldırılır.
+              </p>
+              {deleteConfirmItem.category_count > 0 && (
+                <p className="text-xs font-medium text-amber-900 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                  {deleteConfirmItem.category_count} kategori bu menüye bağlı; bağlantılar
+                  kaldırılır, kategoriler panelde kalır.
+                </p>
+              )}
+            </div>
+            <div className="p-6 pt-0 flex gap-3">
+              <button
+                type="button"
+                disabled={Boolean(deleteBusyId)}
+                onClick={() => setDeleteConfirmItem(null)}
+                className="flex-1 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(deleteBusyId)}
+                onClick={() => void handleDelete(deleteConfirmItem)}
+                className="flex-1 py-3 rounded-xl font-black bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {deleteBusyId ? "Siliniyor…" : "Evet, sil"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

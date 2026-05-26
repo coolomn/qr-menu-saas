@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import {
   assertCanDeactivateMenuCollection,
+  assertCanDeleteMenuCollection,
   getCategoryCountsByMenuCollection,
   getMenuCollectionForOwner,
+  getMenuCollectionJunctionCounts,
   mapDbErrorMessage,
   toListItem,
 } from "@/lib/admin-menu/helpers";
@@ -85,5 +87,59 @@ export async function PATCH(request: Request, context: RouteContext) {
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Menü güncellenemedi." }, { status: 500 });
+  }
+}
+
+export async function DELETE(_request: Request, context: RouteContext) {
+  try {
+    const { user, error: authErr } = await getUserFromBearer(_request);
+    if (authErr || !user) {
+      return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 });
+    }
+
+    const { id } = await context.params;
+    if (!id?.trim()) {
+      return NextResponse.json({ error: "Menü kimliği zorunlu." }, { status: 400 });
+    }
+
+    const svc = tryCreateServiceSupabase();
+    if (!svc.ok) {
+      return NextResponse.json({ error: svc.error }, { status: 503 });
+    }
+    const admin = svc.client;
+
+    const existing = await getMenuCollectionForOwner(admin, user.id, id);
+    if ("error" in existing) {
+      return NextResponse.json({ error: existing.error }, { status: existing.status });
+    }
+
+    const deleteGuard = await assertCanDeleteMenuCollection(
+      admin,
+      existing.restaurantId,
+      id,
+      { isActive: existing.row.is_active }
+    );
+    if (!deleteGuard.ok) {
+      return NextResponse.json({ error: deleteGuard.message }, { status: 400 });
+    }
+
+    const junctionCounts = await getMenuCollectionJunctionCounts(admin, id);
+
+    const { error: deleteErr } = await admin.from("menu_collections").delete().eq("id", id);
+
+    if (deleteErr) {
+      console.error(deleteErr);
+      return NextResponse.json({ error: mapDbErrorMessage(deleteErr) }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      id,
+      category_links_removed: junctionCounts.category_links,
+      product_links_removed: junctionCounts.product_links,
+    });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "Menü silinemedi." }, { status: 500 });
   }
 }
