@@ -5,7 +5,10 @@ import { useParams } from "next/navigation";
 import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
 import { MenuPickScreen } from "@/app/menu/[slug]/_components/menu-pick-screen";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { categoryBelongsToMenuCollection } from "@/lib/public-menu/display";
+import {
+  categoryBelongsToMenuCollection,
+  productBelongsToMenuCollection,
+} from "@/lib/public-menu/display";
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 import { MULTI_MENU_PROTOTYPE_ENABLED } from "@/lib/menu-prototype/config";
 
@@ -337,16 +340,42 @@ export default function CustomerMenu() {
 
   const categoryGroupKey = (cat: { main_group?: string | null }) => cat.main_group || "DİĞER";
 
+  const filterByMenuCollection = useCollectionFlow && Boolean(selectedMenuCollectionId);
+
+  const categoryById = useMemo(() => {
+    const map = new Map<string, PublicCategory>();
+    for (const cat of categories) map.set(cat.id, cat);
+    return map;
+  }, [categories]);
+
+  const productsInSelectedMenu = useMemo(() => {
+    if (!filterByMenuCollection || !selectedMenuCollectionId) return products;
+    return products.filter((p: { category_id: string; menu_collection_ids?: string[] }) => {
+      const cat = categoryById.get(p.category_id);
+      return productBelongsToMenuCollection(p, selectedMenuCollectionId, cat);
+    });
+  }, [products, filterByMenuCollection, selectedMenuCollectionId, categoryById]);
+
   const menuCategories = useMemo(() => {
     let list = categories;
     if (menuMainGroup != null) {
       list = list.filter((c) => categoryGroupKey(c) === menuMainGroup);
     }
-    if (useCollectionFlow && selectedMenuCollectionId) {
+    if (filterByMenuCollection && selectedMenuCollectionId) {
       list = list.filter((c) => categoryBelongsToMenuCollection(c, selectedMenuCollectionId));
+      const categoriesWithProducts = new Set(
+        productsInSelectedMenu.map((p: { category_id: string }) => p.category_id)
+      );
+      list = list.filter((c) => categoriesWithProducts.has(c.id));
     }
     return list;
-  }, [categories, menuMainGroup, useCollectionFlow, selectedMenuCollectionId]);
+  }, [
+    categories,
+    menuMainGroup,
+    filterByMenuCollection,
+    selectedMenuCollectionId,
+    productsInSelectedMenu,
+  ]);
 
   const menuCategoryIds = useMemo(
     () => new Set(menuCategories.map((c) => c.id)),
@@ -354,11 +383,12 @@ export default function CustomerMenu() {
   );
 
   const visibleProducts = useMemo(() => {
-    return products.filter(
+    if (!activeCategory) return [];
+    return productsInSelectedMenu.filter(
       (p: { category_id: string }) =>
         menuCategoryIds.has(p.category_id) && p.category_id === activeCategory
     );
-  }, [products, activeCategory, menuCategoryIds]);
+  }, [productsInSelectedMenu, activeCategory, menuCategoryIds]);
 
   useEffect(() => {
     if (view !== "menu") return;
@@ -678,26 +708,28 @@ export default function CustomerMenu() {
       </header>
 
       <main className="p-3 max-w-2xl mx-auto space-y-3 mt-1">
-        {menuCategories.length === 0 && showMenuPicker && (
+        {menuCategories.length === 0 && filterByMenuCollection && (
           <div className="text-center py-12 px-4 space-y-4">
             <p className="text-sm font-bold text-gray-500">
               {language === "en"
-                ? "No categories in this menu yet."
+                ? "No items in this menu yet."
                 : language === "ru"
-                  ? "В этом меню пока нет категорий."
-                  : "Bu menüde henüz kategori yok."}
+                  ? "В этом меню пока нет позиций."
+                  : "Bu menüde henüz ürün yok."}
             </p>
-            <button
-              type="button"
-              onClick={backToMenuPick}
-              className="text-sm font-black uppercase tracking-wide text-gray-800 underline underline-offset-4"
-            >
-              {language === "en"
-                ? "Back to menu selection"
-                : language === "ru"
-                  ? "К выбору меню"
-                  : "Menü seçimine dön"}
-            </button>
+            {showMenuPicker && (
+              <button
+                type="button"
+                onClick={backToMenuPick}
+                className="text-sm font-black uppercase tracking-wide text-gray-800 underline underline-offset-4"
+              >
+                {language === "en"
+                  ? "Back to menu selection"
+                  : language === "ru"
+                    ? "К выбору меню"
+                    : "Menü seçimine dön"}
+              </button>
+            )}
           </div>
         )}
         {visibleProducts.map((product: any) => (

@@ -58,3 +58,7 @@ export const putCategoryMenuCollectionsSchema = z.object({
 });
 
 export type PutCategoryMenuCollectionsInput = z.infer<typeof putCategoryMenuCollectionsSchema>;
+
+export const putProductMenuCollectionsSchema = putCategoryMenuCollectionsSchema;
+
+export type PutProductMenuCollectionsInput = z.infer<typeof putProductMenuCollectionsSchema>;

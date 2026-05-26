@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff } from "lucide-react";
 import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
+import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
 import { formatPriceForDisplay } from "@/lib/format-price";
 import { prepareProductImageForUpload } from "@/lib/prepare-product-image-client";
@@ -131,6 +132,12 @@ export default function AdminDashboard() {
   const [categoryMenuPickerMenus, setCategoryMenuPickerMenus] = useState<CategoryMenuCollectionsPickerMenu[]>([]);
   const [categoryMenuError, setCategoryMenuError] = useState<string | null>(null);
   const [categoryMenuPickerLoading, setCategoryMenuPickerLoading] = useState(false);
+
+  const [productMenuLinksMap, setProductMenuLinksMap] = useState<Record<string, string[]>>({});
+  const [productMenuSelectedIds, setProductMenuSelectedIds] = useState<string[]>([]);
+  const [productMenuPickerMenus, setProductMenuPickerMenus] = useState<CategoryMenuCollectionsPickerMenu[]>([]);
+  const [productMenuError, setProductMenuError] = useState<string | null>(null);
+  const [productMenuPickerLoading, setProductMenuPickerLoading] = useState(false);
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
@@ -226,8 +233,27 @@ export default function AdminDashboard() {
             .in("category_id", categoryIds);
           if (prodErr) console.error(prodErr);
           setProducts(prodData || []);
+
+          if (prodData && prodData.length > 0) {
+            const productIds = prodData.map((p: { id: string }) => p.id);
+            const { data: productLinkRows } = await supabase
+              .from("product_menu_collections")
+              .select("product_id, menu_collection_id")
+              .in("product_id", productIds);
+            const productLinksMap: Record<string, string[]> = {};
+            for (const row of productLinkRows || []) {
+              const pid = row.product_id as string;
+              const mid = row.menu_collection_id as string;
+              if (!productLinksMap[pid]) productLinksMap[pid] = [];
+              productLinksMap[pid].push(mid);
+            }
+            setProductMenuLinksMap(productLinksMap);
+          } else {
+            setProductMenuLinksMap({});
+          }
         } else {
           setProducts([]);
+          setProductMenuLinksMap({});
         }
       }
       setLoading(false);
@@ -406,7 +432,40 @@ export default function AdminDashboard() {
       price: product.price || "", category_id: product.category_id || "", file: null, image_url: product.image_url || "",
       allergens: product.allergens || []
     });
+    setProductMenuError(null);
     setIsProductModalOpen(true);
+    if (getActiveRestaurantMenus().length >= 2 && product.category_id) {
+      void loadProductMenuSelections(product.id);
+    } else {
+      resetProductMenuPickerState();
+    }
+  };
+
+  const openNewProductModal = () => {
+    setEditingProductId(null);
+    setAllergenSuggestMessage(null);
+    setNewProduct({
+      name: "",
+      name_en: "",
+      name_ru: "",
+      description: "",
+      description_en: "",
+      description_ru: "",
+      price: "",
+      category_id: "",
+      file: null,
+      image_url: "",
+      allergens: [],
+    });
+    resetProductMenuPickerState();
+    setIsProductModalOpen(true);
+  };
+
+  const closeProductModal = () => {
+    setIsProductModalOpen(false);
+    setEditingProductId(null);
+    setAllergenSuggestMessage(null);
+    resetProductMenuPickerState();
   };
 
   const handleProductSubmit = async (e: React.FormEvent) => {
@@ -420,6 +479,29 @@ export default function AdminDashboard() {
       alert("Geçerli bir kategori seçin.");
       return;
     }
+
+    const activeMenus = getActiveRestaurantMenus();
+    const showProductMenuPicker = activeMenus.length >= 2;
+    const availableForCategory = getAvailableMenusForCategory(newProduct.category_id);
+    const menuIdsToSave = showProductMenuPicker
+      ? productMenuSelectedIds
+      : activeMenus.map((m) => m.id);
+
+    if (showProductMenuPicker) {
+      if (availableForCategory.length === 0) {
+        setProductMenuError("Bu kategori için menü seçilemiyor. Kategoriye menü bağlayın.");
+        return;
+      }
+      if (menuIdsToSave.length === 0) {
+        setProductMenuError("En az bir menü seçin.");
+        return;
+      }
+    } else if (activeMenus.length === 0) {
+      setProductMenuError("Aktif menü bulunamadı. Önce Menüler sekmesinden bir menü oluşturun.");
+      return;
+    }
+    setProductMenuError(null);
+
     setUploading(true);
     let imageUrl = newProduct.image_url;
     try {
@@ -447,24 +529,37 @@ export default function AdminDashboard() {
         price: newProduct.price, image_url: imageUrl, allergens: newProduct.allergens
       };
 
+      let savedProductId = editingProductId;
       if (editingProductId) {
         const { data, error } = await supabase.from("products").update(payload).eq("id", editingProductId).select("*, categories(*)").single();
-        if (!error) setProducts(products.map((p: any) => p.id === editingProductId ? data : p));
-        else {
-          alert(error.message || "Kayıt başarısız.");
+        if (!error && data) {
+          setProducts(products.map((p: any) => (p.id === editingProductId ? data : p)));
+        } else {
+          alert(error?.message || "Kayıt başarısız.");
           return;
         }
       } else {
         const { data, error } = await supabase.from("products").insert([{ ...payload, is_active: true }]).select("*, categories(*)").single();
-        if (!error) setProducts([...products, data]);
-        else {
-          alert(error.message || "Kayıt başarısız.");
+        if (!error && data) {
+          savedProductId = data.id;
+          setProducts([...products, data]);
+        } else {
+          alert(error?.message || "Kayıt başarısız.");
           return;
         }
       }
-      setIsProductModalOpen(false);
-      setEditingProductId(null);
-      setAllergenSuggestMessage(null);
+
+      if (savedProductId) {
+        const synced = await syncProductMenuLinks(savedProductId, menuIdsToSave);
+        if (!synced) {
+          alert(
+            "Ürün kaydedildi ancak menü bağlantıları güncellenemedi. Ürünü düzenleyip menüleri tekrar seçin."
+          );
+          return;
+        }
+      }
+
+      closeProductModal();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Görsel işlenemedi.");
     } finally {
@@ -565,6 +660,128 @@ export default function AdminDashboard() {
     const activeMenus = getActiveRestaurantMenus();
     if (activeMenus.length <= 1) return null;
     const linked = categoryMenuLinksMap[categoryId] || [];
+    const names = linked
+      .map((id) => activeMenus.find((m) => m.id === id)?.name)
+      .filter((n): n is string => Boolean(n));
+    if (names.length === 0) return null;
+    if (names.length <= 2) return names.join(", ");
+    return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+  };
+
+  const getAvailableMenusForCategory = (categoryId: string): CategoryMenuCollectionsPickerMenu[] => {
+    if (!categoryId) return [];
+    const active = getActiveRestaurantMenus();
+    const linked = categoryMenuLinksMap[categoryId] || [];
+    const available = active.filter((m) => linked.includes(m.id));
+    if (available.length === 0 && active.length > 0) {
+      return toPickerMenus([active[0]]);
+    }
+    return toPickerMenus(available);
+  };
+
+  const resetProductMenuPickerState = () => {
+    setProductMenuPickerMenus([]);
+    setProductMenuSelectedIds([]);
+    setProductMenuError(null);
+    setProductMenuPickerLoading(false);
+  };
+
+  const applyProductMenuSelectionForCategory = (
+    categoryId: string,
+    options?: { selectedIds?: string[]; intersectPrevious?: boolean }
+  ) => {
+    const available = getAvailableMenusForCategory(categoryId);
+    setProductMenuPickerMenus(available);
+    const availableIds = available.map((m) => m.id);
+
+    if (options?.selectedIds) {
+      const filtered = options.selectedIds.filter((id) => availableIds.includes(id));
+      setProductMenuSelectedIds(filtered.length > 0 ? filtered : availableIds);
+      return;
+    }
+
+    if (options?.intersectPrevious) {
+      setProductMenuSelectedIds((prev) => {
+        const intersected = prev.filter((id) => availableIds.includes(id));
+        return intersected.length > 0 ? intersected : availableIds;
+      });
+      return;
+    }
+
+    setProductMenuSelectedIds(availableIds);
+  };
+
+  const loadProductMenuSelections = async (productId: string) => {
+    setProductMenuPickerLoading(true);
+    setProductMenuError(null);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      setProductMenuError("Oturum bulunamadı.");
+      setProductMenuPickerLoading(false);
+      return;
+    }
+    const res = await fetch(`/api/admin/products/${productId}/menu-collections`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const json = (await res.json()) as {
+      available_menu_collections?: CategoryMenuCollectionsPickerMenu[];
+      selected_menu_collection_ids?: string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      setProductMenuError(json.error || "Ürün menü bağlantıları yüklenemedi.");
+      setProductMenuPickerLoading(false);
+      return;
+    }
+    setProductMenuPickerMenus(json.available_menu_collections || []);
+    setProductMenuSelectedIds(json.selected_menu_collection_ids || []);
+    setProductMenuPickerLoading(false);
+  };
+
+  const putProductMenuCollections = async (
+    productId: string,
+    menuCollectionIds: string[]
+  ): Promise<{ ok: true; ids: string[] } | { ok: false; error: string }> => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { ok: false, error: "Oturum bulunamadı." };
+    }
+    const res = await fetch(`/api/admin/products/${productId}/menu-collections`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ menu_collection_ids: menuCollectionIds }),
+    });
+    const json = (await res.json()) as { menu_collection_ids?: string[]; error?: string };
+    if (!res.ok) {
+      return { ok: false, error: json.error || "Ürün menü bağlantıları kaydedilemedi." };
+    }
+    return { ok: true, ids: json.menu_collection_ids || menuCollectionIds };
+  };
+
+  const syncProductMenuLinks = async (
+    productId: string,
+    menuCollectionIds: string[]
+  ): Promise<boolean> => {
+    const result = await putProductMenuCollections(productId, menuCollectionIds);
+    if (!result.ok) {
+      setProductMenuError(result.error);
+      return false;
+    }
+    setProductMenuLinksMap((prev) => ({ ...prev, [productId]: result.ids }));
+    return true;
+  };
+
+  const formatProductMenuBadge = (productId: string): string | null => {
+    const activeMenus = getActiveRestaurantMenus();
+    if (activeMenus.length <= 1) return null;
+    const linked = productMenuLinksMap[productId] || [];
     const names = linked
       .map((id) => activeMenus.find((m) => m.id === id)?.name)
       .filter((n): n is string => Boolean(n));
@@ -995,7 +1212,7 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-4 md:p-8 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-50/50">
                   <h2 className="text-lg md:text-xl font-black">Ürün Yönetimi</h2>
-                  <button onClick={() => { setEditingProductId(null); setAllergenSuggestMessage(null); setNewProduct({name:"", name_en:"", name_ru:"", description:"", description_en:"", description_ru:"", price:"", category_id:"", file:null, image_url:"", allergens: []}); setIsProductModalOpen(true); }} className="w-full md:w-auto justify-center bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"><Plus size={20} /> Yeni Ürün</button>
+                  <button onClick={openNewProductModal} className="w-full md:w-auto justify-center bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"><Plus size={20} /> Yeni Ürün</button>
                 </div>
                 <div className="p-3 md:p-4 grid gap-3">
                   {products.map((p: any) => (
@@ -1005,9 +1222,20 @@ export default function AdminDashboard() {
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1"><div className="font-black text-base md:text-lg leading-tight">{p.name}</div></div>
                           {p.description && <p className="text-xs text-gray-500 font-medium italic line-clamp-2">{p.description}</p>}
-                          <div className="flex items-center gap-2 mt-2">
+                          <div className="flex items-center gap-2 mt-2 flex-wrap">
                              <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded-md uppercase tracking-wider inline-block">{p.categories?.main_group || 'YİYECEKLER'}</span>
                              <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md uppercase tracking-wider inline-block">{p.categories?.name}</span>
+                             {(() => {
+                               const menuBadge = formatProductMenuBadge(p.id);
+                               return menuBadge ? (
+                                 <span
+                                   className="text-[9px] font-bold bg-teal-50 border border-teal-100 text-teal-800 px-2 py-0.5 rounded-md truncate max-w-[12rem]"
+                                   title={menuBadge}
+                                 >
+                                   {menuBadge}
+                                 </span>
+                               ) : null;
+                             })()}
                           </div>
                         </div>
                       </div>
@@ -1276,17 +1504,45 @@ export default function AdminDashboard() {
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4">
             <div className="bg-white rounded-[2rem] w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[95vh] md:max-h-[90vh]">
-                <div className="p-4 md:p-8 border-b flex justify-between items-center"><h3 className="font-black text-xl md:text-2xl text-gray-900 tracking-tighter">{editingProductId ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h3><button type="button" onClick={() => { setIsProductModalOpen(false); setEditingProductId(null); setAllergenSuggestMessage(null); }} className="text-gray-300 hover:text-gray-900 bg-gray-100 p-1 md:p-2 rounded-full"><X size={24} /></button></div>
+                <div className="p-4 md:p-8 border-b flex justify-between items-center"><h3 className="font-black text-xl md:text-2xl text-gray-900 tracking-tighter">{editingProductId ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h3><button type="button" onClick={closeProductModal} className="text-gray-300 hover:text-gray-900 bg-gray-100 p-1 md:p-2 rounded-full"><X size={24} /></button></div>
                 
                 {/* GÜNCELLENEN FORM BURASI: İNGİLİZCE VE RUSÇA KUTULARI EKLENDİ */}
                 <form onSubmit={handleProductSubmit} className="p-4 md:p-8 space-y-4 md:space-y-6 overflow-y-auto text-gray-900 pb-20 md:pb-8">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <select required className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base" value={newProduct.category_id} onChange={e => setNewProduct({...newProduct, category_id: e.target.value})}>
+                        <select
+                          required
+                          className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base"
+                          value={newProduct.category_id}
+                          onChange={(e) => {
+                            const categoryId = e.target.value;
+                            setNewProduct({ ...newProduct, category_id: categoryId });
+                            if (getActiveRestaurantMenus().length >= 2 && categoryId) {
+                              applyProductMenuSelectionForCategory(categoryId, { intersectPrevious: true });
+                              setProductMenuError(null);
+                            }
+                          }}
+                        >
                             <option value="">Kategori Seç</option>
                             {categories.map((cat: any) => <option key={cat.id} value={cat.id}>{cat.name} ({cat.main_group || 'YİYECEKLER'})</option>)}
                         </select>
                         <input required type="text" placeholder="Fiyat (Örn: 250 ₺)" className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-black outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
                     </div>
+
+                    {getActiveRestaurantMenus().length >= 2 && newProduct.category_id && (
+                      productMenuPickerLoading ? (
+                        <p className="text-xs font-bold text-teal-600 px-1">Menü bağlantıları yükleniyor…</p>
+                      ) : (
+                        <ProductMenuCollectionFields
+                          menus={productMenuPickerMenus}
+                          selectedIds={productMenuSelectedIds}
+                          onChange={(ids) => {
+                            setProductMenuSelectedIds(ids);
+                            if (ids.length > 0) setProductMenuError(null);
+                          }}
+                          error={productMenuError}
+                        />
+                      )
+                    )}
 
                     <div className="p-4 md:p-6 bg-blue-50 rounded-2xl md:rounded-[2rem] border border-blue-100 space-y-3 md:space-y-4">
                         {/* ÇEVİR BUTONU BURAYA GERİ GELDİ */}

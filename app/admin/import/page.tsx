@@ -242,12 +242,18 @@ export default function AdminMenuImportPage() {
         categoriesCreated?: number;
         productsCreated?: number;
         target_menu_name?: string;
+        product_menu_links_skipped?: boolean;
       };
       if (!res.ok || !json.ok) {
         throw new Error(json.error || "Kayıt başarısız.");
       }
       const menuLabel = json.target_menu_name || targetMenuName || "menü";
-      alert(`Menü «${menuLabel}» içine aktarıldı.`);
+      let successMessage = `Menü «${menuLabel}» içine aktarıldı.`;
+      if (json.product_menu_links_skipped) {
+        successMessage +=
+          "\n\nUyarı: Ürün–menü bağlantı tablosu kullanılamadı; ürünler menüde görünmeyebilir. Veritabanı migration’ını kontrol edin.";
+      }
+      alert(successMessage);
       router.push("/admin");
       router.refresh();
     } catch (e) {

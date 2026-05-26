@@ -6,7 +6,10 @@ import {
   importMenuPayloadSchema,
 } from "@/lib/menu-import/schema";
 import { resolveImportTargetMenuCollection } from "@/lib/menu-import/target-menu";
-import { ensureCategoryMenuCollectionLink } from "@/lib/admin-menu/helpers";
+import {
+  ensureCategoryMenuCollectionLink,
+  ensureProductMenuCollectionLink,
+} from "@/lib/admin-menu/helpers";
 
 export const runtime = "nodejs";
 
@@ -94,6 +97,7 @@ export async function POST(request: Request) {
 
     let categoriesCreated = 0;
     let productsCreated = 0;
+    let productMenuLinksSkipped = false;
 
     for (let i = 0; i < payload.categories.length; i++) {
       const cat = payload.categories[i];
@@ -184,17 +188,38 @@ export async function POST(request: Request) {
             .select("id")
             .single();
         }
-        if (pr.error) {
+        if (pr.error || !pr.data?.id) {
           console.error(pr.error);
           return NextResponse.json(
             {
-              error: pr.error.message || "Ürün eklenemedi.",
+              error: pr.error?.message || "Ürün eklenemedi.",
               categoriesCreated,
               productsCreated,
             },
             { status: 500 }
           );
         }
+
+        const productLink = await ensureProductMenuCollectionLink(
+          admin,
+          pr.data.id,
+          targetMenu.id
+        );
+        if (!productLink.ok) {
+          if ("skipped" in productLink) {
+            productMenuLinksSkipped = true;
+          } else {
+            return NextResponse.json(
+              {
+                error: productLink.error || "Ürün menüye bağlanamadı.",
+                categoriesCreated,
+                productsCreated,
+              },
+              { status: 500 }
+            );
+          }
+        }
+
         productsCreated++;
       }
     }
@@ -205,6 +230,7 @@ export async function POST(request: Request) {
       productsCreated,
       target_menu_collection_id: targetMenu.id,
       target_menu_name: targetMenu.name,
+      product_menu_links_skipped: productMenuLinksSkipped,
     });
   } catch (e) {
     console.error(e);

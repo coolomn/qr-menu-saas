@@ -57,3 +57,19 @@ export function categoryBelongsToMenuCollection(
   const ids = category.menu_collection_ids;
   return Array.isArray(ids) && ids.includes(menuCollectionId);
 }
+
+/** Ürün seçili menüde mi? Önce product ids; yoksa kategori mirası (E2 API defensive fallback). */
+export function productBelongsToMenuCollection(
+  product: { menu_collection_ids?: string[] },
+  menuCollectionId: string,
+  category?: { menu_collection_ids?: string[] }
+): boolean {
+  const productIds = product.menu_collection_ids;
+  if (Array.isArray(productIds) && productIds.length > 0) {
+    return productIds.includes(menuCollectionId);
+  }
+  if (category) {
+    return categoryBelongsToMenuCollection(category, menuCollectionId);
+  }
+  return false;
+}

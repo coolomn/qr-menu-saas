@@ -7,6 +7,10 @@ import {
   attachMenuCollectionIds,
   buildMenuCollectionsPayload,
 } from "@/lib/public-menu/menu-collections";
+import {
+  attachProductMenuCollectionIds,
+  buildProductMenuCollectionsMaps,
+} from "@/lib/public-menu/product-menu-collections";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -250,11 +254,27 @@ export async function GET(
 
   const publicCategories = attachMenuCollectionIds(categoryRows, menuIdsByCategory);
 
+  const activeMenuIdSet = new Set(menu_collections.map((m) => m.id));
+  const productIds = products.map((p) => p.id);
+  const { menuIdsByProduct, productsWithJunction } = await buildProductMenuCollectionsMaps(
+    supabase,
+    productIds,
+    activeMenuIdSet
+  );
+
+  const publicProducts = attachProductMenuCollectionIds(
+    products,
+    menuIdsByProduct,
+    productsWithJunction,
+    menuIdsByCategory,
+    menu_picker.default_menu_collection_id
+  );
+
   return NextResponse.json({
     restaurant: publicRestaurant,
     menu_collections,
     menu_picker,
     categories: publicCategories,
-    products,
+    products: publicProducts,
   });
 }

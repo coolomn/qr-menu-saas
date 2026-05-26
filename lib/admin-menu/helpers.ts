@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AdminMenuCollection, AdminMenuCollectionListItem } from "@/lib/admin-menu/types";
+import type {
+  AdminMenuCollection,
+  AdminMenuCollectionListItem,
+  CategoryMenuCollectionsPickerMenu,
+} from "@/lib/admin-menu/types";
 
 type DbMenuRow = {
   id: string;
@@ -326,6 +330,68 @@ export async function ensureCategoryMenuCollectionLink(
   if (insertErr) throw insertErr;
 }
 
+function isProductMenuCollectionsSchemaError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "42P01" || error.code === "42703") return true;
+  const msg = error.message || "";
+  return /product_menu_collections|relation|schema cache|does not exist/i.test(msg);
+}
+
+export type EnsureProductMenuCollectionLinkResult =
+  | { ok: true }
+  | { ok: false; skipped: true }
+  | { ok: false; error: string };
+
+/**
+ * Idempotent link: inserts only if missing. Skips gracefully when junction table is unavailable.
+ */
+export async function ensureProductMenuCollectionLink(
+  admin: SupabaseClient,
+  productId: string,
+  menuCollectionId: string
+): Promise<EnsureProductMenuCollectionLinkResult> {
+  const { data: existing, error: readErr } = await admin
+    .from("product_menu_collections")
+    .select("product_id")
+    .eq("product_id", productId)
+    .eq("menu_collection_id", menuCollectionId)
+    .maybeSingle();
+
+  if (readErr) {
+    if (isProductMenuCollectionsSchemaError(readErr)) {
+      console.warn("product_menu_collections unavailable:", readErr.message);
+      return { ok: false, skipped: true };
+    }
+    console.error(readErr);
+    return { ok: false, error: "Ürün menü bağlantısı okunamadı." };
+  }
+
+  if (existing) {
+    return { ok: true };
+  }
+
+  const { error: insertErr } = await admin.from("product_menu_collections").insert({
+    product_id: productId,
+    menu_collection_id: menuCollectionId,
+  });
+
+  if (!insertErr) {
+    return { ok: true };
+  }
+
+  if (insertErr.code === "23505") {
+    return { ok: true };
+  }
+
+  if (isProductMenuCollectionsSchemaError(insertErr)) {
+    console.warn("product_menu_collections unavailable:", insertErr.message);
+    return { ok: false, skipped: true };
+  }
+
+  console.error(insertErr);
+  return { ok: false, error: insertErr.message || "Ürün menüye bağlanamadı." };
+}
+
 export async function replaceCategoryMenuCollections(
   admin: SupabaseClient,
   categoryId: string,
@@ -343,6 +409,125 @@ export async function replaceCategoryMenuCollections(
   const { error: insertErr } = await admin.from("category_menu_collections").insert(
     menuCollectionIds.map((menu_collection_id) => ({
       category_id: categoryId,
+      menu_collection_id,
+    }))
+  );
+
+  if (insertErr) throw insertErr;
+}
+
+type DbProductRow = {
+  id: string;
+  restaurant_id: string;
+  category_id: string;
+};
+
+export async function getProductForOwner(
+  admin: SupabaseClient,
+  userId: string,
+  productId: string
+): Promise<{ product: DbProductRow } | { error: string; status: number }> {
+  const { data: product, error } = await admin
+    .from("products")
+    .select("id, restaurant_id, category_id")
+    .eq("id", productId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(error);
+    return { error: "Ürün okunamadı.", status: 500 };
+  }
+  if (!product) {
+    return { error: "Ürün bulunamadı.", status: 404 };
+  }
+
+  const ownerCheck = await getOwnerRestaurant(admin, userId, product.restaurant_id);
+  if ("error" in ownerCheck) {
+    return { error: ownerCheck.error, status: ownerCheck.status };
+  }
+
+  return { product: product as DbProductRow };
+}
+
+export async function getProductMenuCollectionIds(
+  admin: SupabaseClient,
+  productId: string
+): Promise<string[]> {
+  const { data, error } = await admin
+    .from("product_menu_collections")
+    .select("menu_collection_id")
+    .eq("product_id", productId);
+
+  if (error) throw error;
+  return (data || []).map((row) => row.menu_collection_id as string);
+}
+
+export async function getAvailableMenuCollectionsForCategory(
+  admin: SupabaseClient,
+  restaurantId: string,
+  categoryId: string
+): Promise<CategoryMenuCollectionsPickerMenu[]> {
+  const activeMenus = await listMenuCollectionsForRestaurantPicker(admin, restaurantId, true);
+  const categoryMenuIds = await getCategoryMenuCollectionIds(admin, categoryId);
+  const activeIdSet = new Set(activeMenus.map((m) => m.id));
+  let allowedIds = categoryMenuIds.filter((id) => activeIdSet.has(id));
+
+  if (allowedIds.length === 0 && activeMenus.length > 0) {
+    allowedIds = [activeMenus[0].id];
+  }
+
+  const allowedSet = new Set(allowedIds);
+  return activeMenus.filter((m) => allowedSet.has(m.id));
+}
+
+export async function validateProductMenuCollectionIdsForCategory(
+  admin: SupabaseClient,
+  restaurantId: string,
+  categoryId: string,
+  menuCollectionIds: string[]
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const restaurantValidation = await validateMenuCollectionIdsForRestaurant(
+    admin,
+    restaurantId,
+    menuCollectionIds,
+    { activeOnly: true }
+  );
+  if (!restaurantValidation.ok) {
+    return restaurantValidation;
+  }
+
+  const available = await getAvailableMenuCollectionsForCategory(admin, restaurantId, categoryId);
+  const allowed = new Set(available.map((m) => m.id));
+
+  for (const id of menuCollectionIds) {
+    if (!allowed.has(id)) {
+      return {
+        ok: false,
+        message: "Seçilen menüler bu kategorinin bağlı olduğu menüler arasında değil.",
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+export async function replaceProductMenuCollections(
+  admin: SupabaseClient,
+  productId: string,
+  menuCollectionIds: string[]
+): Promise<void> {
+  const { error: deleteErr } = await admin
+    .from("product_menu_collections")
+    .delete()
+    .eq("product_id", productId);
+
+  if (deleteErr) throw deleteErr;
+
+  if (menuCollectionIds.length === 0) return;
+
+  const { error: insertErr } = await admin.from("product_menu_collections").insert(
+    menuCollectionIds.map((menu_collection_id) => ({
+      product_id: productId,
       menu_collection_id,
     }))
   );

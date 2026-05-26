@@ -42,3 +42,12 @@ export type CategoryMenuCollectionsGetResponse = {
 export type CategoryMenuCollectionsPutResponse = {
   menu_collection_ids: string[];
 };
+
+export type ProductMenuCollectionsGetResponse = {
+  available_menu_collections: CategoryMenuCollectionsPickerMenu[];
+  selected_menu_collection_ids: string[];
+};
+
+export type ProductMenuCollectionsPutResponse = {
+  menu_collection_ids: string[];
+};
