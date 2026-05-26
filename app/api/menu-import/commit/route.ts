@@ -1,26 +1,159 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import {
-  enforceProductLimit,
-  importMenuPayloadSchema,
-} from "@/lib/menu-import/schema";
-import { resolveImportTargetMenuCollection } from "@/lib/menu-import/target-menu";
-import {
+  getCategoryForOwner,
   ensureCategoryMenuCollectionLink,
   ensureProductMenuCollectionLink,
 } from "@/lib/admin-menu/helpers";
+import {
+  resolveImportCategoryTargets,
+  type ResolvedCategoryTarget,
+} from "@/lib/menu-import/category-match";
+import {
+  enforceProductLimit,
+  importCommitRequestSchema,
+  type ImportProduct,
+} from "@/lib/menu-import/schema";
+import { resolveImportTargetMenuCollection } from "@/lib/menu-import/target-menu";
 
 export const runtime = "nodejs";
 
-type Body = {
-  restaurantId?: string;
-  payload?: unknown;
-  target_menu_collection_id?: string;
-};
-
 function isSchemaMismatch(msg: string) {
   return /column|schema cache|does not exist|42703/i.test(msg);
+}
+
+async function insertCategory(
+  admin: SupabaseClient,
+  restaurantId: string,
+  name: string,
+  mainGroup: string,
+  sortOrder: number
+): Promise<{ id: string } | { error: string }> {
+  const fullRow = {
+    restaurant_id: restaurantId,
+    name,
+    main_group: mainGroup,
+    sort_order: sortOrder,
+    name_en: null as string | null,
+    name_ru: null as string | null,
+    main_group_en: null as string | null,
+    main_group_ru: null as string | null,
+  };
+
+  let ins = await admin.from("categories").insert([fullRow]).select("id").single();
+  if (ins.error && isSchemaMismatch(ins.error.message)) {
+    ins = await admin
+      .from("categories")
+      .insert([
+        {
+          restaurant_id: restaurantId,
+          name,
+          main_group: mainGroup,
+          sort_order: sortOrder,
+        },
+      ])
+      .select("id")
+      .single();
+  }
+
+  if (ins.error || !ins.data?.id) {
+    console.error(ins.error);
+    return { error: ins.error?.message || "Kategori eklenemedi." };
+  }
+
+  return { id: ins.data.id };
+}
+
+async function insertProduct(
+  admin: SupabaseClient,
+  categoryId: string,
+  product: ImportProduct
+): Promise<{ id: string } | { error: string }> {
+  const row = {
+    category_id: categoryId,
+    name: product.name.trim(),
+    description: product.description ?? "",
+    price: (product.price ?? "").trim() || "",
+    is_active: true,
+    allergens: [] as string[],
+    image_url: "",
+    name_en: product.name_en?.trim() || null,
+    name_ru: product.name_ru?.trim() || null,
+    description_en: product.description_en ?? "",
+    description_ru: product.description_ru ?? "",
+  };
+
+  let pr = await admin.from("products").insert([row]).select("id").single();
+  if (pr.error && isSchemaMismatch(pr.error.message)) {
+    pr = await admin
+      .from("products")
+      .insert([
+        {
+          category_id: categoryId,
+          name: product.name.trim(),
+          description: product.description ?? "",
+          price: (product.price ?? "").trim() || "",
+          is_active: true,
+          allergens: [] as string[],
+          image_url: "",
+        },
+      ])
+      .select("id")
+      .single();
+  }
+
+  if (pr.error || !pr.data?.id) {
+    console.error(pr.error);
+    return { error: pr.error?.message || "Ürün eklenemedi." };
+  }
+
+  return { id: pr.data.id };
+}
+
+async function linkCategoryAndProductsToMenu(
+  admin: SupabaseClient,
+  categoryId: string,
+  products: ImportProduct[],
+  targetMenuId: string
+): Promise<
+  | { ok: true; productsCreated: number; productMenuLinksSkipped: boolean }
+  | { ok: false; error: string; productsCreated: number }
+> {
+  try {
+    await ensureCategoryMenuCollectionLink(admin, categoryId, targetMenuId);
+  } catch (linkErr) {
+    console.error(linkErr);
+    return { ok: false, error: "Kategori menüye bağlanamadı.", productsCreated: 0 };
+  }
+
+  let productsCreated = 0;
+  let productMenuLinksSkipped = false;
+
+  for (const p of products) {
+    const inserted = await insertProduct(admin, categoryId, p);
+    if ("error" in inserted) {
+      return { ok: false, error: inserted.error, productsCreated };
+    }
+
+    const productLink = await ensureProductMenuCollectionLink(admin, inserted.id, targetMenuId);
+    if (!productLink.ok) {
+      if ("skipped" in productLink) {
+        productMenuLinksSkipped = true;
+      } else {
+        return {
+          ok: false,
+          error: productLink.error || "Ürün menüye bağlanamadı.",
+          productsCreated,
+        };
+      }
+    }
+
+    productsCreated++;
+  }
+
+  return { ok: true, productsCreated, productMenuLinksSkipped };
 }
 
 export async function POST(request: Request) {
@@ -30,32 +163,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 });
     }
 
-    let body: Body;
+    let body: unknown;
     try {
-      body = (await request.json()) as Body;
+      body = await request.json();
     } catch {
       return NextResponse.json({ error: "Geçersiz istek gövdesi." }, { status: 400 });
     }
 
-    const restaurantId = body.restaurantId?.trim();
-    if (!restaurantId) {
-      return NextResponse.json({ error: "restaurantId zorunlu." }, { status: 400 });
-    }
-
-    const parsed = importMenuPayloadSchema.safeParse(body.payload);
-    if (!parsed.success) {
+    const parsedBody = importCommitRequestSchema.safeParse(body);
+    if (!parsedBody.success) {
       return NextResponse.json(
-        { error: "Veri doğrulanamadı.", details: parsed.error.flatten() },
+        { error: "Veri doğrulanamadı.", details: parsedBody.error.flatten() },
         { status: 400 }
       );
     }
 
+    const { restaurantId, target_menu_collection_id, payload: rawPayload, category_targets } =
+      parsedBody.data;
+
     let payload;
     try {
-      payload = enforceProductLimit(parsed.data);
+      payload = enforceProductLimit(rawPayload);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Geçersiz veri";
       return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    const resolved = resolveImportCategoryTargets(payload.categories, category_targets);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
 
     const svc = tryCreateServiceSupabase();
@@ -78,7 +214,7 @@ export async function POST(request: Request) {
     const targetResult = await resolveImportTargetMenuCollection(
       admin,
       restaurantId,
-      body.target_menu_collection_id
+      target_menu_collection_id
     );
     if ("error" in targetResult) {
       return NextResponse.json({ error: targetResult.error }, { status: targetResult.status });
@@ -93,140 +229,88 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
-    let sortBase = typeof maxCat?.sort_order === "number" ? maxCat.sort_order + 1 : 0;
+    let nextSortOrder = typeof maxCat?.sort_order === "number" ? maxCat.sort_order + 1 : 0;
 
     let categoriesCreated = 0;
+    let categoriesReused = 0;
     let productsCreated = 0;
     let productMenuLinksSkipped = false;
 
+    const targetsByIndex = new Map<number, ResolvedCategoryTarget>();
+    for (const t of resolved.targets) {
+      targetsByIndex.set(t.import_index, t);
+    }
+
     for (let i = 0; i < payload.categories.length; i++) {
       const cat = payload.categories[i];
-      const mainGroup = (cat.main_group && cat.main_group.trim()) || "DİĞER";
+      const target = targetsByIndex.get(i)!;
 
-      const fullRow = {
-        restaurant_id: restaurantId,
-        name: cat.name.trim(),
-        main_group: mainGroup,
-        sort_order: sortBase + i,
-        name_en: null as string | null,
-        name_ru: null as string | null,
-        main_group_en: null as string | null,
-        main_group_ru: null as string | null,
-      };
+      let categoryId: string;
 
-      let catId: string | null = null;
-      let ins = await admin.from("categories").insert([fullRow]).select("id").single();
-      if (ins.error && isSchemaMismatch(ins.error.message)) {
-        ins = await admin
-          .from("categories")
-          .insert([
-            {
-              restaurant_id: restaurantId,
-              name: cat.name.trim(),
-              main_group: mainGroup,
-              sort_order: sortBase + i,
-            },
-          ])
-          .select("id")
-          .single();
-      }
-      if (ins.error || !ins.data?.id) {
-        console.error(ins.error);
-        return NextResponse.json(
-          { error: ins.error?.message || "Kategori eklenemedi.", categoriesCreated, productsCreated },
-          { status: 500 }
+      if (target.mode === "existing") {
+        const existingId = target.existing_category_id!;
+        const ownerCheck = await getCategoryForOwner(admin, user.id, existingId);
+        if ("error" in ownerCheck) {
+          return NextResponse.json(
+            { error: ownerCheck.error },
+            { status: ownerCheck.status === 404 ? 400 : ownerCheck.status }
+          );
+        }
+        categoryId = ownerCheck.category.id;
+        categoriesReused++;
+      } else {
+        const created = await insertCategory(
+          admin,
+          restaurantId,
+          target.name,
+          target.main_group,
+          nextSortOrder
         );
+        if ("error" in created) {
+          return NextResponse.json(
+            {
+              error: created.error,
+              categoriesCreated,
+              categoriesReused,
+              productsCreated,
+            },
+            { status: 500 }
+          );
+        }
+        categoryId = created.id;
+        categoriesCreated++;
+        nextSortOrder++;
       }
-      const newCategoryId = ins.data.id;
-      catId = newCategoryId;
-      categoriesCreated++;
 
-      try {
-        await ensureCategoryMenuCollectionLink(admin, newCategoryId, targetMenu.id);
-      } catch (linkErr) {
-        console.error(linkErr);
+      const linkResult = await linkCategoryAndProductsToMenu(
+        admin,
+        categoryId,
+        cat.products,
+        targetMenu.id
+      );
+
+      if (!linkResult.ok) {
         return NextResponse.json(
           {
-            error: "Kategori menüye bağlanamadı.",
+            error: linkResult.error,
             categoriesCreated,
+            categoriesReused,
             productsCreated,
           },
           { status: 500 }
         );
       }
 
-      for (const p of cat.products) {
-        const row = {
-          category_id: catId,
-          name: p.name.trim(),
-          description: p.description ?? "",
-          price: (p.price ?? "").trim() || "",
-          is_active: true,
-          allergens: [] as string[],
-          image_url: "",
-          name_en: p.name_en?.trim() || null,
-          name_ru: p.name_ru?.trim() || null,
-          description_en: p.description_en ?? "",
-          description_ru: p.description_ru ?? "",
-        };
-
-        let pr = await admin.from("products").insert([row]).select("id").single();
-        if (pr.error && isSchemaMismatch(pr.error.message)) {
-          pr = await admin
-            .from("products")
-            .insert([
-              {
-                category_id: catId,
-                name: p.name.trim(),
-                description: p.description ?? "",
-                price: (p.price ?? "").trim() || "",
-                is_active: true,
-                allergens: [] as string[],
-                image_url: "",
-              },
-            ])
-            .select("id")
-            .single();
-        }
-        if (pr.error || !pr.data?.id) {
-          console.error(pr.error);
-          return NextResponse.json(
-            {
-              error: pr.error?.message || "Ürün eklenemedi.",
-              categoriesCreated,
-              productsCreated,
-            },
-            { status: 500 }
-          );
-        }
-
-        const productLink = await ensureProductMenuCollectionLink(
-          admin,
-          pr.data.id,
-          targetMenu.id
-        );
-        if (!productLink.ok) {
-          if ("skipped" in productLink) {
-            productMenuLinksSkipped = true;
-          } else {
-            return NextResponse.json(
-              {
-                error: productLink.error || "Ürün menüye bağlanamadı.",
-                categoriesCreated,
-                productsCreated,
-              },
-              { status: 500 }
-            );
-          }
-        }
-
-        productsCreated++;
+      productsCreated += linkResult.productsCreated;
+      if (linkResult.productMenuLinksSkipped) {
+        productMenuLinksSkipped = true;
       }
     }
 
     return NextResponse.json({
       ok: true,
       categoriesCreated,
+      categoriesReused,
       productsCreated,
       target_menu_collection_id: targetMenu.id,
       target_menu_name: targetMenu.name,

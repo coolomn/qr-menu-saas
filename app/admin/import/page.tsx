@@ -13,8 +13,18 @@ import {
   AlertCircle,
   AlertTriangle,
 } from "lucide-react";
-import type { ImportMenuPayload } from "@/lib/menu-import/schema";
+import type { ImportCategoryTarget, ImportMenuPayload } from "@/lib/menu-import/schema";
 import { MENU_IMPORTS_BUCKET, buildImportStoragePath } from "@/lib/menu-import/paths";
+import {
+  buildSuggestedCategoryTargets,
+  resolveMainGroupForImport,
+} from "@/lib/menu-import/category-match";
+import {
+  ImportCategoryTargetCard,
+  categoryTargetFromAi,
+  type CategoryTargetUiState,
+  type ExistingImportCategory,
+} from "@/app/admin/import/_components/ImportCategoryTargetCard";
 
 const supabase = getBrowserSupabase();
 
@@ -41,6 +51,8 @@ export default function AdminMenuImportPage() {
   const [envCheckDone, setEnvCheckDone] = useState(false);
   const [activeMenus, setActiveMenus] = useState<ImportTargetMenu[]>([]);
   const [targetMenuCollectionId, setTargetMenuCollectionId] = useState<string | null>(null);
+  const [existingCategories, setExistingCategories] = useState<ExistingImportCategory[]>([]);
+  const [categoryTargets, setCategoryTargets] = useState<CategoryTargetUiState[]>([]);
 
   const showTargetMenuPicker = activeMenus.length >= 2;
   const targetMenuName =
@@ -90,6 +102,32 @@ export default function AdminMenuImportPage() {
         setTargetMenuCollectionId(null);
       }
 
+      const { data: catRows } = await supabase
+        .from("categories")
+        .select("id, name, main_group")
+        .eq("restaurant_id", res.id)
+        .order("sort_order");
+
+      const { data: productRows } = await supabase
+        .from("products")
+        .select("category_id")
+        .eq("restaurant_id", res.id);
+
+      const productCountByCategory = new Map<string, number>();
+      for (const row of productRows || []) {
+        const cid = row.category_id as string;
+        productCountByCategory.set(cid, (productCountByCategory.get(cid) ?? 0) + 1);
+      }
+
+      setExistingCategories(
+        (catRows || []).map((c) => ({
+          id: c.id as string,
+          name: c.name as string,
+          main_group: c.main_group != null ? String(c.main_group) : null,
+          product_count: productCountByCategory.get(c.id as string) ?? 0,
+        }))
+      );
+
       let missing: string[] = [];
       try {
         const r = await fetch("/api/menu-import/ready");
@@ -104,22 +142,8 @@ export default function AdminMenuImportPage() {
     })();
   }, [router]);
 
-  const updateCategoryName = useCallback((ci: number, name: string) => {
-    setPreview((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, categories: [...prev.categories] };
-      next.categories[ci] = { ...next.categories[ci], name };
-      return next;
-    });
-  }, []);
-
-  const updateCategoryMain = useCallback((ci: number, main_group: string) => {
-    setPreview((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, categories: [...prev.categories] };
-      next.categories[ci] = { ...next.categories[ci], main_group };
-      return next;
-    });
+  const updateCategoryTarget = useCallback((ci: number, next: CategoryTargetUiState) => {
+    setCategoryTargets((prev) => prev.map((t) => (t.import_index === ci ? next : t)));
   }, []);
 
   const updateProduct = useCallback(
@@ -156,7 +180,58 @@ export default function AdminMenuImportPage() {
         categories: prev.categories.filter((_, i) => i !== ci),
       };
     });
+    setCategoryTargets((prev) =>
+      prev
+        .filter((t) => t.import_index !== ci)
+        .map((t) =>
+          t.import_index > ci ? { ...t, import_index: t.import_index - 1 } : t
+        )
+    );
   }, []);
+
+  const validateCategoryTargetsForCommit = (): string | null => {
+    if (!preview) return "Önizleme verisi yok.";
+    if (categoryTargets.length !== preview.categories.length) {
+      return "Kategori hedefleri eksik. Sayfayı yenileyip analizi tekrarlayın.";
+    }
+    for (const t of categoryTargets) {
+      if (t.mode === "existing") {
+        if (!t.existing_category_id) {
+          return `«${preview.categories[t.import_index]?.name || "Kategori"}»: mevcut kategori seçin.`;
+        }
+      } else {
+        if (!t.name.trim()) {
+          return `«${preview.categories[t.import_index]?.name || "Kategori"}»: kategori adı zorunlu.`;
+        }
+        const mg =
+          t.main_group_preset === "custom"
+            ? t.main_group_custom.trim()
+            : t.main_group.trim();
+        if (!mg) {
+          return `«${t.name}»: ana grup zorunlu.`;
+        }
+      }
+    }
+    return null;
+  };
+
+  const buildCategoryTargetsPayload = (): ImportCategoryTarget[] => {
+    return categoryTargets.map((t) => {
+      const main_group =
+        t.mode === "create"
+          ? resolveMainGroupForImport(
+              t.main_group_preset === "custom" ? t.main_group_custom : t.main_group
+            )
+          : undefined;
+      return {
+        import_index: t.import_index,
+        mode: t.mode,
+        existing_category_id: t.mode === "existing" ? t.existing_category_id : null,
+        name: t.mode === "create" ? t.name.trim() : undefined,
+        main_group,
+      };
+    });
+  };
 
   const runAnalyze = async () => {
     if (!file || !restaurantId) return;
@@ -190,6 +265,19 @@ export default function AdminMenuImportPage() {
       if (!res.ok || !json.payload) {
         throw new Error(json.error || "Analiz başarısız.");
       }
+      const suggested = buildSuggestedCategoryTargets(json.payload.categories, existingCategories);
+      setCategoryTargets(
+        suggested.map((s) =>
+          categoryTargetFromAi(
+            s.import_index,
+            json.payload!.categories[s.import_index].name,
+            json.payload!.categories[s.import_index].main_group,
+            s.suggested_match_name,
+            s.existing_category_id ?? null,
+            s.mode
+          )
+        )
+      );
       setPreview(json.payload);
       setStep("preview");
     } catch (e) {
@@ -219,6 +307,11 @@ export default function AdminMenuImportPage() {
         }
       }
     }
+    const targetValidationError = validateCategoryTargetsForCommit();
+    if (targetValidationError) {
+      setError(targetValidationError);
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
@@ -234,12 +327,14 @@ export default function AdminMenuImportPage() {
           restaurantId,
           payload: preview,
           target_menu_collection_id: targetMenuCollectionId ?? undefined,
+          category_targets: buildCategoryTargetsPayload(),
         }),
       });
       const json = (await res.json()) as {
         ok?: boolean;
         error?: string;
         categoriesCreated?: number;
+        categoriesReused?: number;
         productsCreated?: number;
         target_menu_name?: string;
         product_menu_links_skipped?: boolean;
@@ -249,6 +344,12 @@ export default function AdminMenuImportPage() {
       }
       const menuLabel = json.target_menu_name || targetMenuName || "menü";
       let successMessage = `Menü «${menuLabel}» içine aktarıldı.`;
+      if (typeof json.categoriesReused === "number" && json.categoriesReused > 0) {
+        successMessage += `\n${json.categoriesReused} mevcut kategoriye eklendi.`;
+      }
+      if (typeof json.categoriesCreated === "number" && json.categoriesCreated > 0) {
+        successMessage += `\n${json.categoriesCreated} yeni kategori oluşturuldu.`;
+      }
       if (json.product_menu_links_skipped) {
         successMessage +=
           "\n\nUyarı: Ürün–menü bağlantı tablosu kullanılamadı; ürünler menüde görünmeyebilir. Veritabanı migration’ını kontrol edin.";
@@ -431,6 +532,7 @@ export default function AdminMenuImportPage() {
                 onClick={() => {
                   setStep("upload");
                   setPreview(null);
+                  setCategoryTargets([]);
                   setFile(null);
                 }}
                 className="text-sm font-bold text-gray-500 hover:text-gray-800"
@@ -439,37 +541,34 @@ export default function AdminMenuImportPage() {
               </button>
             </div>
 
-            {preview.categories.map((cat, ci) => (
+            {preview.categories.map((cat, ci) => {
+              const target = categoryTargets.find((t) => t.import_index === ci);
+              return (
               <div
                 key={ci}
                 className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden"
               >
-                <div className="p-4 md:p-5 border-b border-gray-50 bg-gray-50/80 flex flex-col gap-3">
-                  <div className="flex justify-between items-start gap-2">
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                      Kategori
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeCategory(ci)}
-                      className="text-red-500 hover:bg-red-50 p-2 rounded-xl"
-                      title="Kategoriyi sil"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                  <input
-                    className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 font-black text-gray-900 outline-none focus:border-blue-500"
-                    value={cat.name}
-                    onChange={(e) => updateCategoryName(ci, e.target.value)}
-                  />
-                  <input
-                    placeholder="Ana grup (ör. YİYECEKLER)"
-                    className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:border-blue-500"
-                    value={cat.main_group ?? ""}
-                    onChange={(e) => updateCategoryMain(ci, e.target.value)}
-                  />
+                <div className="flex justify-end p-2 bg-gray-50/80 border-b border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => removeCategory(ci)}
+                    className="text-red-500 hover:bg-red-50 p-2 rounded-xl text-xs font-bold flex items-center gap-1"
+                    title="Kategoriyi sil"
+                  >
+                    <Trash2 size={16} />
+                    Kategoriyi kaldır
+                  </button>
                 </div>
+                {target && (
+                  <ImportCategoryTargetCard
+                    aiName={cat.name}
+                    aiMainGroup={cat.main_group}
+                    productCount={cat.products.length}
+                    target={target}
+                    existingCategories={existingCategories}
+                    onChange={(next) => updateCategoryTarget(ci, next)}
+                  />
+                )}
                 <ul className="divide-y divide-gray-100">
                   {cat.products.map((p, pi) => (
                     <li key={pi} className="p-4 md:p-5 space-y-2">
@@ -533,7 +632,8 @@ export default function AdminMenuImportPage() {
                   ))}
                 </ul>
               </div>
-            ))}
+            );
+            })}
 
             <button
               type="button"

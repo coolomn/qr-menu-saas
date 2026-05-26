@@ -1,18 +1,21 @@
 import { z } from "zod";
 
+const optionalNullableText = (max: number) =>
+  z
+    .union([z.string().trim().max(max), z.literal("")])
+    .optional()
+    .nullable()
+    .transform((v) => (v == null || v === "" ? null : v));
+
 /** AI ve commit için ortak yapı */
 export const importProductSchema = z.object({
   name: z.string().trim().min(1).max(240),
-  description: z
-    .union([z.string().trim().max(4000), z.literal("")])
-    .optional()
-    .nullable()
-    .transform((v) => (v == null || v === "" ? null : v)),
-  price: z
-    .union([z.string().trim().max(64), z.literal("")])
-    .optional()
-    .nullable()
-    .transform((v) => (v == null || v === "" ? null : v)),
+  name_en: optionalNullableText(240),
+  name_ru: optionalNullableText(240),
+  description: optionalNullableText(4000),
+  description_en: optionalNullableText(4000),
+  description_ru: optionalNullableText(4000),
+  price: optionalNullableText(64),
 });
 
 export const importCategorySchema = z.object({
@@ -32,6 +35,27 @@ export const importMenuPayloadSchema = z.object({
 export type ImportMenuPayload = z.infer<typeof importMenuPayloadSchema>;
 export type ImportCategory = z.infer<typeof importCategorySchema>;
 export type ImportProduct = z.infer<typeof importProductSchema>;
+
+export const importCategoryTargetSchema = z.object({
+  import_index: z.number().int().min(0).max(79),
+  mode: z.enum(["create", "existing"]),
+  existing_category_id: z.string().uuid().optional().nullable(),
+  name: z.string().trim().min(1).max(200).optional(),
+  main_group: z
+    .union([z.string().trim().max(120), z.literal("")])
+    .optional()
+    .nullable(),
+});
+
+export const importCommitRequestSchema = z.object({
+  restaurantId: z.string().uuid(),
+  target_menu_collection_id: z.string().uuid().optional(),
+  payload: importMenuPayloadSchema,
+  category_targets: z.array(importCategoryTargetSchema).optional(),
+});
+
+export type ImportCategoryTarget = z.infer<typeof importCategoryTargetSchema>;
+export type ImportCommitRequest = z.infer<typeof importCommitRequestSchema>;
 
 const MAX_TOTAL_PRODUCTS = 400;
 
