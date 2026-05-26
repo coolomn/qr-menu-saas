@@ -5,12 +5,15 @@ import {
   enforceProductLimit,
   importMenuPayloadSchema,
 } from "@/lib/menu-import/schema";
+import { resolveImportTargetMenuCollection } from "@/lib/menu-import/target-menu";
+import { ensureCategoryMenuCollectionLink } from "@/lib/admin-menu/helpers";
 
 export const runtime = "nodejs";
 
 type Body = {
   restaurantId?: string;
   payload?: unknown;
+  target_menu_collection_id?: string;
 };
 
 function isSchemaMismatch(msg: string) {
@@ -69,6 +72,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 });
     }
 
+    const targetResult = await resolveImportTargetMenuCollection(
+      admin,
+      restaurantId,
+      body.target_menu_collection_id
+    );
+    if ("error" in targetResult) {
+      return NextResponse.json({ error: targetResult.error }, { status: targetResult.status });
+    }
+    const targetMenu = targetResult;
+
     const { data: maxCat } = await admin
       .from("categories")
       .select("sort_order")
@@ -120,8 +133,23 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
-      catId = ins.data.id;
+      const newCategoryId = ins.data.id;
+      catId = newCategoryId;
       categoriesCreated++;
+
+      try {
+        await ensureCategoryMenuCollectionLink(admin, newCategoryId, targetMenu.id);
+      } catch (linkErr) {
+        console.error(linkErr);
+        return NextResponse.json(
+          {
+            error: "Kategori menüye bağlanamadı.",
+            categoriesCreated,
+            productsCreated,
+          },
+          { status: 500 }
+        );
+      }
 
       for (const p of cat.products) {
         const row = {
@@ -132,10 +160,10 @@ export async function POST(request: Request) {
           is_active: true,
           allergens: [] as string[],
           image_url: "",
-          name_en: null as string | null,
-          name_ru: null as string | null,
-          description_en: null as string | null,
-          description_ru: null as string | null,
+          name_en: p.name_en?.trim() || null,
+          name_ru: p.name_ru?.trim() || null,
+          description_en: p.description_en ?? "",
+          description_ru: p.description_ru ?? "",
         };
 
         let pr = await admin.from("products").insert([row]).select("id").single();
@@ -171,7 +199,13 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, categoriesCreated, productsCreated });
+    return NextResponse.json({
+      ok: true,
+      categoriesCreated,
+      productsCreated,
+      target_menu_collection_id: targetMenu.id,
+      target_menu_name: targetMenu.name,
+    });
   } catch (e) {
     console.error(e);
     const message = e instanceof Error ? e.message : "Bilinmeyen hata";

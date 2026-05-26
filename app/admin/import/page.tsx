@@ -18,6 +18,12 @@ import { MENU_IMPORTS_BUCKET, buildImportStoragePath } from "@/lib/menu-import/p
 
 const supabase = getBrowserSupabase();
 
+type ImportTargetMenu = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
 function safeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120) || "menu";
 }
@@ -33,6 +39,19 @@ export default function AdminMenuImportPage() {
   const [preview, setPreview] = useState<ImportMenuPayload | null>(null);
   const [missingEnv, setMissingEnv] = useState<string[]>([]);
   const [envCheckDone, setEnvCheckDone] = useState(false);
+  const [activeMenus, setActiveMenus] = useState<ImportTargetMenu[]>([]);
+  const [targetMenuCollectionId, setTargetMenuCollectionId] = useState<string | null>(null);
+
+  const showTargetMenuPicker = activeMenus.length >= 2;
+  const targetMenuName =
+    activeMenus.find((m) => m.id === targetMenuCollectionId)?.name ?? null;
+
+  const requireTargetMenuSelection = (): boolean => {
+    if (!showTargetMenuPicker) return true;
+    if (targetMenuCollectionId) return true;
+    setError("Bu import hangi menüye aktarılacak? Lütfen bir menü seçin.");
+    return false;
+  };
 
   useEffect(() => {
     (async () => {
@@ -51,6 +70,25 @@ export default function AdminMenuImportPage() {
         return;
       }
       setRestaurantId(res.id);
+
+      const { data: menuRows } = await supabase
+        .from("menu_collections")
+        .select("id, name, is_active, sort_order")
+        .eq("restaurant_id", res.id)
+        .order("sort_order");
+      const active = (menuRows || [])
+        .filter((m) => m.is_active)
+        .map((m) => ({
+          id: m.id as string,
+          name: m.name as string,
+          sort_order: typeof m.sort_order === "number" ? m.sort_order : 0,
+        }));
+      setActiveMenus(active);
+      if (active.length === 1) {
+        setTargetMenuCollectionId(active[0].id);
+      } else {
+        setTargetMenuCollectionId(null);
+      }
 
       let missing: string[] = [];
       try {
@@ -122,6 +160,7 @@ export default function AdminMenuImportPage() {
 
   const runAnalyze = async () => {
     if (!file || !restaurantId) return;
+    if (!requireTargetMenuSelection()) return;
     setError(null);
     setBusy(true);
     try {
@@ -162,6 +201,7 @@ export default function AdminMenuImportPage() {
 
   const runCommit = async () => {
     if (!preview || !restaurantId) return;
+    if (!requireTargetMenuSelection()) return;
     if (preview.categories.length === 0) {
       setError("En az bir kategori gerekli.");
       return;
@@ -190,17 +230,24 @@ export default function AdminMenuImportPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ restaurantId, payload: preview }),
+        body: JSON.stringify({
+          restaurantId,
+          payload: preview,
+          target_menu_collection_id: targetMenuCollectionId ?? undefined,
+        }),
       });
       const json = (await res.json()) as {
         ok?: boolean;
         error?: string;
         categoriesCreated?: number;
         productsCreated?: number;
+        target_menu_name?: string;
       };
       if (!res.ok || !json.ok) {
         throw new Error(json.error || "Kayıt başarısız.");
       }
+      const menuLabel = json.target_menu_name || targetMenuName || "menü";
+      alert(`Menü «${menuLabel}» içine aktarıldı.`);
       router.push("/admin");
       router.refresh();
     } catch (e) {
@@ -296,6 +343,42 @@ export default function AdminMenuImportPage() {
               PDF veya menü fotoğrafı yükleyin. Sonuçlar canlı menüye yazılmaz; önce önizleyip onaylarsınız.
               Taranmış PDF’lerde metin çıkmayabilir — bu durumda sayfayı görüntü olarak kaydedip yükleyin.
             </p>
+            {showTargetMenuPicker && (
+              <div className="p-4 md:p-5 bg-violet-50 rounded-2xl border border-violet-100 space-y-3">
+                <p className="text-sm font-bold text-violet-900">
+                  Bu import hangi menüye aktarılacak?
+                </p>
+                <p className="text-xs text-violet-800/90 leading-relaxed">
+                  Kategoriler yalnızca seçtiğiniz menüde görünür. Analiz etmeden önce hedef menüyü
+                  seçin.
+                </p>
+                <div className="space-y-2">
+                  {activeMenus.map((menu) => (
+                    <label
+                      key={menu.id}
+                      className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        targetMenuCollectionId === menu.id
+                          ? "bg-white border-violet-300 shadow-sm"
+                          : "bg-violet-50/50 border-violet-100 hover:bg-white"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="import-target-menu"
+                        checked={targetMenuCollectionId === menu.id}
+                        onChange={() => {
+                          setTargetMenuCollectionId(menu.id);
+                          setError(null);
+                        }}
+                        className="h-4 w-4 border-violet-300 text-violet-600"
+                      />
+                      <span className="text-sm font-bold text-gray-800">{menu.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <label className="block">
               <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">
                 Dosya
@@ -309,7 +392,12 @@ export default function AdminMenuImportPage() {
             </label>
             <button
               type="button"
-              disabled={!file || busy || missingEnv.length > 0}
+              disabled={
+                !file ||
+                busy ||
+                missingEnv.length > 0 ||
+                (showTargetMenuPicker && !targetMenuCollectionId)
+              }
               onClick={runAnalyze}
               className="w-full md:w-auto flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none transition-colors"
             >
@@ -321,6 +409,14 @@ export default function AdminMenuImportPage() {
 
         {step === "preview" && preview && (
           <div className="space-y-6">
+            {targetMenuName && (
+              <div className="rounded-2xl border border-violet-100 bg-violet-50 px-4 py-3">
+                <p className="text-sm font-black text-violet-900">
+                  Hedef menü: <span className="font-black">{targetMenuName}</span>
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-sm font-bold text-gray-600">Önizleme — düzenleyin veya satırları silin.</p>
               <button
@@ -391,8 +487,36 @@ export default function AdminMenuImportPage() {
                         className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-500"
                         value={p.description ?? ""}
                         onChange={(e) => updateProduct(ci, pi, "description", e.target.value)}
-                        placeholder="Açıklama"
+                        placeholder="Açıklama (TR)"
                       />
+                      {(p.name_en || p.name_ru || p.description_en || p.description_ru) && (
+                        <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs text-gray-600 space-y-1">
+                          {p.name_en && (
+                            <p>
+                              <span className="font-bold text-gray-500">EN:</span> {p.name_en}
+                              {p.description_en ? ` — ${p.description_en}` : ""}
+                            </p>
+                          )}
+                          {p.name_ru && (
+                            <p>
+                              <span className="font-bold text-gray-500">RU:</span> {p.name_ru}
+                              {p.description_ru ? ` — ${p.description_ru}` : ""}
+                            </p>
+                          )}
+                          {!p.name_en && p.description_en && (
+                            <p>
+                              <span className="font-bold text-gray-500">EN açıklama:</span>{" "}
+                              {p.description_en}
+                            </p>
+                          )}
+                          {!p.name_ru && p.description_ru && (
+                            <p>
+                              <span className="font-bold text-gray-500">RU açıklama:</span>{" "}
+                              {p.description_ru}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <input
                         className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 text-sm font-black text-blue-600 outline-none focus:border-blue-500"
                         value={p.price ?? ""}
@@ -407,7 +531,11 @@ export default function AdminMenuImportPage() {
 
             <button
               type="button"
-              disabled={busy || preview.categories.length === 0}
+              disabled={
+                busy ||
+                preview.categories.length === 0 ||
+                (showTargetMenuPicker && !targetMenuCollectionId)
+              }
               onClick={runCommit}
               className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white px-6 py-4 rounded-2xl font-black hover:bg-black disabled:opacity-50 transition-colors"
             >

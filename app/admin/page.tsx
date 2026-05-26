@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff } from "lucide-react";
+import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
+import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
+import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
 import { formatPriceForDisplay } from "@/lib/format-price";
 import { prepareProductImageForUpload } from "@/lib/prepare-product-image-client";
 import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
@@ -119,6 +122,15 @@ export default function AdminDashboard() {
     main_group_en: "",
     main_group_ru: "",
   });
+
+  const [restaurantMenus, setRestaurantMenus] = useState<
+    { id: string; name: string; is_active: boolean; sort_order: number }[]
+  >([]);
+  const [categoryMenuLinksMap, setCategoryMenuLinksMap] = useState<Record<string, string[]>>({});
+  const [categoryMenuSelectedIds, setCategoryMenuSelectedIds] = useState<string[]>([]);
+  const [categoryMenuPickerMenus, setCategoryMenuPickerMenus] = useState<CategoryMenuCollectionsPickerMenu[]>([]);
+  const [categoryMenuError, setCategoryMenuError] = useState<string | null>(null);
+  const [categoryMenuPickerLoading, setCategoryMenuPickerLoading] = useState(false);
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
@@ -180,6 +192,31 @@ export default function AdminDashboard() {
         
         const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
         setCategories(catData || []);
+
+        const { data: menuRows } = await supabase
+          .from("menu_collections")
+          .select("id, name, is_active, sort_order")
+          .eq("restaurant_id", resData.id)
+          .order("sort_order");
+        setRestaurantMenus(menuRows || []);
+
+        if (catData && catData.length > 0) {
+          const categoryIds = catData.map((c: { id: string }) => c.id);
+          const { data: linkRows } = await supabase
+            .from("category_menu_collections")
+            .select("category_id, menu_collection_id")
+            .in("category_id", categoryIds);
+          const linksMap: Record<string, string[]> = {};
+          for (const row of linkRows || []) {
+            const cid = row.category_id as string;
+            const mid = row.menu_collection_id as string;
+            if (!linksMap[cid]) linksMap[cid] = [];
+            linksMap[cid].push(mid);
+          }
+          setCategoryMenuLinksMap(linksMap);
+        } else {
+          setCategoryMenuLinksMap({});
+        }
         
         if (catData && catData.length > 0) {
           const categoryIds = catData.map((c: any) => c.id);
@@ -435,9 +472,127 @@ export default function AdminDashboard() {
     }
   };
 
+  const getActiveRestaurantMenus = () => restaurantMenus.filter((m) => m.is_active);
+
+  const toPickerMenus = (
+    rows: { id: string; name: string; is_active: boolean; sort_order: number }[]
+  ): CategoryMenuCollectionsPickerMenu[] =>
+    rows.map((m) => ({
+      id: m.id,
+      name: m.name,
+      name_en: null,
+      name_ru: null,
+      sort_order: m.sort_order,
+      is_active: m.is_active,
+    }));
+
+  const prepareNewCategoryMenuSelection = () => {
+    const active = getActiveRestaurantMenus();
+    setCategoryMenuPickerMenus(toPickerMenus(active));
+    setCategoryMenuSelectedIds(active.map((m) => m.id));
+    setCategoryMenuError(null);
+    setCategoryMenuPickerLoading(false);
+  };
+
+  const loadCategoryMenuSelections = async (categoryId: string) => {
+    setCategoryMenuPickerLoading(true);
+    setCategoryMenuError(null);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      setCategoryMenuError("Oturum bulunamadı.");
+      setCategoryMenuPickerLoading(false);
+      return;
+    }
+    const res = await fetch(`/api/admin/categories/${categoryId}/menu-collections`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const json = (await res.json()) as {
+      menu_collections?: CategoryMenuCollectionsPickerMenu[];
+      menu_collection_ids?: string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      setCategoryMenuError(json.error || "Menü bağlantıları yüklenemedi.");
+      setCategoryMenuPickerLoading(false);
+      return;
+    }
+    setCategoryMenuPickerMenus(json.menu_collections || []);
+    setCategoryMenuSelectedIds(json.menu_collection_ids || []);
+    setCategoryMenuPickerLoading(false);
+  };
+
+  const putCategoryMenuCollections = async (
+    categoryId: string,
+    menuCollectionIds: string[]
+  ): Promise<{ ok: true; ids: string[] } | { ok: false; error: string }> => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { ok: false, error: "Oturum bulunamadı." };
+    }
+    const res = await fetch(`/api/admin/categories/${categoryId}/menu-collections`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ menu_collection_ids: menuCollectionIds }),
+    });
+    const json = (await res.json()) as { menu_collection_ids?: string[]; error?: string };
+    if (!res.ok) {
+      return { ok: false, error: json.error || "Menü bağlantıları kaydedilemedi." };
+    }
+    return { ok: true, ids: json.menu_collection_ids || menuCollectionIds };
+  };
+
+  const syncCategoryMenuLinks = async (
+    categoryId: string,
+    menuCollectionIds: string[]
+  ): Promise<boolean> => {
+    const result = await putCategoryMenuCollections(categoryId, menuCollectionIds);
+    if (!result.ok) {
+      setCategoryMenuError(result.error);
+      return false;
+    }
+    setCategoryMenuLinksMap((prev) => ({ ...prev, [categoryId]: result.ids }));
+    return true;
+  };
+
+  const formatCategoryMenuBadge = (categoryId: string): string | null => {
+    const activeMenus = getActiveRestaurantMenus();
+    if (activeMenus.length <= 1) return null;
+    const linked = categoryMenuLinksMap[categoryId] || [];
+    const names = linked
+      .map((id) => activeMenus.find((m) => m.id === id)?.name)
+      .filter((n): n is string => Boolean(n));
+    if (names.length === 0) return null;
+    if (names.length <= 2) return names.join(", ");
+    return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+  };
+
   const handleCategorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!restaurant?.id) return;
+
+    const activeMenus = getActiveRestaurantMenus();
+    if (activeMenus.length === 0) {
+      setCategoryMenuError("Aktif menü bulunamadı. Önce Menüler sekmesinden bir menü oluşturun.");
+      return;
+    }
+
+    const showMenuPicker = activeMenus.length >= 2;
+    const menuIdsToSave = showMenuPicker
+      ? categoryMenuSelectedIds
+      : activeMenus.map((m) => m.id);
+
+    if (showMenuPicker && menuIdsToSave.length === 0) {
+      setCategoryMenuError("En az bir menü seçin.");
+      return;
+    }
+    setCategoryMenuError(null);
 
     const mainGroup = (newCategory.main_group || "DİĞER").toLocaleUpperCase("tr-TR");
 
@@ -470,10 +625,13 @@ export default function AdminDashboard() {
         }
       }
       if (!error && data) {
+        const synced = await syncCategoryMenuLinks(editingCategoryId, menuIdsToSave);
+        if (!synced) return;
         setCategories(categories.map((c: any) => (c.id === editingCategoryId ? data : c)));
         setProducts(products.map((p: any) => (p.category_id === editingCategoryId ? { ...p, categories: data } : p)));
         setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
         setEditingCategoryId(null);
+        setCategoryMenuSelectedIds([]);
         setIsCategoryModalOpen(false);
       } else if (error) {
         alert(error.message || "Kategori güncellenemedi.");
@@ -504,13 +662,28 @@ export default function AdminDashboard() {
       }
     }
     if (!error && data) {
+      const synced = await syncCategoryMenuLinks(data.id, menuIdsToSave);
+      if (!synced) {
+        alert(
+          "Kategori oluşturuldu ancak menü bağlantıları kaydedilemedi. Kategoriyi düzenleyip menüleri tekrar seçin."
+        );
+        return;
+      }
       setCategories([...categories, data]);
       setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
       setEditingCategoryId(null);
+      setCategoryMenuSelectedIds([]);
       setIsCategoryModalOpen(false);
     } else if (error) {
       alert(error.message || "Kategori eklenemedi.");
     }
+  };
+
+  const openNewCategoryModal = () => {
+    setEditingCategoryId(null);
+    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+    prepareNewCategoryMenuSelection();
+    setIsCategoryModalOpen(true);
   };
 
   const openEditCategoryModal = (c: any) => {
@@ -524,12 +697,21 @@ export default function AdminDashboard() {
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
     });
     setIsCategoryModalOpen(true);
+    if (getActiveRestaurantMenus().length >= 2) {
+      void loadCategoryMenuSelections(c.id);
+    } else {
+      prepareNewCategoryMenuSelection();
+    }
   };
 
   const closeCategoryModal = () => {
     setIsCategoryModalOpen(false);
     setEditingCategoryId(null);
     setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+    setCategoryMenuSelectedIds([]);
+    setCategoryMenuPickerMenus([]);
+    setCategoryMenuError(null);
+    setCategoryMenuPickerLoading(false);
   };
 
   const openDuplicateCategoryModal = (c: any) => {
@@ -542,6 +724,13 @@ export default function AdminDashboard() {
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
     });
+    const active = getActiveRestaurantMenus();
+    const sourceIds = categoryMenuLinksMap[c.id] || [];
+    const copiedIds = sourceIds.filter((id) => active.some((m) => m.id === id));
+    setCategoryMenuPickerMenus(toPickerMenus(active));
+    setCategoryMenuSelectedIds(copiedIds.length > 0 ? copiedIds : active.map((m) => m.id));
+    setCategoryMenuError(null);
+    setCategoryMenuPickerLoading(false);
     setIsCategoryModalOpen(true);
   };
 
@@ -782,6 +971,7 @@ export default function AdminDashboard() {
         <nav className="flex-1 p-6 space-y-2 overflow-y-auto">
           <button onClick={() => {setActiveTab("products"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'products' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><UtensilsCrossed size={20} /> Ürünler</button>
           <button onClick={() => {setActiveTab("categories"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'categories' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><List size={20} /> Kategoriler</button>
+          <button onClick={() => {setActiveTab("menus"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'menus' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><LayoutGrid size={20} /> Menüler</button>
           <button onClick={() => {setActiveTab("qr"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'qr' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><QrCode size={20} /> QR Kod Üretici</button>
           <Link
             href="/admin/import"
@@ -831,17 +1021,17 @@ export default function AdminDashboard() {
               </div>
             )}
 
+            {activeTab === "menus" && restaurant?.id && (
+              <MenuCollectionsTab restaurantId={restaurant.id} />
+            )}
+
             {activeTab === "categories" && (
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 md:p-8">
                 <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-2">
                   <h2 className="text-lg md:text-xl font-black text-gray-900 uppercase">Kategoriler</h2>
                   <button
                     type="button"
-                    onClick={() => {
-                      setEditingCategoryId(null);
-                      setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
-                      setIsCategoryModalOpen(true);
-                    }}
+                    onClick={openNewCategoryModal}
                     className="w-full md:w-auto justify-center bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 hover:bg-blue-700 shadow-lg transition-all"
                   >
                     <Plus size={18} /> Yeni Kategori
@@ -859,6 +1049,7 @@ export default function AdminDashboard() {
                   {categories.map((c: any) => {
                     const productCount = products.filter((p: any) => p.category_id === c.id).length;
                     const menuHidden = c.is_active === false;
+                    const menuBadge = formatCategoryMenuBadge(c.id);
                     return (
                       <div
                         key={c.id}
@@ -889,6 +1080,14 @@ export default function AdminDashboard() {
                           <span className="truncate font-black text-gray-800">{c.name}</span>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                             <span className="text-[9px] font-bold bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-md">{productCount} ürün</span>
+                            {menuBadge && (
+                              <span
+                                className="text-[9px] font-bold bg-violet-50 border border-violet-100 text-violet-800 px-2 py-0.5 rounded-md truncate max-w-[12rem]"
+                                title={menuBadge}
+                              >
+                                {menuBadge}
+                              </span>
+                            )}
                             {menuHidden && (
                               <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md uppercase tracking-wide">Menüde gizli</span>
                             )}
@@ -1354,6 +1553,22 @@ export default function AdminDashboard() {
                       <input placeholder="Название" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold outline-none" value={newCategory.name_ru} onChange={e => setNewCategory({...newCategory, name_ru: e.target.value})} />
                     </div>
                   </div>
+
+                  {getActiveRestaurantMenus().length >= 2 && (
+                    categoryMenuPickerLoading ? (
+                      <p className="text-xs font-bold text-violet-600 px-1">Menü bağlantıları yükleniyor…</p>
+                    ) : (
+                      <CategoryMenuCollectionFields
+                        menus={categoryMenuPickerMenus}
+                        selectedIds={categoryMenuSelectedIds}
+                        onChange={(ids) => {
+                          setCategoryMenuSelectedIds(ids);
+                          if (ids.length > 0) setCategoryMenuError(null);
+                        }}
+                        error={categoryMenuError}
+                      />
+                    )
+                  )}
 
                   <div className="flex gap-3 md:gap-4 pt-2">
                     <button type="button" onClick={closeCategoryModal} className="flex-1 font-bold text-gray-400 text-sm md:text-base">İptal</button>
