@@ -1,18 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
+import { MenuPickScreen } from "@/app/menu/[slug]/_components/menu-pick-screen";
 import { formatPriceForDisplay } from "@/lib/format-price";
+import { categoryBelongsToMenuCollection } from "@/lib/public-menu/display";
+import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
+import { MULTI_MENU_PROTOTYPE_ENABLED } from "@/lib/menu-prototype/config";
 
 const ALLERGEN_OPTIONS = [
-  { id: 'gluten', label: 'Gluten', icon: '🌾' },
-  { id: 'dairy', label: 'Süt', icon: '🥛' },
-  { id: 'nuts', label: 'Kuruyemiş', icon: '🥜' },
-  { id: 'seafood', label: 'Deniz Ürünü', icon: '🦐' },
-  { id: 'egg', label: 'Yumurta', icon: '🥚' },
-  { id: 'vegan', label: 'Vegan', icon: '🌱' },
-  { id: 'spicy', label: 'Acı', icon: '🌶️' }
+  { id: "gluten", label: "Gluten", icon: "🌾" },
+  { id: "dairy", label: "Süt", icon: "🥛" },
+  { id: "nuts", label: "Kuruyemiş", icon: "🥜" },
+  { id: "seafood", label: "Deniz Ürünü", icon: "🦐" },
+  { id: "egg", label: "Yumurta", icon: "🥚" },
+  { id: "vegan", label: "Vegan", icon: "🌱" },
+  { id: "spicy", label: "Acı", icon: "🌶️" },
 ];
 
 /** DB’de çeviri yokken EN/RU için bilinen Türkçe ana grup / kategori adları (genişletilebilir). */
@@ -47,6 +51,18 @@ const MENU_LABEL_FALLBACK: Record<string, { en: string; ru: string }> = {
   VEGAN: { en: "Vegan", ru: "Веган" },
   ÇOCUK: { en: "Kids", ru: "Детское" },
   "ÇOCUK MENÜSÜ": { en: "Kids menu", ru: "Детское меню" },
+};
+
+type PublicCategory = {
+  id: string;
+  name: string;
+  name_en?: string | null;
+  name_ru?: string | null;
+  main_group?: string | null;
+  main_group_en?: string | null;
+  main_group_ru?: string | null;
+  sort_order?: number | null;
+  menu_collection_ids?: string[];
 };
 
 function normalizeMenuLabelKey(s: string) {
@@ -88,7 +104,6 @@ function instagramProfileUrl(raw: string | null | undefined): string | null {
   return `https://www.instagram.com/${encodeURIComponent(user)}/`;
 }
 
-/** Profil web URL’si + yalnızca tek kullanıcı profili için `instagram://` kullanıcı adı (reel/explore vb. için null). */
 function instagramOpenContext(
   raw: string | null | undefined
 ): { webUrl: string; appUsername: string | null } | null {
@@ -211,19 +226,25 @@ export default function CustomerMenu() {
   const slug = params.slug;
 
   const [restaurant, setRestaurant] = useState<any>(null);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<PublicCategory[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [menuCollections, setMenuCollections] = useState<PublicMenuCollection[]>([]);
+  const [menuPicker, setMenuPicker] = useState<PublicMenuPicker | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuUnavailable, setMenuUnavailable] = useState(false);
-  
+
   const [language, setLanguage] = useState("tr");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
 
   const [view, setView] = useState<"welcome" | "menu">("welcome");
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  /** Menü şeridinde yalnızca bu ana gruptaki kategoriler (karşılamadan gelen seçim). */
   const [menuMainGroup, setMenuMainGroup] = useState<string | null>(null);
+  const [selectedMenuCollectionId, setSelectedMenuCollectionId] = useState<string | null>(null);
+  const [menuViewEntered, setMenuViewEntered] = useState(false);
+
+  const useCollectionFlow = MULTI_MENU_PROTOTYPE_ENABLED;
+  const showMenuPicker = useCollectionFlow && Boolean(menuPicker?.enabled);
 
   useEffect(() => {
     const fetchMenu = async () => {
@@ -242,6 +263,8 @@ export default function CustomerMenu() {
           setRestaurant(null);
           setCategories([]);
           setProducts([]);
+          setMenuCollections([]);
+          setMenuPicker(null);
           return;
         }
 
@@ -250,48 +273,125 @@ export default function CustomerMenu() {
           setRestaurant(null);
           setCategories([]);
           setProducts([]);
+          setMenuCollections([]);
+          setMenuPicker(null);
           return;
         }
 
         const data = (await response.json()) as {
           restaurant: any;
-          categories: any[];
+          categories: PublicCategory[];
           products: any[];
+          menu_collections?: PublicMenuCollection[];
+          menu_picker?: PublicMenuPicker;
         };
+
+        const picker: PublicMenuPicker = data.menu_picker ?? {
+          enabled: false,
+          default_menu_collection_id: null,
+        };
+        const collections = data.menu_collections ?? [];
+
         setMenuUnavailable(false);
         setRestaurant(data.restaurant || null);
         setCategories(data.categories || []);
         setProducts(data.products || []);
+        setMenuCollections(collections);
+        setMenuPicker(picker);
+
+        if (useCollectionFlow) {
+          if (picker.enabled) {
+            setView("welcome");
+            setSelectedMenuCollectionId(null);
+          } else {
+            setView("menu");
+            setSelectedMenuCollectionId(picker.default_menu_collection_id);
+          }
+        } else {
+          setView("welcome");
+          setSelectedMenuCollectionId(null);
+        }
       } catch (error) {
         console.error(error);
         setMenuUnavailable(false);
         setRestaurant(null);
         setCategories([]);
         setProducts([]);
+        setMenuCollections([]);
+        setMenuPicker(null);
       } finally {
         setLoading(false);
       }
     };
     fetchMenu();
-  }, [slug]);
+  }, [slug, useCollectionFlow]);
+
+  useEffect(() => {
+    if (view !== "menu" || !restaurant?.slider_images || restaurant.slider_images.length <= 1) return;
+    const timer = setInterval(
+      () => setCurrentSlide((prev) => (prev === restaurant.slider_images.length - 1 ? 0 : prev + 1)),
+      3000
+    );
+    return () => clearInterval(timer);
+  }, [restaurant?.slider_images, view]);
+
+  const categoryGroupKey = (cat: { main_group?: string | null }) => cat.main_group || "DİĞER";
+
+  const menuCategories = useMemo(() => {
+    let list = categories;
+    if (menuMainGroup != null) {
+      list = list.filter((c) => categoryGroupKey(c) === menuMainGroup);
+    }
+    if (useCollectionFlow && selectedMenuCollectionId) {
+      list = list.filter((c) => categoryBelongsToMenuCollection(c, selectedMenuCollectionId));
+    }
+    return list;
+  }, [categories, menuMainGroup, useCollectionFlow, selectedMenuCollectionId]);
+
+  const menuCategoryIds = useMemo(
+    () => new Set(menuCategories.map((c) => c.id)),
+    [menuCategories]
+  );
+
+  const visibleProducts = useMemo(() => {
+    return products.filter(
+      (p: { category_id: string }) =>
+        menuCategoryIds.has(p.category_id) && p.category_id === activeCategory
+    );
+  }, [products, activeCategory, menuCategoryIds]);
 
   useEffect(() => {
     if (view !== "menu") return;
-    if (categories.length === 0) {
+    if (menuCategories.length === 0) {
       setActiveCategory(null);
       return;
     }
     setActiveCategory((prev) => {
-      if (prev && categories.some((c) => c.id === prev)) return prev;
-      return categories[0].id;
+      if (prev && menuCategories.some((c) => c.id === prev)) return prev;
+      return menuCategories[0].id;
     });
-  }, [categories, view]);
+  }, [menuCategories, view, selectedMenuCollectionId]);
 
   useEffect(() => {
-    if (view === "welcome" || !restaurant?.slider_images || restaurant.slider_images.length <= 1) return;
-    const timer = setInterval(() => setCurrentSlide((prev) => (prev === restaurant.slider_images.length - 1 ? 0 : prev + 1)), 3000);
-    return () => clearInterval(timer);
-  }, [restaurant?.slider_images, view]);
+    if (view !== "menu") {
+      setMenuViewEntered(false);
+      return;
+    }
+    const t = window.requestAnimationFrame(() => setMenuViewEntered(true));
+    return () => window.cancelAnimationFrame(t);
+  }, [view, selectedMenuCollectionId]);
+
+  const openMenuCollection = (menuCollectionId: string) => {
+    setSelectedMenuCollectionId(menuCollectionId);
+    setMenuMainGroup(null);
+    setView("menu");
+  };
+
+  const backToMenuPick = () => {
+    setView("welcome");
+    setMenuMainGroup(null);
+    setSelectedMenuCollectionId(null);
+  };
 
   if (loading) return <MenuLoadingScreen />;
   if (menuUnavailable) return <MenuUnavailableScreen />;
@@ -323,61 +423,112 @@ export default function CustomerMenu() {
     return base;
   };
 
-  /** Karşılama ana grup başlığı: gruptaki ilk kategoriden çok dilli main_group okunur. */
-  const getGroupLabel = (groupKey: string, cats: any[]) => {
+  const getGroupLabel = (groupKey: string, cats: PublicCategory[]) => {
     const sample = cats[0];
     if (!sample) return groupKey;
     const trLabel = sample.main_group || groupKey;
     return getText({ ...sample, main_group: trLabel }, "main_group");
   };
 
-  const groupedCategories = categories.reduce((acc, cat) => {
-    const group = cat.main_group || "DİĞER";
-    if (!acc[group]) acc[group] = [];
-    acc[group].push(cat);
-    return acc;
-  }, {} as Record<string, any[]>);
-
-  const categoryGroupKey = (cat: { main_group?: string | null }) => cat.main_group || "DİĞER";
-  const menuCategories =
-    menuMainGroup != null
-      ? categories.filter((c: any) => categoryGroupKey(c) === menuMainGroup)
-      : categories;
+  const groupedCategories = categories.reduce(
+    (acc, cat) => {
+      const group = cat.main_group || "DİĞER";
+      if (!acc[group]) acc[group] = [];
+      acc[group].push(cat);
+      return acc;
+    },
+    {} as Record<string, PublicCategory[]>
+  );
 
   const instagramCtx = instagramOpenContext(restaurant.instagram);
 
-  if (view === "welcome") {
+  if (view === "welcome" && useCollectionFlow && showMenuPicker) {
+    const instagramFollowLabel =
+      language === "en"
+        ? "Follow us"
+        : language === "ru"
+          ? "Подпишитесь"
+          : "Takip edin";
+
     return (
-      <div 
+      <MenuPickScreen
+        restaurantName={restaurant.name}
+        logoUrl={restaurant.logo_url}
+        welcomeBgUrl={restaurant.welcome_bg_url}
+        themeColor={themeColor}
+        language={language}
+        onLanguageChange={setLanguage}
+        menuCollections={menuCollections}
+        onSelectCollection={openMenuCollection}
+        instagramCtx={instagramCtx}
+        instagramLabel={instagramFollowLabel}
+        onInstagramClick={(e) => {
+          const u = instagramCtx?.appUsername;
+          if (!u || !isIOSMobileClient()) return;
+          e.preventDefault();
+          openInstagramIOSAggressive(instagramCtx!.webUrl, u);
+        }}
+      />
+    );
+  }
+
+  if (view === "welcome" && !useCollectionFlow) {
+    return (
+      <div
         className="relative min-h-screen flex flex-col items-center justify-between bg-cover bg-center bg-no-repeat font-sans"
-        style={{ backgroundImage: `url(${restaurant.welcome_bg_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1934&auto=format&fit=crop'})` }}
+        style={{
+          backgroundImage: `url(${restaurant.welcome_bg_url || "https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1934&auto=format&fit=crop"})`,
+        }}
       >
         <div className="absolute inset-0 bg-black/30 pointer-events-none" />
 
         <div className="relative z-10 w-full p-6 flex justify-end">
-            <div className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3">
-              <span onClick={() => setLanguage("tr")} className={language === 'tr' ? 'text-black' : 'opacity-40 grayscale'}>TR</span>
-              <span onClick={() => setLanguage("en")} className={language === 'en' ? 'text-black' : 'opacity-40 grayscale'}>EN</span>
-              <span onClick={() => setLanguage("ru")} className={language === 'ru' ? 'text-black' : 'opacity-40 grayscale'}>RU</span>
-            </div>
+          <div className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3">
+            <span
+              onClick={() => setLanguage("tr")}
+              className={language === "tr" ? "text-black" : "opacity-40 grayscale"}
+            >
+              TR
+            </span>
+            <span
+              onClick={() => setLanguage("en")}
+              className={language === "en" ? "text-black" : "opacity-40 grayscale"}
+            >
+              EN
+            </span>
+            <span
+              onClick={() => setLanguage("ru")}
+              className={language === "ru" ? "text-black" : "opacity-40 grayscale"}
+            >
+              RU
+            </span>
+          </div>
         </div>
 
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-6">
-           <div className="px-10 py-8 shadow-2xl backdrop-blur-sm flex items-center justify-center min-w-[200px]" style={{ backgroundColor: `${themeColor}E6` }}>
-             {restaurant.logo_url ? (
-                <img src={restaurant.logo_url} alt="Restoran Logosu" className="max-h-24 object-contain filter drop-shadow-md" />
-             ) : (
-                <h1 className="text-4xl font-black tracking-widest text-white">{restaurant.name}</h1>
-             )}
-           </div>
+          <div
+            className="px-10 py-8 shadow-2xl backdrop-blur-sm flex items-center justify-center min-w-[200px]"
+            style={{ backgroundColor: `${themeColor}E6` }}
+          >
+            {restaurant.logo_url ? (
+              <img
+                src={restaurant.logo_url}
+                alt="Restoran Logosu"
+                className="max-h-24 object-contain filter drop-shadow-md"
+              />
+            ) : (
+              <h1 className="text-4xl font-black tracking-widest text-white">{restaurant.name}</h1>
+            )}
+          </div>
         </div>
 
         <div className="relative z-10 w-full max-w-md mx-auto px-6 pb-12 space-y-3">
-            {(Object.entries(groupedCategories) as [string, any[]][]).map(([groupName, cats]) => {
+          {(Object.entries(groupedCategories) as [string, PublicCategory[]][]).map(
+            ([groupName, cats]) => {
               const isExpanded = expandedGroup === groupName;
               return (
                 <div key={groupName} className="flex flex-col gap-1.5">
-                  <button 
+                  <button
                     onClick={() => setExpandedGroup(isExpanded ? null : groupName)}
                     className="w-full bg-[#E5DFD3] text-[#1F3B2B] flex items-center justify-between px-6 py-5 rounded-lg font-black text-lg tracking-widest uppercase shadow-lg active:scale-[0.98] transition-transform"
                   >
@@ -387,8 +538,8 @@ export default function CustomerMenu() {
 
                   {isExpanded && (
                     <div className="flex flex-col gap-1.5 animate-in slide-in-from-top-2 fade-in duration-200">
-                      {cats.map((cat: any) => (
-                        <button 
+                      {cats.map((cat) => (
+                        <button
                           key={cat.id}
                           onClick={() => {
                             setActiveCategory(cat.id);
@@ -404,101 +555,194 @@ export default function CustomerMenu() {
                   )}
                 </div>
               );
-            })}
-            {instagramCtx && (
-              <footer className="pt-8 mt-2 border-t border-white/25 text-center">
-                <p className="mb-3 text-[11px] sm:text-xs font-black uppercase tracking-[0.22em] text-white/95 drop-shadow-sm">
-                  {language === "en"
-                    ? "Follow us now"
-                    : language === "ru"
-                      ? "Подпишитесь на нас"
-                      : "Şimdi Takip Edin"}
-                </p>
-                <a
-                  href={instagramCtx.webUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    const u = instagramCtx.appUsername;
-                    if (!u || !isIOSMobileClient()) return;
-                    e.preventDefault();
-                    openInstagramIOSAggressive(instagramCtx.webUrl, u);
-                  }}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/15 px-4 py-3.5 text-sm font-black uppercase tracking-widest text-white shadow-lg backdrop-blur-md transition hover:bg-white/25 active:scale-[0.99]"
-                >
-                  <InstagramGlyph className="h-5 w-5 shrink-0" />
-                  Instagram
-                </a>
-              </footer>
-            )}
+            }
+          )}
+          {instagramCtx && (
+            <footer className="pt-8 mt-2 border-t border-white/25 text-center">
+              <p className="mb-3 text-[11px] sm:text-xs font-black uppercase tracking-[0.22em] text-white/95 drop-shadow-sm">
+                {language === "en"
+                  ? "Follow us now"
+                  : language === "ru"
+                    ? "Подпишитесь на нас"
+                    : "Şimdi Takip Edin"}
+              </p>
+              <a
+                href={instagramCtx.webUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  const u = instagramCtx.appUsername;
+                  if (!u || !isIOSMobileClient()) return;
+                  e.preventDefault();
+                  openInstagramIOSAggressive(instagramCtx.webUrl, u);
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/15 px-4 py-3.5 text-sm font-black uppercase tracking-widest text-white shadow-lg backdrop-blur-md transition hover:bg-white/25 active:scale-[0.99]"
+              >
+                <InstagramGlyph className="h-5 w-5 shrink-0" />
+                Instagram
+              </a>
+            </footer>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24 font-sans selection:bg-gray-200">
-      
+    <div
+      className={`min-h-screen bg-gray-50 pb-24 font-sans selection:bg-gray-200 transition-opacity duration-500 ${
+        menuViewEntered ? "opacity-100" : "opacity-0"
+      }`}
+    >
       <header className="bg-white shadow-sm sticky top-0 z-30">
         <div className="p-4 flex items-center gap-2 max-w-2xl mx-auto border-b border-gray-50">
-          <button type="button" aria-label="Karşılama ekranına dön" onClick={() => { setView("welcome"); setMenuMainGroup(null); }} className="flex-shrink-0 flex items-center justify-center text-gray-500 hover:text-gray-900 bg-gray-100 p-2 rounded-lg transition-colors">
-            <ChevronLeft size={16} aria-hidden />
-          </button>
+          {showMenuPicker ? (
+            <button
+              type="button"
+              aria-label="Menü seçimine dön"
+              onClick={backToMenuPick}
+              className="flex-shrink-0 flex items-center justify-center text-gray-500 hover:text-gray-900 bg-gray-100 p-2 rounded-lg transition-colors"
+            >
+              <ChevronLeft size={16} aria-hidden />
+            </button>
+          ) : (
+            <div className="w-9 flex-shrink-0" aria-hidden />
+          )}
           <div className="flex-1 min-w-0 flex justify-center px-1">
             {restaurant.logo_url ? (
-              <img src={restaurant.logo_url} alt="Restoran Logosu" className="h-8 max-w-[40vw] sm:max-w-none object-contain" />
+              <img
+                src={restaurant.logo_url}
+                alt="Restoran Logosu"
+                className="h-8 max-w-[40vw] sm:max-w-none object-contain"
+              />
             ) : (
-              <h1 style={{ color: themeColor }} className="text-base sm:text-xl font-black tracking-tighter uppercase truncate text-center max-w-[42vw] sm:max-w-md">{restaurant.name}</h1>
+              <h1
+                style={{ color: themeColor }}
+                className="text-base sm:text-xl font-black tracking-tighter uppercase truncate text-center max-w-[42vw] sm:max-w-md"
+              >
+                {restaurant.name}
+              </h1>
             )}
           </div>
           <div className="flex-shrink-0 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-black text-gray-900 shadow-lg flex gap-2 sm:gap-3 border border-gray-100 cursor-pointer select-none">
-            <span onClick={() => setLanguage("tr")} className={language === "tr" ? "text-black" : "opacity-40 grayscale"}>TR</span>
-            <span onClick={() => setLanguage("en")} className={language === "en" ? "text-black" : "opacity-40 grayscale"}>EN</span>
-            <span onClick={() => setLanguage("ru")} className={language === "ru" ? "text-black" : "opacity-40 grayscale"}>RU</span>
+            <span onClick={() => setLanguage("tr")} className={language === "tr" ? "text-black" : "opacity-40 grayscale"}>
+              TR
+            </span>
+            <span onClick={() => setLanguage("en")} className={language === "en" ? "text-black" : "opacity-40 grayscale"}>
+              EN
+            </span>
+            <span onClick={() => setLanguage("ru")} className={language === "ru" ? "text-black" : "opacity-40 grayscale"}>
+              RU
+            </span>
           </div>
         </div>
 
         {restaurant.slider_images && restaurant.slider_images.length > 0 && (
           <div className="w-full bg-white pb-3 pt-3">
-             <div className="max-w-2xl mx-auto px-4">
-                <div className="relative overflow-hidden rounded-2xl shadow-sm border border-gray-100 aspect-[16/9] bg-gray-900">
-                  {restaurant.slider_images.map((img: string, idx: number) => {
-                    const isActive = currentSlide === idx;
-                    return (
-                      <div key={idx} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${isActive ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
-                        <img src={img} alt={`Menü Görseli ${idx + 1}`} className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${isActive ? 'scale-110' : 'scale-100'}`} />
-                      </div>
-                    );
-                  })}
-                </div>
-             </div>
+            <div className="max-w-2xl mx-auto px-4">
+              <div className="relative overflow-hidden rounded-2xl shadow-sm border border-gray-100 aspect-[16/9] bg-gray-900">
+                {restaurant.slider_images.map((img: string, idx: number) => {
+                  const isActive = currentSlide === idx;
+                  return (
+                    <div
+                      key={idx}
+                      className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${isActive ? "opacity-100 z-10" : "opacity-0 z-0"}`}
+                    >
+                      <img
+                        src={img}
+                        alt={`Menü Görseli ${idx + 1}`}
+                        className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${isActive ? "scale-110" : "scale-100"}`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="flex overflow-x-auto gap-2 p-3 max-w-2xl mx-auto no-scrollbar scroll-smooth">
-          {menuCategories.map((cat: any) => (
-            <button 
-              key={cat.id} onClick={() => setActiveCategory(cat.id)} style={activeCategory === cat.id ? { backgroundColor: themeColor, color: '#fff' } : {}}
-              className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${activeCategory === cat.id ? 'shadow-md shadow-gray-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-            >
-              {getText(cat, "name")}
-            </button>
-          ))}
-        </div>
+        {menuCategories.length > 0 && (
+          <div className="flex overflow-x-auto gap-2 p-3 max-w-2xl mx-auto no-scrollbar scroll-smooth">
+            {menuCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                style={activeCategory === cat.id ? { backgroundColor: themeColor, color: "#fff" } : {}}
+                className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${activeCategory === cat.id ? "shadow-md shadow-gray-200" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+              >
+                {getText(cat, "name")}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       <main className="p-3 max-w-2xl mx-auto space-y-3 mt-1">
-        {products.filter((p: any) => p.category_id === activeCategory).map((product: any) => (
-          <div key={product.id} className="bg-white p-3 md:p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-3 md:gap-4 hover:border-gray-200 transition-colors">
-            {product.image_url && (<div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative"><img src={product.image_url} alt={product.name || 'Ürün Görseli'} className="w-full h-full object-cover" /></div>)}
+        {menuCategories.length === 0 && showMenuPicker && (
+          <div className="text-center py-12 px-4 space-y-4">
+            <p className="text-sm font-bold text-gray-500">
+              {language === "en"
+                ? "No categories in this menu yet."
+                : language === "ru"
+                  ? "В этом меню пока нет категорий."
+                  : "Bu menüde henüz kategori yok."}
+            </p>
+            <button
+              type="button"
+              onClick={backToMenuPick}
+              className="text-sm font-black uppercase tracking-wide text-gray-800 underline underline-offset-4"
+            >
+              {language === "en"
+                ? "Back to menu selection"
+                : language === "ru"
+                  ? "К выбору меню"
+                  : "Menü seçimine dön"}
+            </button>
+          </div>
+        )}
+        {visibleProducts.map((product: any) => (
+          <div
+            key={product.id}
+            className="bg-white p-3 md:p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-3 md:gap-4 hover:border-gray-200 transition-colors"
+          >
+            {product.image_url && (
+              <div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative">
+                <img
+                  src={product.image_url}
+                  alt={product.name || "Ürün Görseli"}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
             <div className="flex-1 flex flex-col justify-center">
-              <div className="flex justify-between items-start gap-2 mb-1"><h3 className="font-black text-gray-900 leading-tight text-base md:text-lg">{getText(product, 'name')}</h3><span style={{ color: themeColor }} className="font-black text-lg md:text-xl whitespace-nowrap">{formatPriceForDisplay(product.price)}</span></div>
-              {getText(product, 'description') && (<p className="text-xs md:text-sm text-gray-500 font-medium leading-snug mb-2 line-clamp-2">{getText(product, 'description')}</p>)}
+              <div className="flex justify-between items-start gap-2 mb-1">
+                <h3 className="font-black text-gray-900 leading-tight text-base md:text-lg">
+                  {getText(product, "name")}
+                </h3>
+                <span style={{ color: themeColor }} className="font-black text-lg md:text-xl whitespace-nowrap">
+                  {formatPriceForDisplay(product.price)}
+                </span>
+              </div>
+              {getText(product, "description") && (
+                <p className="text-xs md:text-sm text-gray-500 font-medium leading-snug mb-2 line-clamp-2">
+                  {getText(product, "description")}
+                </p>
+              )}
               {product.allergens && product.allergens.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-auto">
                   {product.allergens.map((aId: string) => {
                     const alg = ALLERGEN_OPTIONS.find((a: any) => a.id === aId);
-                    return alg ? (<div key={aId} className="flex items-center gap-1 bg-gray-50 border border-gray-100 px-1.5 py-0.5 rounded-lg"><span className="text-[10px]">{alg.icon}</span><span className="text-[8px] font-black text-gray-500 uppercase tracking-widest">{alg.label}</span></div>) : null;
+                    return alg ? (
+                      <div
+                        key={aId}
+                        className="flex items-center gap-1 bg-gray-50 border border-gray-100 px-1.5 py-0.5 rounded-lg"
+                      >
+                        <span className="text-[10px]">{alg.icon}</span>
+                        <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest">
+                          {alg.label}
+                        </span>
+                      </div>
+                    ) : null;
                   })}
                 </div>
               )}

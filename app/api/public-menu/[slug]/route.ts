@@ -3,6 +3,10 @@ import {
   isPublicMenuBlocked,
   PUBLIC_MENU_UNAVAILABLE_MESSAGE,
 } from "@/lib/public-menu/subscription-gate";
+import {
+  attachMenuCollectionIds,
+  buildMenuCollectionsPayload,
+} from "@/lib/public-menu/menu-collections";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -241,9 +245,16 @@ export async function GET(
     ...publicRestaurant
   } = restaurantRow;
 
+  const { menu_collections, menu_picker, menuIdsByCategory } =
+    await buildMenuCollectionsPayload(supabase, restaurantRow.id, categoryIds);
+
+  const publicCategories = attachMenuCollectionIds(categoryRows, menuIdsByCategory);
+
   return NextResponse.json({
     restaurant: publicRestaurant,
-    categories: categoryRows,
+    menu_collections,
+    menu_picker,
+    categories: publicCategories,
     products,
   });
 }
