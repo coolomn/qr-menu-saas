@@ -9,10 +9,10 @@ import {
   resolveImportDownloadTarget,
 } from "@/lib/menu-import/paths";
 import { isImageMime, isPdfMime } from "@/lib/menu-import/mime";
-import {
-  structureMenuFromImageBase64,
-  structureMenuFromText,
-} from "@/lib/menu-import/openai-menu";
+import { structureMenuFromImageBase64 } from "@/lib/menu-import/openai-menu";
+
+const PDF_UNSUPPORTED_MESSAGE =
+  "PDF metin çıkarımı şu anda desteklenmiyor. Lütfen menüyü görsel olarak yükleyin.";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -85,9 +85,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 });
     }
 
-    if (!isPdfMime(mimeType) && !isImageMime(mimeType)) {
+    if (isPdfMime(mimeType)) {
+      return NextResponse.json({ error: PDF_UNSUPPORTED_MESSAGE }, { status: 422 });
+    }
+
+    if (!isImageMime(mimeType)) {
       return NextResponse.json(
-        { error: "Yalnızca PDF veya JPEG/PNG/WebP/GIF desteklenir." },
+        { error: "Yalnızca JPEG, PNG, WebP veya GIF desteklenir." },
         { status: 400 }
       );
     }
@@ -142,18 +146,8 @@ export async function POST(request: Request) {
       throw new Error("Dosya çok büyük (en fazla 12 MB).");
     }
 
-    let payload;
-    if (isPdfMime(mimeType)) {
-      const { extractTextFromPdf } = await import("@/lib/menu-import/extract");
-      const text = await extractTextFromPdf(buffer);
-      if (!text.trim()) {
-        throw new Error("PDF içinden metin çıkarılamadı (taranmış PDF olabilir). Görüntü olarak yükleyin.");
-      }
-      payload = await structureMenuFromText(text);
-    } else {
-      const b64 = buffer.toString("base64");
-      payload = await structureMenuFromImageBase64(mimeType, b64);
-    }
+    const b64 = buffer.toString("base64");
+    const payload = await structureMenuFromImageBase64(mimeType, b64);
 
     await admin
       .from("menu_import_jobs")

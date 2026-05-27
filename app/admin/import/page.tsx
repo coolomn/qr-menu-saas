@@ -235,6 +235,15 @@ export default function AdminMenuImportPage() {
 
   const runAnalyze = async () => {
     if (!file || !restaurantId) return;
+    if (
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf")
+    ) {
+      setError(
+        "PDF metin çıkarımı şu anda desteklenmiyor. Lütfen menüyü görsel olarak yükleyin."
+      );
+      return;
+    }
     if (!requireTargetMenuSelection()) return;
     setError(null);
     setBusy(true);
@@ -447,8 +456,8 @@ export default function AdminMenuImportPage() {
         {step === "upload" && (
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-4">
             <p className="text-sm text-gray-500 leading-relaxed">
-              PDF veya menü fotoğrafı yükleyin. Sonuçlar canlı menüye yazılmaz; önce önizleyip onaylarsınız.
-              Taranmış PDF’lerde metin çıkmayabilir — bu durumda sayfayı görüntü olarak kaydedip yükleyin.
+              Menü fotoğrafı (JPEG, PNG, WebP veya GIF) yükleyin. Sonuçlar canlı menüye yazılmaz;
+              önce önizleyip onaylarsınız. PDF desteklenmiyor — sayfayı görüntü olarak kaydedip yükleyin.
             </p>
             {showTargetMenuPicker && (
               <div className="p-4 md:p-5 bg-violet-50 rounded-2xl border border-violet-100 space-y-3">
@@ -492,9 +501,25 @@ export default function AdminMenuImportPage() {
               </span>
               <input
                 type="file"
-                accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,.pdf"
+                accept="image/jpeg,image/png,image/webp,image/gif"
                 className="w-full text-sm font-medium text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-blue-50 file:text-blue-700"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  const picked = e.target.files?.[0] ?? null;
+                  if (
+                    picked &&
+                    (picked.type === "application/pdf" ||
+                      picked.name.toLowerCase().endsWith(".pdf"))
+                  ) {
+                    setError(
+                      "PDF metin çıkarımı şu anda desteklenmiyor. Lütfen menüyü görsel olarak yükleyin."
+                    );
+                    setFile(null);
+                    e.target.value = "";
+                    return;
+                  }
+                  setError(null);
+                  setFile(picked);
+                }}
               />
             </label>
             <button
