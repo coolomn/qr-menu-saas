@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Copy, ExternalLink, Loader2, Shield } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Loader2, Mail, Shield } from "lucide-react";
 import { OnboardingCard } from "@/app/admin/master/_components/onboarding-card";
+import { OwnerTemporaryPasswordReveal } from "@/app/admin/master/_components/owner-temporary-password-reveal";
 import { masterJsonFetch } from "@/lib/master-admin/client-api";
 import { masterLoginUrl } from "@/lib/master-admin/client-auth";
 import {
@@ -67,6 +68,11 @@ export default function MasterRestaurantDetailPage() {
   const [item, setItem] = useState<MasterRestaurantListItem | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [copied, setCopied] = useState(false);
+  const [tempPasswordReveal, setTempPasswordReveal] = useState<{
+    ownerEmail: string;
+    temporaryPassword: string;
+    loginUrl: string;
+  } | null>(null);
 
   const loadRestaurant = useCallback(async () => {
     const session = await waitForBrowserSession();
@@ -264,6 +270,57 @@ export default function MasterRestaurantDetailPage() {
     );
   };
 
+  const handleResetPassword = async (mode: "email" | "temporary_password") => {
+    const busyKey = mode === "email" ? "reset-email" : "reset-temp";
+    setActionBusy(busyKey);
+    setError(null);
+    setSuccessMessage(null);
+    setTempPasswordReveal(null);
+
+    const result = await withToken((token) =>
+      masterJsonFetch<{
+        ok: boolean;
+        mode: string;
+        owner_email: string;
+        sent_at?: string;
+        temporary_password?: string;
+        login_url?: string;
+      }>(`/api/master/restaurants/${restaurantId}/reset-password`, token, {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      })
+    );
+
+    setActionBusy(null);
+    if (!result) return;
+    if (!result.ok) {
+      setError(result.error || "Şifre işlemi başarısız.");
+      return;
+    }
+
+    const data = result.data;
+    if (data.mode === "temporary_password" && data.temporary_password) {
+      setTempPasswordReveal({
+        ownerEmail: data.owner_email,
+        temporaryPassword: data.temporary_password,
+        loginUrl: data.login_url ?? ownerLoginUrl,
+      });
+      setSuccessMessage("Yeni geçici şifre oluşturuldu. Aşağıdan kopyalayın.");
+      return;
+    }
+
+    if (data.mode === "email" && data.sent_at) {
+      const sent = new Date(data.sent_at).toLocaleString("tr-TR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      setSuccessMessage(`Şifre sıfırlama e-postası gönderildi (${data.owner_email}, ${sent}).`);
+    }
+  };
+
   const copyMenuLink = async () => {
     if (!item) return;
     const url = `${window.location.origin}/menu/${item.slug}`;
@@ -305,6 +362,8 @@ export default function MasterRestaurantDetailPage() {
     item.tenant_status,
     item.status
   );
+
+  const ownerCanResetPassword = Boolean(item.owner_id && item.owner_email);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -350,6 +409,47 @@ export default function MasterRestaurantDetailPage() {
         )}
 
         <OnboardingCard item={item} loginUrl={ownerLoginUrl} />
+
+        <section className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+          <h2 className="text-sm font-black text-gray-900 uppercase tracking-wide">Owner şifre</h2>
+          <p className="text-xs text-gray-500">
+            Müşteri şifresini unuttuysa sıfırlama maili veya tek seferlik geçici şifre ile destek
+            verin.
+          </p>
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={Boolean(actionBusy) || !ownerCanResetPassword}
+              onClick={() => void handleResetPassword("email")}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {actionBusy === "reset-email" && <Loader2 size={14} className="animate-spin" />}
+              <Mail size={14} />
+              Şifre sıfırlama maili gönder
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(actionBusy) || !ownerCanResetPassword}
+              onClick={() => void handleResetPassword("temporary_password")}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {actionBusy === "reset-temp" && <Loader2 size={14} className="animate-spin" />}
+              Yeni geçici şifre oluştur
+            </button>
+          </div>
+          {!ownerCanResetPassword && (
+            <p className="text-xs text-amber-800">Owner e-postası veya hesap bağlantısı eksik.</p>
+          )}
+        </section>
+
+        {tempPasswordReveal && (
+          <OwnerTemporaryPasswordReveal
+            ownerEmail={tempPasswordReveal.ownerEmail}
+            temporaryPassword={tempPasswordReveal.temporaryPassword}
+            loginUrl={tempPasswordReveal.loginUrl}
+            onDismiss={() => setTempPasswordReveal(null)}
+          />
+        )}
 
         <section className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
           <h2 className="text-sm font-black text-gray-900 uppercase tracking-wide">Hızlı işlemler</h2>

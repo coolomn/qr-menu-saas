@@ -5,14 +5,50 @@ import {
   importMenuPayloadSchema,
   MENU_IMPORT_EMPTY_RESULT_MESSAGE,
   type ImportMenuPayload,
+  type ImportProduct,
 } from "./schema";
 
-/** Açıklamalar: alt satır, parantez, küçük punto, italik, madde işareti alt maddeler */
-const DESCRIPTION_RULES = `Açıklama (description) kuralları — çok önemli:
-- Menüde ürün adının ALTINDA, daha küçük puntoyla veya italik / parantez içinde yazılan cümleleri mutlaka o ürünün "description" alanına yaz.
-- Ürün adıyla aynı satırda tire veya parantezle devam eden kısa açıklamayı da description'a dahil et (ör. "Mercimek çorbası (günün çorbası)" → name uygun şekilde bölünebilir veya tamamı name'de kalan açıklama kısmı description).
-- "İçindekiler:", "Sos:", "Yanında:" gibi alt satırlar ilgili ürünün description'ıdır.
-- Menüde gerçekten açıklama yoksa o ürün için description: null bırak; uydurma metin yazma.`;
+const MULTILINGUAL_FIELD_RULES = `Çok dilli ürün alanları (ZORUNLU):
+- Aynı ürün için menüde birden fazla dilde satır varsa satırı DİLİNE göre ayır; çeviri üretme, menüde yazanı kullan.
+- Türkçe ürün adı → name
+- İngilizce ürün adı → name_en (ASLA description'a yazma)
+- Rusça ürün adı → name_ru
+- Türkçe açıklama → description (yoksa null)
+- İngilizce açıklama → description_en (yoksa null; ASLA description'a yazma)
+- Rusça açıklama → description_ru
+- Fiyat (₺, TL, sayı) yalnızca price; name veya description alanlarına yazma.
+
+İsim vs açıklama:
+- Kısa satır (genelde 1–6 kelime), başlık/yemek adı gibi → ilgili dilde name / name_en / name_ru
+- Ürün adının hemen altındaki satır İngilizce/Rusça YEMEK ADI ise → name_en veya name_ru; description DEĞİL
+- Malzeme, pişirme, "içindekiler", uzun cümle → ilgili dilde description / description_en / description_ru
+- Türkçe kaynak satırdan Türkçe alanlar; İngilizce kaynak satırdan İngilizce alanlar; karıştırma
+
+Sadece İngilizce menü:
+- name zorunlu: menüdeki İngilizce ürün adını name'e yaz
+- name_en de aynı İngilizce ad ile doldurulabilir
+- Otomatik Türkçe çeviri uydurma; description null kalabilir
+
+Tek dilli Türkçe menü (eski davranış):
+- Yalnızca name, description, price kullan; name_en/name_ru/description_en/description_ru null bırak`;
+
+/** Açıklamalar: parantez, küçük punto; çok dilli isim satırı hariç */
+const DESCRIPTION_RULES = `Açıklama (description / description_en / description_ru) kuralları:
+- Yalnızca gerçek açıklayıcı metinleri ilgili dildeki description alanına yaz.
+- Ürün adının altındaki İngilizce/Rusça kısa yemek adı satırı description DEĞİL; name_en veya name_ru'dur.
+- Türkçe açıklayıcı alt satır, parantez, italik, "İçindekiler:" → description (Türkçe).
+- Menüde o dilde açıklama yoksa o alan null; uydurma yazma.
+- Fiyat description alanlarına karışmamalı.`;
+
+const PRODUCT_JSON_FIELDS = `{
+          "name": "string (Türkçe veya birincil ürün adı, zorunlu)",
+          "name_en": "string veya null",
+          "name_ru": "string veya null",
+          "description": "string veya null (Türkçe açıklama)",
+          "description_en": "string veya null",
+          "description_ru": "string veya null",
+          "price": "string veya null (ör. 120 veya 120 ₺)"
+        }`;
 
 const MENU_JSON_INSTRUCTION = `Çıktı YALNIZCA geçerli bir JSON nesnesi olmalı (markdown yok). Şema:
 {
@@ -21,13 +57,34 @@ const MENU_JSON_INSTRUCTION = `Çıktı YALNIZCA geçerli bir JSON nesnesi olmal
       "name": "string (kategori adı, Türkçe)",
       "main_group": "string veya null (ör. YİYECEKLER, İÇECEKLER, DİĞER — bilinmiyorsa null)",
       "products": [
-        { "name": "string", "description": "string veya null", "price": "string veya null (ör. 120 veya 120 ₺)" }
+        ${PRODUCT_JSON_FIELDS}
       ]
     }
   ]
 }
 
-Örnek (açıklama dolu):
+Örnek (çok dilli — doğru):
+{
+  "categories": [
+    {
+      "name": "Izgara",
+      "main_group": "YİYECEKLER",
+      "products": [
+        {
+          "name": "Izgara köfte",
+          "name_en": "Grilled meatballs",
+          "name_ru": null,
+          "description": "Domates soslu pilav ile servis edilir.",
+          "description_en": "Served with rice and tomato sauce.",
+          "description_ru": null,
+          "price": "320"
+        }
+      ]
+    }
+  ]
+}
+
+Örnek (yalnızca Türkçe):
 {
   "categories": [
     {
@@ -35,26 +92,34 @@ const MENU_JSON_INSTRUCTION = `Çıktı YALNIZCA geçerli bir JSON nesnesi olmal
       "main_group": "YİYECEKLER",
       "products": [
         {
-          "name": "İşkembe",
-          "description": "Tereyağında kavrulmuş sarımsak ve sirke ile.",
-          "price": "185"
-        },
-        {
           "name": "Mercimek",
-          "description": "Günün çorbası. Yanında limon.",
-          "price": null
+          "name_en": null,
+          "name_ru": null,
+          "description": "Günün çorbası.",
+          "description_en": null,
+          "description_ru": null,
+          "price": "95"
         }
       ]
     }
   ]
 }
 
+YANLIŞ örnek (yapma): name="Izgara köfte", description="Grilled meatballs" — İngilizce ad name_en olmalı.
+
 Genel kurallar:
 - categories dizisi en az 1 kategori içermeli.
 - Menüde okunabilir en az bir ürün/yemek/içecek satırı varsa mutlaka bir kategoriye yaz.
-- Bölüm başlığı net değilse veya tek parça menüyse kategori adı olarak "Genel" kullan (main_group: "DİĞER" veya null).
-- Yalnızca menüde gerçekten görünen ürünleri yaz; uydurma ürün veya fiyat ekleme.
-- Fiyat menüde yoksa null; açıklama yoksa null.
+- Bölüm başlığı net değilse kategori adı "Genel" (main_group: "DİĞER" veya null).
+- Yalnızca menüde görünen ürünleri yaz; uydurma ekleme.
+- Fiyat yoksa null; ilgili dilde açıklama yoksa o alan null.
+${MULTILINGUAL_FIELD_RULES}
+${DESCRIPTION_RULES}`;
+
+const ENRICH_DESCRIPTION_RULES = `Zenginleştirme geçişi — yalnızca açıklama alanları:
+- Güncellenebilir: description, description_en, description_ru
+- DEĞİŞMEZ: name, name_en, name_ru, price, kategori adları, ürün sırası
+- İngilizce kısa yemek adını description veya description_en'e yazma
 ${DESCRIPTION_RULES}`;
 
 function getClient() {
@@ -77,20 +142,36 @@ function roughlySameStructure(a: ImportMenuPayload, b: ImportMenuPayload): boole
   return true;
 }
 
-/** İkinci geçiş: yapı aynı kabul edilerek yalnızca description birleştirilir */
+function mergeDescriptionField(
+  base: string | null | undefined,
+  enriched: string | null | undefined
+): string | null {
+  const fromEnriched = enriched?.trim() || null;
+  const fromBase = base?.trim() || null;
+  return fromEnriched || fromBase || null;
+}
+
+/** İkinci geçiş: yapı aynı; yalnızca description alanları birleştirilir */
 function mergeDescriptionsOnly(base: ImportMenuPayload, enriched: ImportMenuPayload): ImportMenuPayload {
   if (!roughlySameStructure(base, enriched)) return base;
   const categories = base.categories.map((c, ci) => ({
     ...c,
     products: c.products.map((p, pi) => {
       const q = enriched.categories[ci]?.products[pi];
-      const fromEnriched = q?.description?.trim() || null;
-      const fromBase = p.description?.trim() || null;
-      const desc = fromEnriched || fromBase || null;
-      return { ...p, description: desc };
+      return mergeProductDescriptions(p, q);
     }),
   }));
   return { categories };
+}
+
+function mergeProductDescriptions(base: ImportProduct, enriched?: ImportProduct): ImportProduct {
+  if (!enriched) return base;
+  return {
+    ...base,
+    description: mergeDescriptionField(base.description, enriched.description),
+    description_en: mergeDescriptionField(base.description_en, enriched.description_en),
+    description_ru: mergeDescriptionField(base.description_ru, enriched.description_ru),
+  };
 }
 
 function hasNonEmptyCategories(value: unknown): boolean {
@@ -160,15 +241,14 @@ async function enrichDescriptionsFromText(
     messages: [
       {
         role: "system",
-        content: `Sen menü metni hizalayıcısısın. Görev: Aşağıdaki ham menü metnini kullanarak verilen JSON'daki ürünlerin "description" alanlarını doldur veya iyileştir.
-Kategori adları, ürün adları, fiyatlar ve ürün sırası DEĞİŞMEZ; yalnızca description güncellenir.
+        content: `Sen menü metni hizalayıcısısın. Ham menü metnini kullanarak verilen JSON'daki ürünlerin açıklama alanlarını (description, description_en, description_ru) doldur veya iyileştir.
 Çıktı aynı JSON şemasında olmalı (markdown yok).
-${DESCRIPTION_RULES}
-Eğer ham metinde bir ürün için açıklama yoksa description null kalır.`,
+${ENRICH_DESCRIPTION_RULES}
+Ham metinde bir dilde açıklama yoksa o alan null kalır.`,
       },
       {
         role: "user",
-        content: `HAM MENÜ METNİ:\n---\n${menuText}\n---\n\nMEVCUT JSON (yapıyı koru, description doldur):\n${draftJson}`,
+        content: `HAM MENÜ METNİ:\n---\n${menuText}\n---\n\nMEVCUT JSON (isim ve fiyatları koru, yalnızca açıklamaları doldur):\n${draftJson}`,
       },
     ],
   });
@@ -195,16 +275,16 @@ async function enrichDescriptionsFromImage(
       {
         role: "system",
         content: `Sen menü görüntüsü hizalayıcısısın. Görseldeki menüyü tekrar incele.
-Verilen JSON'daki kategori adları, ürün adları, fiyatlar ve sıra AYNI kalacak; yalnızca her ürün için görselde okuyabildiğin "description" alanlarını doldur veya iyileştir.
+Verilen JSON'daki name, name_en, name_ru, fiyatlar ve sıra AYNI kalacak; yalnızca description, description_en, description_ru doldurulur veya iyileştirilir.
 Çıktı aynı JSON şemasında olmalı (markdown yok).
-${DESCRIPTION_RULES}`,
+${ENRICH_DESCRIPTION_RULES}`,
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: `Aynı menü görseli. MEVCUT JSON — yapıyı koru, sadece description'ları görselden tamamla:\n${draftJson}`,
+            text: `Aynı menü görseli. MEVCUT JSON — isimleri ve fiyatları koru, yalnızca açıklama alanlarını görselden tamamla:\n${draftJson}`,
           },
           { type: "image_url", image_url: { url: dataUrl } },
         ],
@@ -226,7 +306,7 @@ export async function structureMenuFromText(menuText: string): Promise<ImportMen
     messages: [
       {
         role: "system",
-        content: `Sen bir menü veri asistanısın. Metindeki tüm satırları dikkatle oku; ürün adı ile fiyat arasındaki veya alt satırdaki açıklayıcı metinleri kaçırma.\n${MENU_JSON_INSTRUCTION}`,
+        content: `Sen bir menü veri asistanısın. Metindeki tüm satırları dikkatle oku; çok dilli menülerde her satırı doğru dile ve alana yerleştir.\n${MENU_JSON_INSTRUCTION}`,
       },
       {
         role: "user",
@@ -263,14 +343,14 @@ export async function structureMenuFromImageBase64(
     messages: [
       {
         role: "system",
-        content: `Sen bir menü görüntüsü okuyucususun. Görseldeki tüm yazıları dikkatle oku: ürün adının altındaki veya yanındaki küçük punto, italik veya parantez içi açıklamaları mutlaka yakala.\n${MENU_JSON_INSTRUCTION}`,
+        content: `Sen bir menü görüntüsü okuyucususun. Görseldeki yazıları oku; çok dilli bloklarda isim ve açıklama satırlarını doğru alanlara ayır.\n${MENU_JSON_INSTRUCTION}`,
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: "Bu görseldeki menüyü JSON şemasına göre çıkar. Her ürün için menüde görünen açıklayıcı alt metin varsa description alanına yaz.",
+            text: "Bu görseldeki menüyü JSON şemasına göre çıkar. Her dildeki açıklayıcı metinleri ilgili description alanına yaz; yabancı dildeki kısa yemek adlarını name_en/name_ru'ya yaz.",
           },
           { type: "image_url", image_url: { url: dataUrl } },
         ],

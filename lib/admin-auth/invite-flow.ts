@@ -25,15 +25,54 @@ function parseHashParams(hash: string): URLSearchParams {
   return new URLSearchParams(raw);
 }
 
-/** Supabase redirect hata query'si (expired / invalid). */
-export function authCallbackErrorMessage(search: string, hash: string): string | null {
+const SUPABASE_AUTH_ERROR_CODES = new Set([
+  "otp_expired",
+  "otp_disabled",
+  "validation_failed",
+  "flow_state_expired",
+  "flow_state_not_found",
+]);
+
+/** Supabase Auth callback hata parametreleri (genel ?error= değil). */
+export function hasSupabaseAuthCallbackInUrl(search: string, hash: string): boolean {
   const params = new URLSearchParams(search);
   const hashParams = parseHashParams(hash);
 
-  const error = params.get("error") || hashParams.get("error");
   const code = params.get("error_code") || hashParams.get("error_code");
+  if (code && SUPABASE_AUTH_ERROR_CODES.has(code)) return true;
 
-  if (!error && !code) return null;
+  const error = params.get("error") || hashParams.get("error");
+  if (error === "access_denied" && (code || params.get("error_description") || hashParams.get("error_description"))) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Davet / recovery / implicit flow token'ları URL'de mi? */
+export function hasAuthTokensInUrl(search: string, hash: string): boolean {
+  const params = new URLSearchParams(search);
+  const hashParams = parseHashParams(hash);
+
+  if (params.get("token_hash")?.trim()) return true;
+
+  for (const key of ["access_token", "refresh_token", "token_hash"] as const) {
+    if (hashParams.get(key)?.trim()) return true;
+  }
+
+  const rawHash = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (/access_token=|refresh_token=/.test(rawHash)) return true;
+
+  return false;
+}
+
+/** Supabase redirect hata query'si (expired / invalid). */
+export function authCallbackErrorMessage(search: string, hash: string): string | null {
+  if (!hasSupabaseAuthCallbackInUrl(search, hash)) return null;
+
+  const params = new URLSearchParams(search);
+  const hashParams = parseHashParams(hash);
+  const code = params.get("error_code") || hashParams.get("error_code");
 
   if (code === "otp_expired" || /expired/i.test(code ?? "")) {
     return "Davet bağlantısının süresi dolmuş. Yöneticinizden yeni bir davet isteyin.";
@@ -45,18 +84,10 @@ export function authCallbackErrorMessage(search: string, hash: string): string |
   return "Davet bağlantısı geçersiz veya süresi dolmuş olabilir. Yöneticinizden yeni davet isteyin.";
 }
 
+/** Yalnızca gerçek invite/recovery callback URL'lerinde login → set-password. */
 export function shouldRedirectLoginToSetPassword(search: string, hash: string): boolean {
-  const params = new URLSearchParams(search);
-  const hashParams = parseHashParams(hash);
-
-  if (params.get("error") || params.get("error_code")) return true;
-  if (params.get("token_hash")) return true;
-
-  const type = params.get("type") || hashParams.get("type");
-  if (type === "invite" || type === "recovery") return true;
-
-  if (hashParams.get("access_token") || hash.includes("access_token=")) return true;
-
+  if (hasSupabaseAuthCallbackInUrl(search, hash)) return true;
+  if (hasAuthTokensInUrl(search, hash)) return true;
   return false;
 }
 
