@@ -14,6 +14,28 @@ import { structureMenuFromImageBase64 } from "@/lib/menu-import/openai-menu";
 const PDF_UNSUPPORTED_MESSAGE =
   "PDF metin çıkarımı şu anda desteklenmiyor. Lütfen menüyü görsel olarak yükleyin.";
 
+const GENERIC_ANALYZE_ERROR =
+  "Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.";
+
+function isPlatformErrorMessage(message: string): boolean {
+  const m = message.trim();
+  return (
+    /^An error /i.test(m) ||
+    /^Internal Server Error/i.test(m) ||
+    /^A server error/i.test(m) ||
+    m.includes("<!DOCTYPE") ||
+    m.includes("<html")
+  );
+}
+
+function userFacingAnalyzeError(rawMessage: string): { message: string; status: number } {
+  const trimmed = rawMessage.trim() || "Bilinmeyen hata";
+  if (isPlatformErrorMessage(trimmed) || trimmed === "Bilinmeyen hata") {
+    return { message: GENERIC_ANALYZE_ERROR, status: 500 };
+  }
+  return { message: trimmed.slice(0, 2000), status: 422 };
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -37,7 +59,7 @@ async function cleanupImportFile(
   }
 }
 
-export async function POST(request: Request) {
+async function handleAnalyzePost(request: Request): Promise<NextResponse> {
   let jobId: string | null = null;
   let admin: SupabaseClient | undefined;
   let storagePathForCleanup: string | null = null;
@@ -162,20 +184,40 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, jobId, payload });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Bilinmeyen hata";
+    const rawMessage = e instanceof Error ? e.message : "Bilinmeyen hata";
+    console.error("menu-import/analyze failed:", e);
+
     if (jobId && admin) {
-      await admin
-        .from("menu_import_jobs")
-        .update({
-          status: "failed",
-          error_message: message.slice(0, 2000),
-        })
-        .eq("id", jobId);
+      try {
+        await admin
+          .from("menu_import_jobs")
+          .update({
+            status: "failed",
+            error_message: rawMessage.slice(0, 2000),
+          })
+          .eq("id", jobId);
+      } catch (jobUpdateErr) {
+        console.error("menu-import/analyze job status update failed:", jobUpdateErr);
+      }
     }
     if (admin && storagePathForCleanup && userIdForCleanup) {
-      await cleanupImportFile(admin, storagePathForCleanup, userIdForCleanup);
+      try {
+        await cleanupImportFile(admin, storagePathForCleanup, userIdForCleanup);
+      } catch (cleanupErr) {
+        console.error("menu-import/analyze cleanup failed:", cleanupErr);
+      }
     }
-    console.error(e);
-    return NextResponse.json({ error: message }, { status: 422 });
+
+    const { message, status } = userFacingAnalyzeError(rawMessage);
+    return NextResponse.json({ ok: false, error: message }, { status });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    return await handleAnalyzePost(request);
+  } catch (e) {
+    console.error("menu-import/analyze unhandled:", e);
+    return NextResponse.json({ ok: false, error: GENERIC_ANALYZE_ERROR }, { status: 500 });
   }
 }

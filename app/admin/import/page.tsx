@@ -38,6 +38,35 @@ function safeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120) || "menu";
 }
 
+const UNEXPECTED_SERVER_RESPONSE = "Sunucu beklenmeyen bir yanıt döndürdü.";
+
+async function readApiJsonResponse<T extends Record<string, unknown>>(
+  res: Response
+): Promise<{ data: T | null; parseError: string | null }> {
+  const text = await res.text();
+  if (!text.trim()) {
+    return {
+      data: null,
+      parseError: res.ok ? null : `${UNEXPECTED_SERVER_RESPONSE} (HTTP ${res.status})`,
+    };
+  }
+  try {
+    return { data: JSON.parse(text) as T, parseError: null };
+  } catch {
+    const looksLikeHtml = /<html/i.test(text);
+    const looksLikePlatform =
+      /^An error /i.test(text.trim()) || /^Internal Server Error/i.test(text.trim());
+    if (looksLikeHtml || looksLikePlatform) {
+      return { data: null, parseError: UNEXPECTED_SERVER_RESPONSE };
+    }
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 160);
+    return {
+      data: null,
+      parseError: snippet || UNEXPECTED_SERVER_RESPONSE,
+    };
+  }
+}
+
 export default function AdminMenuImportPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -267,12 +296,22 @@ export default function AdminMenuImportPage() {
         body: JSON.stringify({
           restaurantId,
           storagePath: path,
-          mimeType: file.type,
+          mimeType: file.type || "image/jpeg",
         }),
       });
-      const json = (await res.json()) as { ok?: boolean; payload?: ImportMenuPayload; error?: string };
-      if (!res.ok || !json.payload) {
-        throw new Error(json.error || "Analiz başarısız.");
+      const { data: json, parseError } = await readApiJsonResponse<{
+        ok?: boolean;
+        payload?: ImportMenuPayload;
+        error?: string;
+      }>(res);
+      if (parseError) {
+        throw new Error(parseError);
+      }
+      if (!res.ok) {
+        throw new Error(json?.error || `Analiz başarısız (HTTP ${res.status}).`);
+      }
+      if (!json?.payload) {
+        throw new Error(json?.error || "Analiz sonucu alınamadı.");
       }
       const suggested = buildSuggestedCategoryTargets(json.payload.categories, existingCategories);
       setCategoryTargets(
@@ -339,7 +378,7 @@ export default function AdminMenuImportPage() {
           category_targets: buildCategoryTargetsPayload(),
         }),
       });
-      const json = (await res.json()) as {
+      const { data: json, parseError } = await readApiJsonResponse<{
         ok?: boolean;
         error?: string;
         categoriesCreated?: number;
@@ -347,9 +386,12 @@ export default function AdminMenuImportPage() {
         productsCreated?: number;
         target_menu_name?: string;
         product_menu_links_skipped?: boolean;
-      };
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || "Kayıt başarısız.");
+      }>(res);
+      if (parseError) {
+        throw new Error(parseError);
+      }
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `Kayıt başarısız (HTTP ${res.status}).`);
       }
       const menuLabel = json.target_menu_name || targetMenuName || "menü";
       let successMessage = `Menü «${menuLabel}» içine aktarıldı.`;
