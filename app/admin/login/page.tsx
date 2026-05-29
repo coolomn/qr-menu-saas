@@ -22,11 +22,27 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (shouldRedirectLoginToSetPassword(window.location.search, window.location.hash)) {
+
+    let cancelled = false;
+    const showForm = () => {
+      if (!cancelled) setCheckingInvite(false);
+    };
+
+    const fallback = window.setTimeout(showForm, 2000);
+
+    const search = window.location.search;
+    const hash = window.location.hash;
+
+    if (shouldRedirectLoginToSetPassword(search, hash)) {
       router.replace(setPasswordUrlPreservingAuthParams());
-      return;
+    } else {
+      showForm();
     }
-    setCheckingInvite(false);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fallback);
+    };
   }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
