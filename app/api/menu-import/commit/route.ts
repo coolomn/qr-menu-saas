@@ -8,8 +8,8 @@ import {
   ensureProductMenuCollectionLink,
 } from "@/lib/admin-menu/helpers";
 import {
+  mergeCreateCategoryTargetsInBatch,
   resolveImportCategoryTargets,
-  type ResolvedCategoryTarget,
 } from "@/lib/menu-import/category-match";
 import {
   enforceProductLimit,
@@ -194,6 +194,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
 
+    const { units, categoriesMergedInBatch } = mergeCreateCategoryTargetsInBatch(
+      payload.categories,
+      resolved.targets
+    );
+
     const svc = tryCreateServiceSupabase();
     if (!svc.ok) {
       return NextResponse.json({ error: svc.error }, { status: 503 });
@@ -236,14 +241,8 @@ export async function POST(request: Request) {
     let productsCreated = 0;
     let productMenuLinksSkipped = false;
 
-    const targetsByIndex = new Map<number, ResolvedCategoryTarget>();
-    for (const t of resolved.targets) {
-      targetsByIndex.set(t.import_index, t);
-    }
-
-    for (let i = 0; i < payload.categories.length; i++) {
-      const cat = payload.categories[i];
-      const target = targetsByIndex.get(i)!;
+    for (const unit of units) {
+      const target = unit.target;
 
       let categoryId: string;
 
@@ -285,7 +284,7 @@ export async function POST(request: Request) {
       const linkResult = await linkCategoryAndProductsToMenu(
         admin,
         categoryId,
-        cat.products,
+        unit.products,
         targetMenu.id
       );
 
@@ -311,6 +310,7 @@ export async function POST(request: Request) {
       ok: true,
       categoriesCreated,
       categoriesReused,
+      categoriesMergedInBatch,
       productsCreated,
       target_menu_collection_id: targetMenu.id,
       target_menu_name: targetMenu.name,

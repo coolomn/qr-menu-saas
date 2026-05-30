@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -17,6 +17,7 @@ import type { ImportCategoryTarget, ImportMenuPayload } from "@/lib/menu-import/
 import { MENU_IMPORTS_BUCKET, buildImportStoragePath } from "@/lib/menu-import/paths";
 import {
   buildSuggestedCategoryTargets,
+  countCreateTargetsMergedInBatch,
   resolveMainGroupForImport,
 } from "@/lib/menu-import/category-match";
 import {
@@ -262,6 +263,17 @@ export default function AdminMenuImportPage() {
     });
   };
 
+  const createTargetsMergedInBatch = useMemo(() => {
+    return countCreateTargetsMergedInBatch(
+      categoryTargets.map((t) => ({
+        mode: t.mode,
+        name: t.name,
+        main_group:
+          t.main_group_preset === "custom" ? t.main_group_custom : t.main_group,
+      }))
+    );
+  }, [categoryTargets]);
+
   const runAnalyze = async () => {
     if (!file || !restaurantId) return;
     if (
@@ -383,6 +395,7 @@ export default function AdminMenuImportPage() {
         error?: string;
         categoriesCreated?: number;
         categoriesReused?: number;
+        categoriesMergedInBatch?: number;
         productsCreated?: number;
         target_menu_name?: string;
         product_menu_links_skipped?: boolean;
@@ -400,6 +413,9 @@ export default function AdminMenuImportPage() {
       }
       if (typeof json.categoriesCreated === "number" && json.categoriesCreated > 0) {
         successMessage += `\n${json.categoriesCreated} yeni kategori oluşturuldu.`;
+      }
+      if (typeof json.categoriesMergedInBatch === "number" && json.categoriesMergedInBatch > 0) {
+        successMessage += `\n${json.categoriesMergedInBatch} aynı isimli kategori birleştirildi.`;
       }
       if (json.product_menu_links_skipped) {
         successMessage +=
@@ -607,6 +623,15 @@ export default function AdminMenuImportPage() {
                 Yeni dosya
               </button>
             </div>
+
+            {createTargetsMergedInBatch > 0 && (
+              <div className="flex items-start gap-2 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-amber-900 text-sm font-medium">
+                <AlertTriangle className="shrink-0 mt-0.5" size={18} />
+                <span>
+                  Aynı isimli kategoriler tek kategori altında birleştirilecek.
+                </span>
+              </div>
+            )}
 
             {preview.categories.map((cat, ci) => {
               const target = categoryTargets.find((t) => t.import_index === ci);

@@ -32,6 +32,11 @@ Sadece İngilizce menü:
 Tek dilli Türkçe menü (eski davranış):
 - Yalnızca name, description, price kullan; name_en/name_ru/description_en/description_ru null bırak`;
 
+const CATEGORY_VS_PRODUCT_RULES = `Kategori vs ürün ayrımı (ZORUNLU):
+- Menüde belirgin bir bölüm başlığı (ör. "Türk Mutfağı", "Izgara", "Salatalar") varsa ve altında yemek adları/fiyatları listeleniyorsa, başlık TEK bir kategori olmalı; altındaki her satır o kategorinin products dizisine eklenmeli.
+- Yemek adı/fiyat satırlarını ayrı kategori olarak yazma; her ürünü kendi kategorisi yapma.
+- Aynı bölüm başlığı altındaki tüm ürünler tek categories[] girişinde birleşmeli.`;
+
 /** Açıklamalar: parantez, küçük punto; çok dilli isim satırı hariç */
 const DESCRIPTION_RULES = `Açıklama (description / description_en / description_ru) kuralları:
 - Yalnızca gerçek açıklayıcı metinleri ilgili dildeki description alanına yaz.
@@ -113,6 +118,7 @@ Genel kurallar:
 - Bölüm başlığı net değilse kategori adı "Genel" (main_group: "DİĞER" veya null).
 - Yalnızca menüde görünen ürünleri yaz; uydurma ekleme.
 - Fiyat yoksa null; ilgili dilde açıklama yoksa o alan null.
+${CATEGORY_VS_PRODUCT_RULES}
 ${MULTILINGUAL_FIELD_RULES}
 ${DESCRIPTION_RULES}`;
 

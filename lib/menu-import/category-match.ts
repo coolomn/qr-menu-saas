@@ -1,4 +1,4 @@
-import type { ImportCategory } from "@/lib/menu-import/schema";
+import type { ImportCategory, ImportProduct } from "@/lib/menu-import/schema";
 
 export type ImportCategoryTargetMode = "create" | "existing";
 
@@ -21,6 +21,89 @@ export type ResolvedCategoryTarget = {
 /** Türkçe büyük harf, trim, çoklu boşluk tek — kategori adı eşleştirme için. */
 export function normalizeCategoryName(name: string): string {
   return name.trim().toLocaleUpperCase("tr-TR").replace(/\s+/g, " ");
+}
+
+/** Batch içi create target birleştirme anahtarı (ad + ana grup). */
+export function createCategoryMergeKey(name: string, main_group: string): string {
+  return `${normalizeCategoryName(name)}\0${resolveMainGroupForImport(main_group)}`;
+}
+
+export type MergedCommitCategoryUnit = {
+  target: ResolvedCategoryTarget;
+  products: ImportProduct[];
+  source_indices: number[];
+};
+
+/**
+ * mode=create hedeflerinde aynı normalize ad + main_group olanları tek birime indirger;
+ * ürünleri sırayla birleştirir. existing hedefler ayrı kalır.
+ */
+export function mergeCreateCategoryTargetsInBatch(
+  categories: ImportCategory[],
+  targets: ResolvedCategoryTarget[]
+): { units: MergedCommitCategoryUnit[]; categoriesMergedInBatch: number } {
+  const targetsByIndex = new Map<number, ResolvedCategoryTarget>();
+  for (const t of targets) {
+    targetsByIndex.set(t.import_index, t);
+  }
+
+  const units: MergedCommitCategoryUnit[] = [];
+  const createMergeMap = new Map<string, MergedCommitCategoryUnit>();
+  let categoriesMergedInBatch = 0;
+
+  for (let i = 0; i < categories.length; i++) {
+    const target = targetsByIndex.get(i);
+    if (!target) continue;
+
+    const catProducts = categories[i]?.products ?? [];
+
+    if (target.mode === "existing") {
+      units.push({
+        target,
+        products: [...catProducts],
+        source_indices: [i],
+      });
+      continue;
+    }
+
+    const key = createCategoryMergeKey(target.name, target.main_group);
+    const mergedUnit = createMergeMap.get(key);
+    if (mergedUnit) {
+      mergedUnit.products.push(...catProducts);
+      mergedUnit.source_indices.push(i);
+      categoriesMergedInBatch++;
+      continue;
+    }
+
+    const unit: MergedCommitCategoryUnit = {
+      target,
+      products: [...catProducts],
+      source_indices: [i],
+    };
+    createMergeMap.set(key, unit);
+    units.push(unit);
+  }
+
+  return { units, categoriesMergedInBatch };
+}
+
+/** Önizlemede birleştirilecek create target sayısı (ilk görülen hariç). */
+export function countCreateTargetsMergedInBatch(
+  targets: Array<{
+    mode: ImportCategoryTargetMode;
+    name: string;
+    main_group: string;
+  }>
+): number {
+  const seen = new Set<string>();
+  let merged = 0;
+  for (const t of targets) {
+    if (t.mode !== "create") continue;
+    const key = createCategoryMergeKey(t.name, t.main_group);
+    if (seen.has(key)) merged++;
+    else seen.add(key);
+  }
+  return merged;
 }
 
 export function resolveMainGroupForImport(
