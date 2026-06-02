@@ -32,7 +32,19 @@ export type MergedCommitCategoryUnit = {
   target: ResolvedCategoryTarget;
   products: ImportProduct[];
   source_indices: number[];
+  /** İlk dolu kategori name_en (create merge'de korunur). */
+  category_name_en?: string | null;
+  /** İlk dolu kategori name_ru (create merge'de korunur). */
+  category_name_ru?: string | null;
 };
+
+function firstNonEmptyI18n(...values: (string | null | undefined)[]): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
 
 /**
  * mode=create hedeflerinde aynı normalize ad + main_group olanları tek birime indirger;
@@ -57,11 +69,16 @@ export function mergeCreateCategoryTargetsInBatch(
 
     const catProducts = categories[i]?.products ?? [];
 
+    const categoryNameEn = categories[i]?.name_en ?? null;
+    const categoryNameRu = categories[i]?.name_ru ?? null;
+
     if (target.mode === "existing") {
       units.push({
         target,
         products: [...catProducts],
         source_indices: [i],
+        category_name_en: categoryNameEn,
+        category_name_ru: categoryNameRu,
       });
       continue;
     }
@@ -71,6 +88,14 @@ export function mergeCreateCategoryTargetsInBatch(
     if (mergedUnit) {
       mergedUnit.products.push(...catProducts);
       mergedUnit.source_indices.push(i);
+      mergedUnit.category_name_en = firstNonEmptyI18n(
+        mergedUnit.category_name_en,
+        categoryNameEn
+      );
+      mergedUnit.category_name_ru = firstNonEmptyI18n(
+        mergedUnit.category_name_ru,
+        categoryNameRu
+      );
       categoriesMergedInBatch++;
       continue;
     }
@@ -79,6 +104,8 @@ export function mergeCreateCategoryTargetsInBatch(
       target,
       products: [...catProducts],
       source_indices: [i],
+      category_name_en: categoryNameEn,
+      category_name_ru: categoryNameRu,
     };
     createMergeMap.set(key, unit);
     units.push(unit);

@@ -266,8 +266,8 @@ export async function POST(request: Request) {
           target.name,
           target.main_group,
           nextSortOrder,
-          unit.category_name_en,
-          unit.category_name_ru
+          unit.category_name_en ?? null,
+          unit.category_name_ru ?? null
         );
         if ("error" in created) {
           return NextResponse.json(
