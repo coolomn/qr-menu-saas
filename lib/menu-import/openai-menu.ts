@@ -8,125 +8,22 @@ import {
   type ImportProduct,
 } from "./schema";
 
-const MULTILINGUAL_FIELD_RULES = `Çok dilli ürün alanları (ZORUNLU):
-- Aynı ürün için menüde birden fazla dilde satır varsa satırı DİLİNE göre ayır; çeviri üretme, menüde yazanı kullan.
-- Türkçe ürün adı → name
-- İngilizce ürün adı → name_en (ASLA description'a yazma)
-- Rusça ürün adı → name_ru
-- Türkçe açıklama → description (yoksa null)
-- İngilizce açıklama → description_en (yoksa null; ASLA description'a yazma)
-- Rusça açıklama → description_ru
-- Fiyat (₺, TL, sayı) yalnızca price; name veya description alanlarına yazma.
+/** Vision + JSON çıktısı için üst sınır (8192 yavaşlatıyordu). */
+const IMPORT_COMPLETION_MAX_TOKENS = 3000;
+const IMPORT_VISION_MODEL = "gpt-4o-mini";
 
-İsim vs açıklama:
-- Kısa satır (genelde 1–6 kelime), başlık/yemek adı gibi → ilgili dilde name / name_en / name_ru
-- Ürün adının hemen altındaki satır İngilizce/Rusça YEMEK ADI ise → name_en veya name_ru; description DEĞİL
-- Malzeme, pişirme, "içindekiler", uzun cümle → ilgili dilde description / description_en / description_ru
-- Türkçe kaynak satırdan Türkçe alanlar; İngilizce kaynak satırdan İngilizce alanlar; karıştırma
+const MENU_JSON_INSTRUCTION = `Yanıt YALNIZCA geçerli JSON (markdown yok):
+{"categories":[{"name":"string","main_group":"YİYECEKLER|İÇECEKLER|DİĞER|null","products":[{"name":"string","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null}]}]}
 
-Sadece İngilizce menü:
-- name zorunlu: menüdeki İngilizce ürün adını name'e yaz
-- name_en de aynı İngilizce ad ile doldurulabilir
-- Otomatik Türkçe çeviri uydurma; description null kalabilir
+Kurallar:
+- Bölüm başlığı altındaki yemek/fiyat satırları → tek kategori; ürünler products içinde. Her yemeği ayrı kategori yapma.
+- Yalnızca menüde görünen satırlar; uydurma ürün/kategori ekleme.
+- description / description_en / description_ru yalnızca menüde açıkça yazılıysa; yoksa null. Açıklama icat etme.
+- TR ad→name; EN kısa yemek adı→name_en (description değil); RU→name_ru; fiyat→price.
+- Çok dilli menüde çeviri üretme; okunan metni kullan.
+- En az 1 kategori ve 1 ürün. Başlık belirsizse kategori "Genel", main_group "DİĞER" veya null.`;
 
-Tek dilli Türkçe menü (eski davranış):
-- Yalnızca name, description, price kullan; name_en/name_ru/description_en/description_ru null bırak`;
-
-const CATEGORY_VS_PRODUCT_RULES = `Kategori vs ürün ayrımı (ZORUNLU):
-- Menüde belirgin bir bölüm başlığı (ör. "Türk Mutfağı", "Izgara", "Salatalar") varsa ve altında yemek adları/fiyatları listeleniyorsa, başlık TEK bir kategori olmalı; altındaki her satır o kategorinin products dizisine eklenmeli.
-- Yemek adı/fiyat satırlarını ayrı kategori olarak yazma; her ürünü kendi kategorisi yapma.
-- Aynı bölüm başlığı altındaki tüm ürünler tek categories[] girişinde birleşmeli.`;
-
-/** Açıklamalar: parantez, küçük punto; çok dilli isim satırı hariç */
-const DESCRIPTION_RULES = `Açıklama (description / description_en / description_ru) kuralları:
-- Yalnızca gerçek açıklayıcı metinleri ilgili dildeki description alanına yaz.
-- Ürün adının altındaki İngilizce/Rusça kısa yemek adı satırı description DEĞİL; name_en veya name_ru'dur.
-- Türkçe açıklayıcı alt satır, parantez, italik, "İçindekiler:" → description (Türkçe).
-- Menüde o dilde açıklama yoksa o alan null; uydurma yazma.
-- Fiyat description alanlarına karışmamalı.`;
-
-const PRODUCT_JSON_FIELDS = `{
-          "name": "string (Türkçe veya birincil ürün adı, zorunlu)",
-          "name_en": "string veya null",
-          "name_ru": "string veya null",
-          "description": "string veya null (Türkçe açıklama)",
-          "description_en": "string veya null",
-          "description_ru": "string veya null",
-          "price": "string veya null (ör. 120 veya 120 ₺)"
-        }`;
-
-const MENU_JSON_INSTRUCTION = `Çıktı YALNIZCA geçerli bir JSON nesnesi olmalı (markdown yok). Şema:
-{
-  "categories": [
-    {
-      "name": "string (kategori adı, Türkçe)",
-      "main_group": "string veya null (ör. YİYECEKLER, İÇECEKLER, DİĞER — bilinmiyorsa null)",
-      "products": [
-        ${PRODUCT_JSON_FIELDS}
-      ]
-    }
-  ]
-}
-
-Örnek (çok dilli — doğru):
-{
-  "categories": [
-    {
-      "name": "Izgara",
-      "main_group": "YİYECEKLER",
-      "products": [
-        {
-          "name": "Izgara köfte",
-          "name_en": "Grilled meatballs",
-          "name_ru": null,
-          "description": "Domates soslu pilav ile servis edilir.",
-          "description_en": "Served with rice and tomato sauce.",
-          "description_ru": null,
-          "price": "320"
-        }
-      ]
-    }
-  ]
-}
-
-Örnek (yalnızca Türkçe):
-{
-  "categories": [
-    {
-      "name": "Çorbalar",
-      "main_group": "YİYECEKLER",
-      "products": [
-        {
-          "name": "Mercimek",
-          "name_en": null,
-          "name_ru": null,
-          "description": "Günün çorbası.",
-          "description_en": null,
-          "description_ru": null,
-          "price": "95"
-        }
-      ]
-    }
-  ]
-}
-
-YANLIŞ örnek (yapma): name="Izgara köfte", description="Grilled meatballs" — İngilizce ad name_en olmalı.
-
-Genel kurallar:
-- categories dizisi en az 1 kategori içermeli.
-- Menüde okunabilir en az bir ürün/yemek/içecek satırı varsa mutlaka bir kategoriye yaz.
-- Bölüm başlığı net değilse kategori adı "Genel" (main_group: "DİĞER" veya null).
-- Yalnızca menüde görünen ürünleri yaz; uydurma ekleme.
-- Fiyat yoksa null; ilgili dilde açıklama yoksa o alan null.
-${CATEGORY_VS_PRODUCT_RULES}
-${MULTILINGUAL_FIELD_RULES}
-${DESCRIPTION_RULES}`;
-
-const ENRICH_DESCRIPTION_RULES = `Zenginleştirme geçişi — yalnızca açıklama alanları:
-- Güncellenebilir: description, description_en, description_ru
-- DEĞİŞMEZ: name, name_en, name_ru, price, kategori adları, ürün sırası
-- İngilizce kısa yemek adını description veya description_en'e yazma
-${DESCRIPTION_RULES}`;
+const ENRICH_DESCRIPTION_RULES = `Yalnızca description, description_en, description_ru güncelle; name/fiyat/sıra aynı. Menüde yoksa null; uydurma.`;
 
 function getClient() {
   const key = process.env.OPENAI_API_KEY;
@@ -157,7 +54,6 @@ function mergeDescriptionField(
   return fromEnriched || fromBase || null;
 }
 
-/** İkinci geçiş: yapı aynı; yalnızca description alanları birleştirilir */
 function mergeDescriptionsOnly(base: ImportMenuPayload, enriched: ImportMenuPayload): ImportMenuPayload {
   if (!roughlySameStructure(base, enriched)) return base;
   const categories = base.categories.map((c, ci) => ({
@@ -232,7 +128,6 @@ async function parseMenuJsonResponse(raw: string | null | undefined): Promise<Im
   }
 }
 
-/** Ham metin + taslak JSON ile açıklamaları zenginleştir (PDF / metin menü) */
 async function enrichDescriptionsFromText(
   menuText: string,
   draft: ImportMenuPayload
@@ -240,60 +135,18 @@ async function enrichDescriptionsFromText(
   const openai = getClient();
   const draftJson = JSON.stringify(draft, null, 0);
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: IMPORT_VISION_MODEL,
     response_format: { type: "json_object" },
     temperature: 0.15,
-    max_tokens: 8192,
+    max_tokens: IMPORT_COMPLETION_MAX_TOKENS,
     messages: [
       {
         role: "system",
-        content: `Sen menü metni hizalayıcısısın. Ham menü metnini kullanarak verilen JSON'daki ürünlerin açıklama alanlarını (description, description_en, description_ru) doldur veya iyileştir.
-Çıktı aynı JSON şemasında olmalı (markdown yok).
-${ENRICH_DESCRIPTION_RULES}
-Ham metinde bir dilde açıklama yoksa o alan null kalır.`,
+        content: `Menü metninden yalnızca açıklama alanlarını doldur. Çıktı aynı JSON şeması (markdown yok).\n${ENRICH_DESCRIPTION_RULES}`,
       },
       {
         role: "user",
-        content: `HAM MENÜ METNİ:\n---\n${menuText}\n---\n\nMEVCUT JSON (isim ve fiyatları koru, yalnızca açıklamaları doldur):\n${draftJson}`,
-      },
-    ],
-  });
-  const raw = completion.choices[0]?.message?.content;
-  const enriched = await parseMenuJsonResponse(raw);
-  return mergeDescriptionsOnly(draft, enriched);
-}
-
-/** Görsel + taslak JSON ile açıklamaları zenginleştir */
-async function enrichDescriptionsFromImage(
-  mime: string,
-  base64: string,
-  draft: ImportMenuPayload
-): Promise<ImportMenuPayload> {
-  const openai = getClient();
-  const dataUrl = `data:${mime};base64,${base64}`;
-  const draftJson = JSON.stringify(draft, null, 0);
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    temperature: 0.15,
-    max_tokens: 8192,
-    messages: [
-      {
-        role: "system",
-        content: `Sen menü görüntüsü hizalayıcısısın. Görseldeki menüyü tekrar incele.
-Verilen JSON'daki name, name_en, name_ru, fiyatlar ve sıra AYNI kalacak; yalnızca description, description_en, description_ru doldurulur veya iyileştirilir.
-Çıktı aynı JSON şemasında olmalı (markdown yok).
-${ENRICH_DESCRIPTION_RULES}`,
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `Aynı menü görseli. MEVCUT JSON — isimleri ve fiyatları koru, yalnızca açıklama alanlarını görselden tamamla:\n${draftJson}`,
-          },
-          { type: "image_url", image_url: { url: dataUrl } },
-        ],
+        content: `METİN:\n---\n${menuText}\n---\n\nJSON:\n${draftJson}`,
       },
     ],
   });
@@ -305,18 +158,18 @@ ${ENRICH_DESCRIPTION_RULES}`,
 export async function structureMenuFromText(menuText: string): Promise<ImportMenuPayload> {
   const openai = getClient();
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: IMPORT_VISION_MODEL,
     response_format: { type: "json_object" },
-    temperature: 0.2,
-    max_tokens: 8192,
+    temperature: 0.15,
+    max_tokens: IMPORT_COMPLETION_MAX_TOKENS,
     messages: [
       {
         role: "system",
-        content: `Sen bir menü veri asistanısın. Metindeki tüm satırları dikkatle oku; çok dilli menülerde her satırı doğru dile ve alana yerleştir.\n${MENU_JSON_INSTRUCTION}`,
+        content: `Menü metnini JSON'a çevir.\n${MENU_JSON_INSTRUCTION}`,
       },
       {
         role: "user",
-        content: `Aşağıdaki menü metnini yapılandır:\n\n${menuText}`,
+        content: menuText,
       },
     ],
   });
@@ -342,35 +195,30 @@ export async function structureMenuFromImageBase64(
   const openai = getClient();
   const dataUrl = `data:${mime};base64,${base64}`;
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: IMPORT_VISION_MODEL,
     response_format: { type: "json_object" },
-    temperature: 0.2,
-    max_tokens: 8192,
+    temperature: 0.1,
+    max_tokens: IMPORT_COMPLETION_MAX_TOKENS,
     messages: [
       {
         role: "system",
-        content: `Sen bir menü görüntüsü okuyucususun. Görseldeki yazıları oku; çok dilli bloklarda isim ve açıklama satırlarını doğru alanlara ayır.\n${MENU_JSON_INSTRUCTION}`,
+        content: `Menü görselini oku; tek geçişte JSON üret.\n${MENU_JSON_INSTRUCTION}`,
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: "Bu görseldeki menüyü JSON şemasına göre çıkar. Her dildeki açıklayıcı metinleri ilgili description alanına yaz; yabancı dildeki kısa yemek adlarını name_en/name_ru'ya yaz.",
+            text: "Görseldeki menüyü JSON şemasına çıkar. Sadece görünen metin; açıklama yoksa null.",
           },
-          { type: "image_url", image_url: { url: dataUrl } },
+          {
+            type: "image_url",
+            image_url: { url: dataUrl, detail: "low" },
+          },
         ],
       },
     ],
   });
   const raw = completion.choices[0]?.message?.content;
-  let payload = await parseMenuJsonResponse(raw);
-
-  try {
-    payload = await enrichDescriptionsFromImage(mime, base64, payload);
-  } catch (e) {
-    console.warn("[menu-import] enrichDescriptionsFromImage atlandı:", e);
-  }
-
-  return payload;
+  return parseMenuJsonResponse(raw);
 }
