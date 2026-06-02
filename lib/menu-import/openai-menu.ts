@@ -7,7 +7,7 @@ import {
   type ImportMenuPayload,
 } from "./schema";
 
-const IMPORT_COMPLETION_MAX_TOKENS = 3500;
+const IMPORT_COMPLETION_MAX_TOKENS = 6000;
 /** Görsel OCR doğruluğu için tam vision modeli. */
 const IMPORT_IMAGE_MODEL = "gpt-4o";
 const IMPORT_TEXT_MODEL = "gpt-4o-mini";
@@ -18,8 +18,14 @@ const STRICT_OCR_RULES = `KESİN OCR KURALLARI (ihlal etme):
 - Genelleştirme yapma (ör. birkaç omlet satırı görünce tek "Omlet" veya "Kahvaltı Tabağı" yazma).
 - OCR ile net okunmayan satırı yazma; emin değilsen o ürünü atla.
 - Kategori adını yalnızca menüde yazılı bölüm başlığından al; uydurma kategori yazma.
-- Eksik ürün bırakmak, uydurma ürün eklemekten iyidir.
-- description, description_en, description_ru alanlarını HER ZAMAN null bırak; açıklama üretmek yasak.`;
+- Eksik ürün bırakmak, uydurma ürün eklemekten iyidir.`;
+
+const DESCRIPTION_RULES = `Açıklama (description / description_en / description_ru):
+- Menüde ürün adının altında veya yanında gerçekten yazılı açıklama/cümle varsa ilgili dildeki alana yaz (ör. "Bazlama bread with acuka sauce…" → description_en).
+- Menüde açıklama yoksa null; ürün adından, fiyattan veya tahminden açıklama üretme; içerik/tarif uydurma.
+- Kısa ikinci dil yemek adı (1–6 kelime, "Plain Omelette") → name_en; description DEĞİL.
+- "Sade Omlet / Plain Omelette" gibi yalnızca isim satırı → name + name_en; description null.
+- İngilizce adı description veya description_en'e yazma; name_en kullan.`;
 
 const MENU_JSON_INSTRUCTION = `Yanıt YALNIZCA geçerli JSON (markdown yok):
 {"categories":[{"name":"string","name_en":null,"name_ru":null,"main_group":"YİYECEKLER|İÇECEKLER|DİĞER|null","products":[{"name":"string","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null|string}]}]}
@@ -33,29 +39,15 @@ Kategori başlıkları (bölüm adları):
 
 Ürün satırları:
 - Bölüm başlığı altındaki yemek/fiyat satırları → tek kategori; her satır ayrı ürün. Her yemeği ayrı kategori yapma.
-- Ürün: TR ad→name; net okunan EN yemek adı→name_en (ör. "Sade Omlet" / "Plain Omelette"); RU→name_ru. Kategori kurallarını ürünlere karıştırma.
+- Ürün: TR ad→name; net okunan EN kısa yemek adı→name_en; RU→name_ru.
 - price: menüde görünen fiyat; yoksa null.
-- Çeviri veya yorum üretme; yalnızca okunan metin.`;
+- Çeviri veya yorum üretme; yalnızca okunan metin.
+${DESCRIPTION_RULES}`;
 
 function getClient() {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY tanımlı değil.");
   return new OpenAI({ apiKey: key });
-}
-
-/** Modelden gelen açıklamaları at — import yalnızca ad/fiyat. */
-function stripDescriptions(payload: ImportMenuPayload): ImportMenuPayload {
-  return {
-    categories: payload.categories.map((c) => ({
-      ...c,
-      products: c.products.map((p) => ({
-        ...p,
-        description: null,
-        description_en: null,
-        description_ru: null,
-      })),
-    })),
-  };
 }
 
 function hasNonEmptyCategories(value: unknown): boolean {
@@ -101,7 +93,7 @@ async function parseMenuJsonResponse(raw: string | null | undefined): Promise<Im
   }
 
   try {
-    return stripDescriptions(enforceProductLimit(validated.data));
+    return enforceProductLimit(validated.data);
   } catch (e) {
     if (e instanceof Error && e.message === MENU_IMPORT_EMPTY_RESULT_MESSAGE) {
       console.warn("[menu-import] No valid products after filtering:", validated.data);
@@ -153,7 +145,7 @@ export async function structureMenuFromImageBase64(
         content: [
           {
             type: "text",
-            text: "Bu menü fotoğrafındaki yazıları harfiyen oku. JSON'a yalnızca net okuduğun ürün adlarını ve fiyatları yaz. Tahmin etme; emin olmadığın satırı atla. Tüm description alanları null.",
+            text: "Bu menü fotoğrafındaki yazıları harfiyen oku. Ürün adları, fiyatlar ve menüde görünen açıklama cümlelerini ilgili alanlara yaz. Tahmin etme; emin olmadığın satırı atla. Açıklama menüde yoksa null.",
           },
           {
             type: "image_url",
