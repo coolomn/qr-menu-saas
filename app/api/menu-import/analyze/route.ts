@@ -169,7 +169,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       throw new Error("Dosya çok büyük (en fazla 12 MB).");
     }
 
-    const optimizedImage = await optimizeImageForAnalyze(buffer, mimeType);
+    const optimizedImage = await optimizeImageForAnalyze(buffer);
     console.info("[menu-import/analyze] image size", {
       originalBytes: optimizedImage.originalBytes,
       optimizedBytes: optimizedImage.optimizedBytes,
