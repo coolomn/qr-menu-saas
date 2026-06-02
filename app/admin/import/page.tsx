@@ -48,6 +48,9 @@ async function readApiJsonResponse<T extends Record<string, unknown>>(
 ): Promise<{ data: T | null; parseError: string | null }> {
   const text = await res.text();
   if (!text.trim()) {
+    if (res.status === 504) {
+      return { data: null, parseError: ANALYZE_TIMEOUT_MESSAGE };
+    }
     return {
       data: null,
       parseError: res.ok ? null : `${UNEXPECTED_SERVER_RESPONSE} (HTTP ${res.status})`,
@@ -56,9 +59,16 @@ async function readApiJsonResponse<T extends Record<string, unknown>>(
   try {
     return { data: JSON.parse(text) as T, parseError: null };
   } catch {
+    const trimmed = text.trim();
+    if (
+      res.status === 504 ||
+      /timed out|task timed out|runtime timeout/i.test(trimmed)
+    ) {
+      return { data: null, parseError: ANALYZE_TIMEOUT_MESSAGE };
+    }
     const looksLikeHtml = /<html/i.test(text);
     const looksLikePlatform =
-      /^An error /i.test(text.trim()) || /^Internal Server Error/i.test(text.trim());
+      /^An error /i.test(trimmed) || /^Internal Server Error/i.test(trimmed);
     if (looksLikeHtml || looksLikePlatform) {
       return { data: null, parseError: UNEXPECTED_SERVER_RESPONSE };
     }
@@ -72,7 +82,13 @@ async function readApiJsonResponse<T extends Record<string, unknown>>(
 
 function mapAnalyzeErrorMessage(message: string): string {
   const m = message.trim().toLowerCase();
-  if (m.includes("504") || m.includes("timed out") || m.includes("timeout")) {
+  if (
+    m.includes("504") ||
+    m.includes("timed out") ||
+    m.includes("task timed out") ||
+    m.includes("runtime timeout") ||
+    m.includes("gateway timeout")
+  ) {
     return ANALYZE_TIMEOUT_MESSAGE;
   }
   return message;

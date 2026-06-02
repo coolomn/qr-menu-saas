@@ -1,8 +1,7 @@
 import sharp from "sharp";
 
-const MAX_IMAGE_SIDE = 1800;
-const JPEG_QUALITY = 78;
-const SKIP_OPTIMIZE_BYTES = 350 * 1024;
+const MAX_IMAGE_SIDE = 1200;
+const JPEG_QUALITY = 65;
 
 export type OptimizedImageResult = {
   buffer: Buffer;
@@ -16,33 +15,13 @@ export type OptimizedImageResult = {
   optimized: boolean;
 };
 
-export async function optimizeImageForAnalyze(
-  input: Buffer,
-  inputMime: string
-): Promise<OptimizedImageResult> {
+export async function optimizeImageForAnalyze(input: Buffer): Promise<OptimizedImageResult> {
   const originalBytes = input.length;
-  const image = sharp(input, { failOn: "none" });
-  const metadata = await image.metadata();
+  const metadata = await sharp(input, { failOn: "none" }).metadata();
   const originalWidth = metadata.width ?? null;
   const originalHeight = metadata.height ?? null;
-  const largestSide = Math.max(originalWidth ?? 0, originalHeight ?? 0);
 
-  const shouldSkip = originalBytes <= SKIP_OPTIMIZE_BYTES && largestSide > 0 && largestSide <= MAX_IMAGE_SIDE;
-  if (shouldSkip) {
-    return {
-      buffer: input,
-      mime: inputMime || "image/jpeg",
-      originalBytes,
-      optimizedBytes: originalBytes,
-      originalWidth,
-      originalHeight,
-      optimizedWidth: originalWidth,
-      optimizedHeight: originalHeight,
-      optimized: false,
-    };
-  }
-
-  const transformed = sharp(input, { failOn: "none" })
+  const outputBuffer = await sharp(input, { failOn: "none" })
     .rotate()
     .resize({
       width: MAX_IMAGE_SIDE,
@@ -54,9 +33,9 @@ export async function optimizeImageForAnalyze(
       quality: JPEG_QUALITY,
       mozjpeg: true,
       force: true,
-    });
+    })
+    .toBuffer();
 
-  const outputBuffer = await transformed.toBuffer();
   const outputMeta = await sharp(outputBuffer).metadata();
 
   return {
