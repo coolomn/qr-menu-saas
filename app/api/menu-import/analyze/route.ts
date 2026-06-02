@@ -9,6 +9,7 @@ import {
   resolveImportDownloadTarget,
 } from "@/lib/menu-import/paths";
 import { isImageMime, isPdfMime } from "@/lib/menu-import/mime";
+import { optimizeImageForAnalyze } from "@/lib/menu-import/image-optimize";
 import { structureMenuFromImageBase64 } from "@/lib/menu-import/openai-menu";
 
 const PDF_UNSUPPORTED_MESSAGE =
@@ -168,8 +169,19 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       throw new Error("Dosya çok büyük (en fazla 12 MB).");
     }
 
-    const b64 = buffer.toString("base64");
-    const payload = await structureMenuFromImageBase64(mimeType, b64);
+    const optimizedImage = await optimizeImageForAnalyze(buffer, mimeType);
+    console.info("[menu-import/analyze] image size", {
+      originalBytes: optimizedImage.originalBytes,
+      optimizedBytes: optimizedImage.optimizedBytes,
+      originalWidth: optimizedImage.originalWidth,
+      originalHeight: optimizedImage.originalHeight,
+      optimizedWidth: optimizedImage.optimizedWidth,
+      optimizedHeight: optimizedImage.optimizedHeight,
+      optimized: optimizedImage.optimized,
+    });
+
+    const b64 = optimizedImage.buffer.toString("base64");
+    const payload = await structureMenuFromImageBase64(optimizedImage.mime, b64);
 
     await admin
       .from("menu_import_jobs")

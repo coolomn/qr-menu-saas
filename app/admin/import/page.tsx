@@ -40,6 +40,8 @@ function safeFileName(name: string) {
 }
 
 const UNEXPECTED_SERVER_RESPONSE = "Sunucu beklenmeyen bir yanıt döndürdü.";
+const ANALYZE_TIMEOUT_MESSAGE =
+  "Görsel çok büyük veya analiz uzun sürdü. Lütfen daha küçük bir görsel yükleyin.";
 
 async function readApiJsonResponse<T extends Record<string, unknown>>(
   res: Response
@@ -66,6 +68,14 @@ async function readApiJsonResponse<T extends Record<string, unknown>>(
       parseError: snippet || UNEXPECTED_SERVER_RESPONSE,
     };
   }
+}
+
+function mapAnalyzeErrorMessage(message: string): string {
+  const m = message.trim().toLowerCase();
+  if (m.includes("504") || m.includes("timed out") || m.includes("timeout")) {
+    return ANALYZE_TIMEOUT_MESSAGE;
+  }
+  return message;
 }
 
 export default function AdminMenuImportPage() {
@@ -341,7 +351,8 @@ export default function AdminMenuImportPage() {
       setPreview(json.payload);
       setStep("preview");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Hata");
+      const message = e instanceof Error ? e.message : "Hata";
+      setError(mapAnalyzeErrorMessage(message));
     } finally {
       setBusy(false);
     }
