@@ -20,6 +20,8 @@ export const importProductSchema = z.object({
 
 export const importCategorySchema = z.object({
   name: z.string().trim().min(1).max(200),
+  name_en: optionalNullableText(200),
+  name_ru: optionalNullableText(200),
   main_group: z
     .union([z.string().trim().max(120), z.literal("")])
     .optional()

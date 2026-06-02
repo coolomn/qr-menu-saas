@@ -29,15 +29,17 @@ async function insertCategory(
   restaurantId: string,
   name: string,
   mainGroup: string,
-  sortOrder: number
+  sortOrder: number,
+  nameEn: string | null = null,
+  nameRu: string | null = null
 ): Promise<{ id: string } | { error: string }> {
   const fullRow = {
     restaurant_id: restaurantId,
     name,
     main_group: mainGroup,
     sort_order: sortOrder,
-    name_en: null as string | null,
-    name_ru: null as string | null,
+    name_en: nameEn,
+    name_ru: nameRu,
     main_group_en: null as string | null,
     main_group_ru: null as string | null,
   };
@@ -263,7 +265,9 @@ export async function POST(request: Request) {
           restaurantId,
           target.name,
           target.main_group,
-          nextSortOrder
+          nextSortOrder,
+          unit.category_name_en,
+          unit.category_name_ru
         );
         if ("error" in created) {
           return NextResponse.json(

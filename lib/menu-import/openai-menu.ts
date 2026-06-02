@@ -22,16 +22,20 @@ const STRICT_OCR_RULES = `KESİN OCR KURALLARI (ihlal etme):
 - description, description_en, description_ru alanlarını HER ZAMAN null bırak; açıklama üretmek yasak.`;
 
 const MENU_JSON_INSTRUCTION = `Yanıt YALNIZCA geçerli JSON (markdown yok):
-{"categories":[{"name":"string","main_group":"YİYECEKLER|İÇECEKLER|DİĞER|null","products":[{"name":"string","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null|string}]}]}
+{"categories":[{"name":"string","name_en":null,"name_ru":null,"main_group":"YİYECEKLER|İÇECEKLER|DİĞER|null","products":[{"name":"string","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null|string}]}]}
 
 ${STRICT_OCR_RULES}
 
-Yapı kuralları:
-- Bölüm başlığı altındaki yemek/fiyat satırları → tek kategori; her satır ayrı ürün (name). Her yemeği ayrı kategori yapma.
-- name: menüde okunan tam ürün adı (harfiyen). TR→name; net okunan EN yemek adı→name_en; RU→name_ru.
+Kategori başlıkları (bölüm adları):
+- Tek satırda Türkçe + İngilizce birlikte yazılıysa (ör. "KAHVALTI Breakfast", "MEZELER Appetizers", "ANA YEMEKLER Main Dishes") → name yalnızca Türkçe kısım (okunan metinden; mümkünse normal yazım: Kahvaltı, Mezeler); name_en yalnızca İngilizce kısım (Breakfast, Appetizers). İngilizce kısmı name içine ekleme.
+- Tek dilli kategori başlığında name_en ve name_ru null.
+- Rusça kategori başlığı varsa name_ru; yoksa null.
+
+Ürün satırları:
+- Bölüm başlığı altındaki yemek/fiyat satırları → tek kategori; her satır ayrı ürün. Her yemeği ayrı kategori yapma.
+- Ürün: TR ad→name; net okunan EN yemek adı→name_en (ör. "Sade Omlet" / "Plain Omelette"); RU→name_ru. Kategori kurallarını ürünlere karıştırma.
 - price: menüde görünen fiyat; yoksa null.
-- Çeviri veya yorum üretme; yalnızca okunan metin.
-- Hiç ürün okunamazsa boş products dizisi verme; okunanları yaz.`;
+- Çeviri veya yorum üretme; yalnızca okunan metin.`;
 
 function getClient() {
   const key = process.env.OPENAI_API_KEY;
