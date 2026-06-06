@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink } from "lucide-react";
+import {
+  nextProductSortOrderInCategory,
+  sortProductsByOrder,
+} from "@/lib/admin-menu/product-sort";
 import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
@@ -104,13 +108,19 @@ function productMatchesSearchQuery(
 
 function buildCategoryProductPreview(
   categoryId: string,
-  categoryProducts: { category_id: string; name?: string | null }[]
+  categoryProducts: {
+    id: string;
+    category_id: string;
+    name?: string | null;
+    sort_order?: number | null;
+    created_at?: string | null;
+  }[]
 ): CategoryProductPreview | null {
-  const names = categoryProducts
-    .filter((p) => p.category_id === categoryId)
+  const names = sortProductsByOrder(
+    categoryProducts.filter((p) => p.category_id === categoryId)
+  )
     .map((p) => (p.name || "").trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, "tr"));
+    .filter(Boolean);
   if (names.length === 0) return null;
   const previewNames = names.slice(0, 2);
   return {
@@ -165,6 +175,11 @@ export default function AdminDashboard() {
   const [categoryDragId, setCategoryDragId] = useState<string | null>(null);
   const [categoryDragOverId, setCategoryDragOverId] = useState<string | null>(null);
   const [categoryReorderBusy, setCategoryReorderBusy] = useState(false);
+
+  const [productDragId, setProductDragId] = useState<string | null>(null);
+  const [productDragCategoryId, setProductDragCategoryId] = useState<string | null>(null);
+  const [productDragOverId, setProductDragOverId] = useState<string | null>(null);
+  const [productReorderBusy, setProductReorderBusy] = useState(false);
 
   const [newCategory, setNewCategory] = useState({
     name: "",
@@ -288,7 +303,7 @@ export default function AdminDashboard() {
             .select("*, categories(*)")
             .in("category_id", categoryIds);
           if (prodErr) console.error(prodErr);
-          setProducts(prodData || []);
+          setProducts(sortProductsByOrder(prodData || []));
 
           if (prodData && prodData.length > 0) {
             const productIds = prodData.map((p: { id: string }) => p.id);
@@ -645,10 +660,15 @@ export default function AdminDashboard() {
           return;
         }
       } else {
-        const { data, error } = await supabase.from("products").insert([{ ...payload, is_active: true }]).select("*, categories(*)").single();
+        const sort_order = nextProductSortOrderInCategory(products, newProduct.category_id);
+        const { data, error } = await supabase
+          .from("products")
+          .insert([{ ...payload, is_active: true, sort_order }])
+          .select("*, categories(*)")
+          .single();
         if (!error && data) {
           savedProductId = data.id;
-          setProducts([...products, data]);
+          setProducts(sortProductsByOrder([...products, data]));
         } else {
           alert(error?.message || "Kayıt başarısız.");
           return;
@@ -1104,6 +1124,78 @@ export default function AdminDashboard() {
     await persistCategoryOrder(list);
   };
 
+  const persistProductOrder = async (categoryId: string, ordered: any[]) => {
+    setProductReorderBusy(true);
+    try {
+      const results = await Promise.all(
+        ordered.map((product, index) =>
+          supabase
+            .from("products")
+            .update({ sort_order: index })
+            .eq("id", product.id)
+            .select("id")
+            .single()
+        )
+      );
+      const firstErr = results.find((r) => r.error);
+      if (firstErr?.error) {
+        alert(firstErr.error.message || "Ürün sırası kaydedilemedi.");
+        return;
+      }
+      const byId = new Map(ordered.map((p, i) => [p.id, { ...p, sort_order: i }]));
+      setProducts((prev) => prev.map((p) => byId.get(p.id) ?? p));
+    } finally {
+      setProductReorderBusy(false);
+    }
+  };
+
+  const handleProductDragStart = (e: React.DragEvent, productId: string, categoryId: string) => {
+    e.dataTransfer.setData("text/product-id", productId);
+    e.dataTransfer.setData("text/product-category-id", categoryId);
+    e.dataTransfer.setData("text/plain", productId);
+    e.dataTransfer.effectAllowed = "move";
+    setProductDragId(productId);
+    setProductDragCategoryId(categoryId);
+  };
+
+  const handleProductDragEnd = () => {
+    setProductDragId(null);
+    setProductDragCategoryId(null);
+    setProductDragOverId(null);
+  };
+
+  const handleProductDrop = async (
+    e: React.DragEvent,
+    targetId: string,
+    categoryId: string
+  ) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData("text/product-id") || e.dataTransfer.getData("text/plain");
+    const sourceCategoryId =
+      e.dataTransfer.getData("text/product-category-id") || productDragCategoryId;
+    setProductDragOverId(null);
+    setProductDragId(null);
+    setProductDragCategoryId(null);
+    if (!sourceId || sourceId === targetId) return;
+    if (!sourceCategoryId || sourceCategoryId !== categoryId) return;
+
+    const inCategory = sortProductsByOrder(
+      products.filter((p: any) => p.category_id === categoryId)
+    );
+    const si = inCategory.findIndex((p) => p.id === sourceId);
+    const ti = inCategory.findIndex((p) => p.id === targetId);
+    if (si < 0 || ti < 0) return;
+
+    const list = [...inCategory];
+    const [removed] = list.splice(si, 1);
+    list.splice(ti, 0, removed);
+
+    const reindexed = list.map((p, i) => ({ ...p, sort_order: i }));
+    const byId = new Map(reindexed.map((p) => [p.id, p]));
+    setProducts((prev) => prev.map((p) => byId.get(p.id) ?? p));
+    await persistProductOrder(categoryId, list);
+  };
+
   const openDeleteCategoryModal = (c: any) => {
     const productCount = products.filter((p: any) => p.category_id === c.id).length;
     const others = categories.filter((x: any) => x.id !== c.id);
@@ -1322,14 +1414,18 @@ export default function AdminDashboard() {
       groups.push({
         categoryId: cat.id,
         categoryName: cat.name || "Kategori",
-        products: list,
+        products: sortProductsByOrder(list),
       });
       byCategory.delete(cat.id);
     }
 
     const orphan = byCategory.get("__none__");
     if (orphan?.length) {
-      groups.push({ categoryId: "__none__", categoryName: "Kategorisiz", products: orphan });
+      groups.push({
+        categoryId: "__none__",
+        categoryName: "Kategorisiz",
+        products: sortProductsByOrder(orphan),
+      });
     }
 
     for (const [categoryId, list] of byCategory.entries()) {
@@ -1338,7 +1434,7 @@ export default function AdminDashboard() {
       groups.push({
         categoryId,
         categoryName: cat?.name || "Kategori",
-        products: list,
+        products: sortProductsByOrder(list),
       });
     }
 
@@ -1496,6 +1592,23 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {!productFiltersActive && groupedFilteredProducts.length > 0 && (
+                  <p className="px-4 md:px-6 pt-3 text-[10px] text-gray-500 font-medium leading-relaxed border-b border-gray-50 pb-3">
+                    Ürün sırasını sol tutacak simgeden sürükleyip aynı kategori içinde başka bir ürünün üzerine bırakın.
+                    Müşteri menüsü bu sırayı kullanır.
+                  </p>
+                )}
+                {productFiltersActive && groupedFilteredProducts.length > 0 && (
+                  <p className="px-4 md:px-6 pt-3 text-[10px] text-amber-700 font-medium leading-relaxed border-b border-amber-50 pb-3 bg-amber-50/40">
+                    Sıralama için arama ve filtreleri temizleyin.
+                  </p>
+                )}
+                {productReorderBusy && (
+                  <p className="px-4 md:px-6 pt-2 text-xs font-bold text-blue-600" role="status">
+                    Ürün sırası kaydediliyor…
+                  </p>
+                )}
+
                 <div className="p-3 md:p-4 space-y-5">
                   {groupedFilteredProducts.length === 0 ? (
                     <div className="py-12 text-center text-sm font-medium text-gray-500">
@@ -1513,14 +1626,49 @@ export default function AdminDashboard() {
                           {group.products.map((p: any) => {
                             const menuBadge = formatProductMenuBadge(p.id);
                             const categoryName = p.categories?.name || group.categoryName;
+                            const canReorderProduct =
+                              !productFiltersActive && group.categoryId !== "__none__";
+                            const isDragOver =
+                              canReorderProduct &&
+                              productDragOverId === p.id &&
+                              productDragId &&
+                              productDragId !== p.id;
                             return (
                               <div
                                 key={p.id}
+                                onDragOver={(e) => {
+                                  if (!canReorderProduct) return;
+                                  e.preventDefault();
+                                  setProductDragOverId(p.id);
+                                }}
+                                onDrop={(e) => void handleProductDrop(e, p.id, group.categoryId)}
                                 className={`p-3 md:p-4 border border-gray-100 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3 hover:border-blue-200 transition-all bg-white ${
                                   !p.is_active ? "opacity-60" : ""
+                                } ${
+                                  isDragOver ? "ring-2 ring-blue-400 border-blue-200 bg-blue-50/40" : ""
                                 }`}
                               >
                                 <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  {canReorderProduct ? (
+                                    <button
+                                      type="button"
+                                      draggable
+                                      onDragStart={(e) =>
+                                        handleProductDragStart(e, p.id, group.categoryId)
+                                      }
+                                      onDragEnd={handleProductDragEnd}
+                                      className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100 shrink-0 touch-none self-center"
+                                      title="Sürükleyerek sırala"
+                                      aria-label="Sürükleyerek sırala"
+                                    >
+                                      <GripVertical size={18} aria-hidden />
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="w-7 shrink-0 hidden sm:block"
+                                      aria-hidden
+                                    />
+                                  )}
                                   <div className="w-12 h-12 md:w-14 md:h-14 bg-gray-100 rounded-xl overflow-hidden border flex-shrink-0">
                                     {p.image_url ? (
                                       <img

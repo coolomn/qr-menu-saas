@@ -12,6 +12,7 @@ import {
   buildProductMenuCollectionsMaps,
 } from "@/lib/public-menu/product-menu-collections";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,8 @@ type ProductRow = {
   price: string | null;
   image_url: string | null;
   allergens: string[] | null;
+  sort_order?: number | null;
+  created_at?: string | null;
 };
 
 function isRestaurantRow(value: unknown): value is RestaurantRow {
@@ -107,7 +110,7 @@ const CATEGORY_COLUMNS = [
   "sort_order",
 ].join(",");
 
-const PRODUCT_COLUMNS = [
+const PRODUCT_COLUMNS_BASE = [
   "id",
   "category_id",
   "name",
@@ -119,6 +122,12 @@ const PRODUCT_COLUMNS = [
   "price",
   "image_url",
   "allergens",
+].join(",");
+
+const PRODUCT_COLUMNS = [
+  PRODUCT_COLUMNS_BASE,
+  "sort_order",
+  "created_at",
 ].join(",");
 
 function isMissingColumn(error: { code?: string; message?: string } | null) {
@@ -228,18 +237,31 @@ export async function GET(
   let products: ProductRow[] = [];
 
   if (categoryIds.length > 0) {
-    const { data: productRows, error: productsError } = await supabase
+    let { data: productRows, error: productsError } = await supabase
       .from("products")
       .select(PRODUCT_COLUMNS)
       .in("category_id", categoryIds)
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (productsError && isMissingColumn(productsError)) {
+      const retry = await supabase
+        .from("products")
+        .select([PRODUCT_COLUMNS_BASE, "created_at"].join(","))
+        .in("category_id", categoryIds)
+        .eq("is_active", true)
+        .order("created_at", { ascending: true });
+      productRows = retry.data;
+      productsError = retry.error;
+    }
 
     if (productsError) {
       console.error(productsError);
       return NextResponse.json({ error: "Ürünler okunamadı." }, { status: 500 });
     }
 
-    products = toProductRows(productRows);
+    products = sortProductsByOrder(toProductRows(productRows));
   }
 
   const {
