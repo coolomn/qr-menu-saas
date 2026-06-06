@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search } from "lucide-react";
 import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
@@ -72,6 +72,35 @@ type CategoryProductPreview = {
   previewLine: string;
   extraCount: number;
 };
+
+function normalizeProductSearchText(value: string): string {
+  return value.trim().toLocaleLowerCase("tr");
+}
+
+function productMatchesSearchQuery(
+  product: {
+    name?: string | null;
+    name_en?: string | null;
+    name_ru?: string | null;
+    price?: string | null;
+    categories?: { name?: string | null } | null;
+  },
+  query: string
+): boolean {
+  const q = normalizeProductSearchText(query);
+  if (!q) return true;
+  const haystack = [
+    product.name,
+    product.name_en,
+    product.name_ru,
+    product.categories?.name,
+    product.price,
+    product.price != null ? String(product.price) : "",
+  ]
+    .filter((v): v is string => Boolean(v && String(v).trim()))
+    .map((v) => normalizeProductSearchText(String(v)));
+  return haystack.some((text) => text.includes(q));
+}
 
 function buildCategoryProductPreview(
   categoryId: string,
@@ -160,6 +189,10 @@ export default function AdminDashboard() {
   const [productMenuPickerMenus, setProductMenuPickerMenus] = useState<CategoryMenuCollectionsPickerMenu[]>([]);
   const [productMenuError, setProductMenuError] = useState<string | null>(null);
   const [productMenuPickerLoading, setProductMenuPickerLoading] = useState(false);
+
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [productCategoryFilter, setProductCategoryFilter] = useState("all");
+  const [productMenuFilter, setProductMenuFilter] = useState("all");
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
@@ -1197,6 +1230,81 @@ export default function AdminDashboard() {
 
   const downloadQRCode = () => { window.open(`https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(`https://tapmenu.com.tr/menu/${restaurant.slug}${tableNumber ? `?masa=${tableNumber}` : ""}`)}`, '_blank'); };
 
+  const activeCategoriesForFilter = useMemo(
+    () => (categories ?? []).filter((c) => c.is_active !== false),
+    [categories]
+  );
+
+  const activeMenusForFilter = useMemo(
+    () => (restaurantMenus ?? []).filter((m) => m.is_active),
+    [restaurantMenus]
+  );
+
+  const filteredProducts = useMemo(() => {
+    return (products ?? []).filter((p) => {
+      if (productCategoryFilter !== "all" && p.category_id !== productCategoryFilter) {
+        return false;
+      }
+      if (productMenuFilter !== "all") {
+        const linked = productMenuLinksMap[p.id] || [];
+        if (!linked.includes(productMenuFilter)) return false;
+      }
+      return productMatchesSearchQuery(p, productSearchQuery);
+    });
+  }, [products, productCategoryFilter, productMenuFilter, productMenuLinksMap, productSearchQuery]);
+
+  const groupedFilteredProducts = useMemo(() => {
+    const safeCategories = categories ?? [];
+    const categoryOrder = new Map(safeCategories.map((c, i) => [c.id, i]));
+    const byCategory = new Map<string, typeof filteredProducts>();
+    for (const p of filteredProducts) {
+      const key = p.category_id || "__none__";
+      if (!byCategory.has(key)) byCategory.set(key, []);
+      byCategory.get(key)!.push(p);
+    }
+
+    const groups: { categoryId: string; categoryName: string; products: typeof filteredProducts }[] = [];
+
+    for (const cat of safeCategories) {
+      const list = byCategory.get(cat.id);
+      if (!list?.length) continue;
+      groups.push({
+        categoryId: cat.id,
+        categoryName: cat.name || "Kategori",
+        products: list,
+      });
+      byCategory.delete(cat.id);
+    }
+
+    const orphan = byCategory.get("__none__");
+    if (orphan?.length) {
+      groups.push({ categoryId: "__none__", categoryName: "Kategorisiz", products: orphan });
+    }
+
+    for (const [categoryId, list] of byCategory.entries()) {
+      if (!list.length) continue;
+      const cat = safeCategories.find((c) => c.id === categoryId);
+      groups.push({
+        categoryId,
+        categoryName: cat?.name || "Kategori",
+        products: list,
+      });
+    }
+
+    groups.sort((a, b) => {
+      const ai = categoryOrder.get(a.categoryId) ?? 9999;
+      const bi = categoryOrder.get(b.categoryId) ?? 9999;
+      return ai - bi;
+    });
+
+    return groups;
+  }, [categories, filteredProducts]);
+
+  const productFiltersActive =
+    productSearchQuery.trim().length > 0 ||
+    productCategoryFilter !== "all" ||
+    productMenuFilter !== "all";
+
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-gray-400 italic">TapMenu Hazırlanıyor...</div>;
 
   const productPreviewSrc = newProduct.file ? productImageObjectUrl : newProduct.image_url || null;
@@ -1232,41 +1340,187 @@ export default function AdminDashboard() {
 
             {activeTab === "products" && (
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="p-4 md:p-8 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-50/50">
-                  <h2 className="text-lg md:text-xl font-black">Ürün Yönetimi</h2>
+                <div className="p-4 md:p-6 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-50/50">
+                  <div>
+                    <h2 className="text-lg md:text-xl font-black">Ürün Yönetimi</h2>
+                    <p className="text-xs text-gray-500 font-medium mt-1">
+                      {filteredProducts.length} / {products.length} ürün
+                      {productFiltersActive ? " (filtrelenmiş)" : ""}
+                    </p>
+                  </div>
                   <button onClick={openNewProductModal} className="w-full md:w-auto justify-center bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"><Plus size={20} /> Yeni Ürün</button>
                 </div>
-                <div className="p-3 md:p-4 grid gap-3">
-                  {products.map((p: any) => (
-                    <div key={p.id} className={`p-4 md:p-5 border border-gray-100 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-blue-200 transition-all bg-white ${!p.is_active ? 'opacity-50 grayscale' : ''}`}>
-                      <div className="flex items-start md:items-center gap-4 w-full md:w-auto flex-1 text-gray-900">
-                        <div className="w-16 h-16 bg-gray-100 rounded-xl overflow-hidden border flex-shrink-0">{p.image_url ? <img src={p.image_url} alt="Ürün" className="w-full h-full object-cover" /> : <UtensilsCrossed className="m-auto text-gray-300 h-full w-8" />}</div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1"><div className="font-black text-base md:text-lg leading-tight">{p.name}</div></div>
-                          {p.description && <p className="text-xs text-gray-500 font-medium italic line-clamp-2">{p.description}</p>}
-                          <div className="flex items-center gap-2 mt-2 flex-wrap">
-                             <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded-md uppercase tracking-wider inline-block">{p.categories?.main_group || 'YİYECEKLER'}</span>
-                             <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md uppercase tracking-wider inline-block">{p.categories?.name}</span>
-                             {(() => {
-                               const menuBadge = formatProductMenuBadge(p.id);
-                               return menuBadge ? (
-                                 <span
-                                   className="text-[9px] font-bold bg-teal-50 border border-teal-100 text-teal-800 px-2 py-0.5 rounded-md truncate max-w-[12rem]"
-                                   title={menuBadge}
-                                 >
-                                   {menuBadge}
-                                 </span>
-                               ) : null;
-                             })()}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between md:justify-end gap-2 md:gap-4 w-full md:w-auto pt-3 md:pt-0 border-t md:border-0 border-gray-100 mt-2 md:mt-0">
-                        <div className="flex gap-2"><button onClick={() => openEditModal(p)} className="p-2 md:p-3 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Düzenle"><Edit3 size={18} /></button><button onClick={() => handleToggleActive(p.id, p.is_active)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] md:text-xs font-black transition-all ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{p.is_active ? <Power size={12} /> : <PowerOff size={12} />} {p.is_active ? 'SATIŞTA' : 'TÜKENDİ'}</button></div>
-                        <div className="text-right min-w-[70px]"><div className="text-lg md:text-xl font-black text-blue-600 leading-none">{formatPriceForDisplay(p.price)}</div><button onClick={() => handleUpdatePrice(p.id, p.price)} className="text-[10px] font-bold text-gray-400 hover:text-blue-600 uppercase mt-1">Fiyatı Değiştir</button></div>
-                      </div>
+
+                <div className="p-4 md:p-6 border-b bg-white space-y-3">
+                  <div className="relative">
+                    <Search
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                      aria-hidden
+                    />
+                    <input
+                      type="search"
+                      value={productSearchQuery}
+                      onChange={(e) => setProductSearchQuery(e.target.value)}
+                      placeholder="Ürün ara..."
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-gray-100 bg-gray-50 text-sm font-medium text-gray-800 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">
+                        Kategori
+                      </span>
+                      <select
+                        value={productCategoryFilter}
+                        onChange={(e) => setProductCategoryFilter(e.target.value)}
+                        className="w-full py-2.5 px-3 rounded-xl border-2 border-gray-100 bg-gray-50 text-sm font-bold text-gray-800 outline-none focus:border-blue-500"
+                      >
+                        <option value="all">Tüm kategoriler</option>
+                        {activeCategoriesForFilter.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {activeMenusForFilter.length >= 2 && (
+                      <label className="block">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">
+                          Menü
+                        </span>
+                        <select
+                          value={productMenuFilter}
+                          onChange={(e) => setProductMenuFilter(e.target.value)}
+                          className="w-full py-2.5 px-3 rounded-xl border-2 border-gray-100 bg-gray-50 text-sm font-bold text-gray-800 outline-none focus:border-blue-500"
+                        >
+                          <option value="all">Tüm menüler</option>
+                          {activeMenusForFilter.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-3 md:p-4 space-y-5">
+                  {groupedFilteredProducts.length === 0 ? (
+                    <div className="py-12 text-center text-sm font-medium text-gray-500">
+                      {products.length === 0
+                        ? "Henüz ürün yok. Yeni ürün ekleyin."
+                        : "Arama veya filtreye uygun ürün bulunamadı."}
                     </div>
-                  ))}
+                  ) : (
+                    groupedFilteredProducts.map((group) => (
+                      <section key={group.categoryId}>
+                        <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-2 px-1">
+                          {group.categoryName} — {group.products.length} ürün
+                        </h3>
+                        <div className="grid gap-2">
+                          {group.products.map((p: any) => {
+                            const menuBadge = formatProductMenuBadge(p.id);
+                            const categoryName = p.categories?.name || group.categoryName;
+                            return (
+                              <div
+                                key={p.id}
+                                className={`p-3 md:p-4 border border-gray-100 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3 hover:border-blue-200 transition-all bg-white ${
+                                  !p.is_active ? "opacity-60" : ""
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  <div className="w-12 h-12 md:w-14 md:h-14 bg-gray-100 rounded-xl overflow-hidden border flex-shrink-0">
+                                    {p.image_url ? (
+                                      <img
+                                        src={p.image_url}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <UtensilsCrossed className="m-auto text-gray-300 h-6 w-6" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p
+                                      className="font-black text-sm md:text-base text-gray-900 leading-tight line-clamp-2"
+                                      title={p.name}
+                                    >
+                                      {p.name}
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                      <span
+                                        className="text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-100 px-1.5 py-0.5 rounded-md truncate max-w-[10rem]"
+                                        title={categoryName}
+                                      >
+                                        {categoryName}
+                                      </span>
+                                      {menuBadge && (
+                                        <span
+                                          className="text-[9px] font-bold bg-teal-50 border border-teal-100 text-teal-800 px-1.5 py-0.5 rounded-md truncate max-w-[10rem]"
+                                          title={menuBadge}
+                                        >
+                                          {menuBadge}
+                                        </span>
+                                      )}
+                                      {!p.is_active && (
+                                        <span className="text-[9px] font-black bg-red-100 text-red-700 px-1.5 py-0.5 rounded-md uppercase">
+                                          Tükendi
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
+                                  <div className="text-left sm:text-right min-w-[4.5rem]">
+                                    <div className="text-base md:text-lg font-black text-blue-600 leading-none">
+                                      {formatPriceForDisplay(p.price)}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdatePrice(p.id, p.price)}
+                                      className="text-[9px] font-bold text-gray-400 hover:text-blue-600 uppercase mt-0.5"
+                                    >
+                                      Fiyatı değiştir
+                                    </button>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditModal(p)}
+                                      title="Düzenle"
+                                      aria-label="Düzenle"
+                                      className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                                    >
+                                      <Edit3 size={16} aria-hidden />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleActive(p.id, p.is_active)}
+                                      title={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
+                                      aria-label={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
+                                      className={`p-2 rounded-lg transition-colors ${
+                                        p.is_active
+                                          ? "text-green-700 bg-green-50 hover:bg-green-100"
+                                          : "text-red-600 bg-red-50 hover:bg-red-100"
+                                      }`}
+                                    >
+                                      {p.is_active ? (
+                                        <Power size={16} aria-hidden />
+                                      ) : (
+                                        <PowerOff size={16} aria-hidden />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    ))
+                  )}
                 </div>
               </div>
             )}
