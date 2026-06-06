@@ -193,6 +193,7 @@ export default function AdminDashboard() {
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("all");
   const [productMenuFilter, setProductMenuFilter] = useState("all");
+  const [productDeletingId, setProductDeletingId] = useState<string | null>(null);
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
@@ -433,6 +434,56 @@ export default function AdminDashboard() {
     if (newPrice && newPrice !== currentPrice) {
       await supabase.from("products").update({ price: newPrice }).eq("id", productId);
       setProducts(products.map((p: any) => p.id === productId ? { ...p, price: newPrice } : p));
+    }
+  };
+
+  const handleDeleteProduct = async (product: { id: string; name?: string | null }) => {
+    const label = (product.name || "").trim() || "Bu ürün";
+    if (
+      !window.confirm(
+        `${label} kalıcı olarak silinecek. Bu işlem geri alınamaz.\n\nDevam etmek istiyor musunuz?`
+      )
+    ) {
+      return;
+    }
+
+    setProductDeletingId(product.id);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert("Oturum bulunamadı.");
+        return;
+      }
+
+      const res = await fetch(`/api/admin/products/${product.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+
+      let json: { ok?: boolean; error?: string } = {};
+      try {
+        json = (await res.json()) as { ok?: boolean; error?: string };
+      } catch {
+        json = {};
+      }
+
+      if (!res.ok || !json.ok) {
+        alert(json.error || "Ürün silinemedi.");
+        return;
+      }
+
+      setProducts((prev) => prev.filter((p) => p.id !== product.id));
+      setProductMenuLinksMap((prev) => {
+        const next = { ...prev };
+        delete next[product.id];
+        return next;
+      });
+    } catch {
+      alert("Bağlantı hatası. Lütfen tekrar deneyin.");
+    } finally {
+      setProductDeletingId(null);
     }
   };
 
@@ -1491,7 +1542,8 @@ export default function AdminDashboard() {
                                       onClick={() => openEditModal(p)}
                                       title="Düzenle"
                                       aria-label="Düzenle"
-                                      className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                                      disabled={productDeletingId === p.id}
+                                      className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50"
                                     >
                                       <Edit3 size={16} aria-hidden />
                                     </button>
@@ -1500,17 +1552,28 @@ export default function AdminDashboard() {
                                       onClick={() => handleToggleActive(p.id, p.is_active)}
                                       title={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
                                       aria-label={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
+                                      disabled={productDeletingId === p.id}
                                       className={`p-2 rounded-lg transition-colors ${
                                         p.is_active
                                           ? "text-green-700 bg-green-50 hover:bg-green-100"
                                           : "text-red-600 bg-red-50 hover:bg-red-100"
-                                      }`}
+                                      } disabled:opacity-50`}
                                     >
                                       {p.is_active ? (
                                         <Power size={16} aria-hidden />
                                       ) : (
                                         <PowerOff size={16} aria-hidden />
                                       )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleDeleteProduct(p)}
+                                      title="Sil"
+                                      aria-label="Sil"
+                                      disabled={productDeletingId === p.id}
+                                      className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50"
+                                    >
+                                      <Trash2 size={16} aria-hidden />
                                     </button>
                                   </div>
                                 </div>
