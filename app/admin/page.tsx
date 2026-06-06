@@ -68,6 +68,28 @@ const ALLERGEN_OPTIONS = [
   { id: 'spicy', label: 'Acı', icon: '🌶️' }
 ];
 
+type CategoryProductPreview = {
+  previewLine: string;
+  extraCount: number;
+};
+
+function buildCategoryProductPreview(
+  categoryId: string,
+  categoryProducts: { category_id: string; name?: string | null }[]
+): CategoryProductPreview | null {
+  const names = categoryProducts
+    .filter((p) => p.category_id === categoryId)
+    .map((p) => (p.name || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "tr"));
+  if (names.length === 0) return null;
+  const previewNames = names.slice(0, 2);
+  return {
+    previewLine: previewNames.join(" • "),
+    extraCount: Math.max(0, names.length - 2),
+  };
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -1276,8 +1298,10 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                   {categories.map((c: any) => {
                     const productCount = products.filter((p: any) => p.category_id === c.id).length;
+                    const productPreview = buildCategoryProductPreview(c.id, products);
                     const menuHidden = c.is_active === false;
                     const menuBadge = formatCategoryMenuBadge(c.id);
+                    const categoryDisplayName = (c.name || "").trim() || "Kategori";
                     return (
                       <div
                         key={c.id}
@@ -1286,7 +1310,7 @@ export default function AdminDashboard() {
                           setCategoryDragOverId(c.id);
                         }}
                         onDrop={(e) => void handleCategoryDrop(e, c.id)}
-                        className={`p-3 md:p-4 bg-gray-50 rounded-2xl border font-bold text-gray-700 flex items-stretch gap-2 group transition-all ${
+                        className={`p-2.5 md:p-3 bg-gray-50 rounded-2xl border font-bold text-gray-700 flex items-start gap-2 transition-all ${
                           categoryDragOverId === c.id && categoryDragId && categoryDragId !== c.id
                             ? "ring-2 ring-blue-400 border-blue-200 bg-blue-50/40"
                             : "border-gray-100"
@@ -1297,67 +1321,105 @@ export default function AdminDashboard() {
                           draggable
                           onDragStart={(e) => handleCategoryDragStart(e, c.id)}
                           onDragEnd={handleCategoryDragEnd}
-                          className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-200/80 shrink-0 self-center touch-none"
+                          className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-200/80 shrink-0 touch-none mt-0.5"
                           title="Sürükleyerek sırala"
                           aria-label="Sürükleyerek sırala"
                         >
-                          <GripVertical size={20} aria-hidden />
+                          <GripVertical size={18} aria-hidden />
                         </button>
-                        <div className="flex flex-col text-left min-w-0 flex-1 justify-center py-0.5">
-                          <span className="text-[10px] text-gray-400 uppercase tracking-widest mb-0.5">{c.main_group || "YİYECEKLER"}</span>
-                          <span className="truncate font-black text-gray-800">{c.name}</span>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                            <span className="text-[9px] font-bold bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-md">{productCount} ürün</span>
+                        <div className="flex flex-col text-left min-w-0 flex-1 gap-1">
+                          <span className="text-[9px] text-gray-400 uppercase tracking-widest leading-none">
+                            {c.main_group || "YİYECEKLER"}
+                          </span>
+                          <span
+                            className="font-black text-gray-800 text-sm leading-snug line-clamp-2"
+                            title={categoryDisplayName}
+                          >
+                            {categoryDisplayName}
+                          </span>
+                          {productPreview ? (
+                            <div
+                              className="min-w-0 space-y-0.5"
+                              title={
+                                productPreview.extraCount > 0
+                                  ? `${productPreview.previewLine} (+${productPreview.extraCount} ürün daha)`
+                                  : productPreview.previewLine
+                              }
+                            >
+                              <p className="text-[10px] font-medium text-gray-500 leading-tight line-clamp-1">
+                                {productPreview.previewLine}
+                              </p>
+                              {productPreview.extraCount > 0 && (
+                                <p className="text-[9px] font-bold text-gray-400 leading-none">
+                                  +{productPreview.extraCount} ürün
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] font-medium text-gray-400 italic leading-tight">
+                              Henüz ürün yok
+                            </p>
+                          )}
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-[9px] font-bold bg-white border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded-md">
+                              {productCount} ürün
+                            </span>
                             {menuBadge && (
                               <span
-                                className="text-[9px] font-bold bg-violet-50 border border-violet-100 text-violet-800 px-2 py-0.5 rounded-md truncate max-w-[12rem]"
+                                className="text-[9px] font-bold bg-violet-50 border border-violet-100 text-violet-800 px-1.5 py-0.5 rounded-md truncate max-w-[10rem]"
                                 title={menuBadge}
                               >
                                 {menuBadge}
                               </span>
                             )}
                             {menuHidden && (
-                              <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md uppercase tracking-wide">Menüde gizli</span>
+                              <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md uppercase tracking-wide">
+                                Gizli
+                              </span>
                             )}
                           </div>
-                        </div>
-                        <div className="flex flex-wrap justify-end content-center gap-1 shrink-0 max-w-[9rem] sm:max-w-none">
-                          <button
-                            type="button"
-                            onClick={() => void handleToggleCategoryMenuVisible(c)}
-                            title={menuHidden ? "Menüde göster" : "Menüde gizle"}
-                            className={`p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 ${
-                              menuHidden
-                                ? "text-amber-700 bg-amber-100 hover:bg-amber-200"
-                                : "text-gray-500 bg-white border border-gray-200 hover:bg-gray-100"
-                            }`}
-                          >
-                            {menuHidden ? <Eye size={17} aria-hidden /> : <EyeOff size={17} aria-hidden />}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDuplicateCategoryModal(c)}
-                            title="Kopyadan oluştur"
-                            className="text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                          >
-                            <Copy size={17} aria-hidden />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openEditCategoryModal(c)}
-                            title="Düzenle"
-                            className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                          >
-                            <Edit3 size={17} aria-hidden />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDeleteCategoryModal(c)}
-                            title="Kategoriyi sil"
-                            className="text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 p-2 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                          >
-                            <Trash2 size={17} aria-hidden />
-                          </button>
+                          <div className="flex items-center gap-0.5 pt-1 mt-0.5 border-t border-gray-200/80">
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleCategoryMenuVisible(c)}
+                              title={menuHidden ? "Önizle" : "Menüden gizle"}
+                              aria-label={menuHidden ? "Önizle" : "Menüden gizle"}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                menuHidden
+                                  ? "text-amber-700 bg-amber-100 hover:bg-amber-200"
+                                  : "text-gray-600 bg-white border border-gray-200 hover:bg-gray-100"
+                              }`}
+                            >
+                              {menuHidden ? <Eye size={15} aria-hidden /> : <EyeOff size={15} aria-hidden />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditCategoryModal(c)}
+                              title="Düzenle"
+                              aria-label="Düzenle"
+                              className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-lg transition-colors"
+                            >
+                              <Edit3 size={15} aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDuplicateCategoryModal(c)}
+                              title="Kopyala"
+                              aria-label="Kopyala"
+                              className="text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 p-1.5 rounded-lg transition-colors"
+                            >
+                              <Copy size={15} aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDeleteCategoryModal(c)}
+                              title="Sil"
+                              aria-label="Sil"
+                              className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors"
+                            >
+                              <Trash2 size={15} aria-hidden />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
