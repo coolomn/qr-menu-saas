@@ -1,4 +1,15 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatPriceForDisplay } from "@/lib/format-price";
+
+export const MAX_PRODUCT_VARIANTS = 20;
+
+export type PricingMode = "single" | "variants";
+
+/** Owner modal form satırı — kayıt öncesi client state. */
+export type EditableProductVariant = {
+  label: string;
+  price: string;
+};
 
 /** Owner panel / DB katmanı — tam varyant satırı. */
 export type ProductVariant = {
@@ -122,4 +133,112 @@ export function minActiveVariantPrice(variants: VariantPriceLike[]): string {
 
 export function hasProductVariants(variants: unknown[] | null | undefined): boolean {
   return Array.isArray(variants) && variants.length > 0;
+}
+
+export function createEmptyVariantRow(): EditableProductVariant {
+  return { label: "", price: "" };
+}
+
+export function validateProductVariantsForSave(
+  mode: PricingMode,
+  singlePrice: string,
+  variants: EditableProductVariant[]
+): string | null {
+  if (mode === "single") {
+    if (!(singlePrice || "").trim()) return "Fiyat zorunludur.";
+    return null;
+  }
+  if (variants.length === 0) return "En az bir varyant ekleyin.";
+  if (variants.length > MAX_PRODUCT_VARIANTS) {
+    return `En fazla ${MAX_PRODUCT_VARIANTS} varyant eklenebilir.`;
+  }
+  for (let i = 0; i < variants.length; i++) {
+    const v = variants[i];
+    if (!(v.label || "").trim()) return `Varyant ${i + 1}: etiket zorunludur.`;
+    if (!(v.price || "").trim()) return `Varyant ${i + 1}: fiyat zorunludur.`;
+  }
+  return null;
+}
+
+export function buildProductVariantsMap(rows: ProductVariant[]): Record<string, ProductVariant[]> {
+  const map: Record<string, ProductVariant[]> = {};
+  for (const row of rows) {
+    if (!map[row.product_id]) map[row.product_id] = [];
+    map[row.product_id].push(row);
+  }
+  for (const pid of Object.keys(map)) {
+    map[pid] = sortProductVariantsByOrder(map[pid]);
+  }
+  return map;
+}
+
+export async function replaceProductVariants(
+  supabase: SupabaseClient,
+  params: {
+    productId: string;
+    restaurantId: string;
+    mode: PricingMode;
+    variants: EditableProductVariant[];
+  }
+): Promise<{ ok: true; rows: ProductVariant[] } | { ok: false; error: string }> {
+  const { productId, restaurantId, mode, variants } = params;
+
+  const { data: backupRows, error: backupErr } = await supabase
+    .from("product_variants")
+    .select("*")
+    .eq("product_id", productId);
+
+  if (backupErr) {
+    return { ok: false, error: backupErr.message || "Mevcut varyantlar okunamadı." };
+  }
+
+  const backup = sortProductVariantsByOrder((backupRows || []) as ProductVariant[]);
+
+  const { error: delErr } = await supabase
+    .from("product_variants")
+    .delete()
+    .eq("product_id", productId);
+
+  if (delErr) {
+    return { ok: false, error: delErr.message || "Varyantlar silinemedi." };
+  }
+
+  if (mode === "single") {
+    return { ok: true, rows: [] };
+  }
+
+  const insertRows = variants.map((v, index) => ({
+    product_id: productId,
+    restaurant_id: restaurantId,
+    label: v.label.trim(),
+    label_en: null as string | null,
+    label_ru: null as string | null,
+    price: v.price.trim(),
+    sort_order: index,
+    is_active: true,
+  }));
+
+  const { data, error: insErr } = await supabase
+    .from("product_variants")
+    .insert(insertRows)
+    .select("*");
+
+  if (insErr) {
+    if (backup.length > 0) {
+      const restoreRows = backup.map((row) => ({
+        product_id: row.product_id,
+        restaurant_id: row.restaurant_id,
+        label: row.label,
+        label_en: row.label_en,
+        label_ru: row.label_ru,
+        price: row.price,
+        sort_order: row.sort_order,
+        is_active: row.is_active,
+      }));
+      await supabase.from("product_variants").insert(restoreRows);
+    }
+    return { ok: false, error: insErr.message || "Varyantlar kaydedilemedi." };
+  }
+
+  return { ok: true, rows: sortProductVariantsByOrder((data || []) as ProductVariant[]) };
 }

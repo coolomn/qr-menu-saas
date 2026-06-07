@@ -9,6 +9,20 @@ import {
   sortProductsByOrder,
 } from "@/lib/admin-menu/product-sort";
 import {
+  buildProductVariantsMap,
+  createEmptyVariantRow,
+  formatProductVariantPriceRange,
+  hasProductVariants,
+  MAX_PRODUCT_VARIANTS,
+  minActiveVariantPrice,
+  replaceProductVariants,
+  sortProductVariantsByOrder,
+  validateProductVariantsForSave,
+  type EditableProductVariant,
+  type PricingMode,
+  type ProductVariant,
+} from "@/lib/admin-menu/product-variants";
+import {
   LOGO_DISPLAY_MODE_LABELS,
   LOGO_DISPLAY_MODES,
   normalizeLogoDisplayMode,
@@ -217,12 +231,15 @@ export default function AdminDashboard() {
   const [productCategoryFilter, setProductCategoryFilter] = useState("all");
   const [productMenuFilter, setProductMenuFilter] = useState("all");
   const [productDeletingId, setProductDeletingId] = useState<string | null>(null);
+  const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({});
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
     description: "", description_en: "", description_ru: "", 
     price: "", category_id: "", file: null as File | null, image_url: "",
-    allergens: [] as string[]
+    allergens: [] as string[],
+    pricing_mode: "single" as PricingMode,
+    variants: [] as EditableProductVariant[],
   });
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
@@ -328,12 +345,26 @@ export default function AdminDashboard() {
               productLinksMap[pid].push(mid);
             }
             setProductMenuLinksMap(productLinksMap);
+
+            const { data: variantRows, error: variantErr } = await supabase
+              .from("product_variants")
+              .select("*")
+              .in("product_id", productIds)
+              .order("sort_order");
+            if (variantErr) {
+              console.error(variantErr);
+              setProductVariantsMap({});
+            } else {
+              setProductVariantsMap(buildProductVariantsMap((variantRows || []) as ProductVariant[]));
+            }
           } else {
             setProductMenuLinksMap({});
+            setProductVariantsMap({});
           }
         } else {
           setProducts([]);
           setProductMenuLinksMap({});
+          setProductVariantsMap({});
         }
       }
       setLoading(false);
@@ -458,11 +489,59 @@ export default function AdminDashboard() {
   };
 
   const handleUpdatePrice = async (productId: string, currentPrice: string) => {
+    if (hasProductVariants(productVariantsMap[productId])) {
+      alert("Bu ürün varyantlı fiyat kullanıyor. Fiyatları düzenlemek için ürünü düzenleyin.");
+      return;
+    }
     const newPrice = window.prompt("Yeni fiyatı girin:", currentPrice);
     if (newPrice && newPrice !== currentPrice) {
       await supabase.from("products").update({ price: newPrice }).eq("id", productId);
       setProducts(products.map((p: any) => p.id === productId ? { ...p, price: newPrice } : p));
     }
+  };
+
+  const getProductListPriceLabel = (productId: string, fallbackPrice: string | null | undefined) => {
+    const variants = productVariantsMap[productId];
+    if (hasProductVariants(variants)) {
+      return formatProductVariantPriceRange(variants!) || formatPriceForDisplay(fallbackPrice);
+    }
+    return formatPriceForDisplay(fallbackPrice);
+  };
+
+  const getProductVariantCount = (productId: string) => productVariantsMap[productId]?.length ?? 0;
+
+  const setProductPricingMode = (mode: PricingMode) => {
+    setNewProduct((prev) => {
+      if (mode === "variants" && prev.variants.length === 0) {
+        return { ...prev, pricing_mode: mode, variants: [createEmptyVariantRow()] };
+      }
+      return { ...prev, pricing_mode: mode };
+    });
+  };
+
+  const addProductVariantRow = () => {
+    setNewProduct((prev) => {
+      if (prev.variants.length >= MAX_PRODUCT_VARIANTS) return prev;
+      return { ...prev, variants: [...prev.variants, createEmptyVariantRow()] };
+    });
+  };
+
+  const updateProductVariantRow = (
+    index: number,
+    field: keyof EditableProductVariant,
+    value: string
+  ) => {
+    setNewProduct((prev) => ({
+      ...prev,
+      variants: prev.variants.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+    }));
+  };
+
+  const removeProductVariantRow = (index: number) => {
+    setNewProduct((prev) => ({
+      ...prev,
+      variants: prev.variants.filter((_, i) => i !== index),
+    }));
   };
 
   const handleDeleteProduct = async (product: { id: string; name?: string | null }) => {
@@ -504,6 +583,11 @@ export default function AdminDashboard() {
 
       setProducts((prev) => prev.filter((p) => p.id !== product.id));
       setProductMenuLinksMap((prev) => {
+        const next = { ...prev };
+        delete next[product.id];
+        return next;
+      });
+      setProductVariantsMap((prev) => {
         const next = { ...prev };
         delete next[product.id];
         return next;
@@ -560,11 +644,17 @@ export default function AdminDashboard() {
   const openEditModal = (product: any) => {
     setAllergenSuggestMessage(null);
     setEditingProductId(product.id);
+    const existingVariants = sortProductVariantsByOrder(productVariantsMap[product.id] || []);
+    const hasVariants = existingVariants.length > 0;
     setNewProduct({
       name: product.name || "", name_en: product.name_en || "", name_ru: product.name_ru || "",
       description: product.description || "", description_en: product.description_en || "", description_ru: product.description_ru || "",
       price: product.price || "", category_id: product.category_id || "", file: null, image_url: product.image_url || "",
-      allergens: product.allergens || []
+      allergens: product.allergens || [],
+      pricing_mode: hasVariants ? "variants" : "single",
+      variants: hasVariants
+        ? existingVariants.map((v) => ({ label: v.label, price: v.price }))
+        : [],
     });
     setProductMenuError(null);
     setIsProductModalOpen(true);
@@ -590,6 +680,8 @@ export default function AdminDashboard() {
       file: null,
       image_url: "",
       allergens: [],
+      pricing_mode: "single",
+      variants: [],
     });
     resetProductMenuPickerState();
     setIsProductModalOpen(true);
@@ -636,6 +728,21 @@ export default function AdminDashboard() {
     }
     setProductMenuError(null);
 
+    const pricingValidationError = validateProductVariantsForSave(
+      newProduct.pricing_mode,
+      newProduct.price,
+      newProduct.variants
+    );
+    if (pricingValidationError) {
+      alert(pricingValidationError);
+      return;
+    }
+
+    const resolvedPrice =
+      newProduct.pricing_mode === "variants"
+        ? minActiveVariantPrice(newProduct.variants)
+        : newProduct.price.trim();
+
     setUploading(true);
     let imageUrl = newProduct.image_url;
     try {
@@ -660,14 +767,16 @@ export default function AdminDashboard() {
         restaurant_id: restaurant.id,
         category_id: newProduct.category_id, name: newProduct.name, name_en: newProduct.name_en, name_ru: newProduct.name_ru,
         description: newProduct.description, description_en: newProduct.description_en, description_ru: newProduct.description_ru,
-        price: newProduct.price, image_url: imageUrl, allergens: newProduct.allergens
+        price: resolvedPrice, image_url: imageUrl, allergens: newProduct.allergens
       };
 
       let savedProductId = editingProductId;
+      let savedProductRow: any = null;
       if (editingProductId) {
         const { data, error } = await supabase.from("products").update(payload).eq("id", editingProductId).select("*, categories(*)").single();
         if (!error && data) {
-          setProducts(products.map((p: any) => (p.id === editingProductId ? data : p)));
+          savedProductRow = data;
+          savedProductId = data.id;
         } else {
           alert(error?.message || "Kayıt başarısız.");
           return;
@@ -680,8 +789,8 @@ export default function AdminDashboard() {
           .select("*, categories(*)")
           .single();
         if (!error && data) {
+          savedProductRow = data;
           savedProductId = data.id;
-          setProducts(sortProductsByOrder([...products, data]));
         } else {
           alert(error?.message || "Kayıt başarısız.");
           return;
@@ -689,6 +798,39 @@ export default function AdminDashboard() {
       }
 
       if (savedProductId) {
+        const variantResult = await replaceProductVariants(supabase, {
+          productId: savedProductId,
+          restaurantId: restaurant.id,
+          mode: newProduct.pricing_mode,
+          variants: newProduct.variants,
+        });
+        if (!variantResult.ok) {
+          alert(
+            `Ürün kaydedildi ancak varyantlar güncellenemedi: ${variantResult.error}\n\nÜrünü düzenleyip varyantları tekrar kaydedin.`
+          );
+          return;
+        }
+
+        setProductVariantsMap((prev) => {
+          const next = { ...prev };
+          if (variantResult.rows.length > 0) {
+            next[savedProductId!] = variantResult.rows;
+          } else {
+            delete next[savedProductId!];
+          }
+          return next;
+        });
+
+        if (savedProductRow) {
+          setProducts((prev) => {
+            const updated = { ...savedProductRow, price: resolvedPrice };
+            if (editingProductId) {
+              return sortProductsByOrder(prev.map((p: any) => (p.id === editingProductId ? updated : p)));
+            }
+            return sortProductsByOrder([...prev, updated]);
+          });
+        }
+
         const synced = await syncProductMenuLinks(savedProductId, menuIdsToSave);
         if (!synced) {
           alert(
@@ -1720,20 +1862,25 @@ export default function AdminDashboard() {
                                           Tükendi
                                         </span>
                                       )}
+                                      {getProductVariantCount(p.id) > 0 && (
+                                        <span className="text-[9px] font-bold bg-violet-50 text-violet-700 border border-violet-100 px-1.5 py-0.5 rounded-md">
+                                          {getProductVariantCount(p.id)} seçenek
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
                                 <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
                                   <div className="text-left sm:text-right min-w-[4.5rem]">
                                     <div className="text-base md:text-lg font-black text-blue-600 leading-none">
-                                      {formatPriceForDisplay(p.price)}
+                                      {getProductListPriceLabel(p.id, p.price)}
                                     </div>
                                     <button
                                       type="button"
                                       onClick={() => handleUpdatePrice(p.id, p.price)}
                                       className="text-[9px] font-bold text-gray-400 hover:text-blue-600 uppercase mt-0.5"
                                     >
-                                      Fiyatı değiştir
+                                      {getProductVariantCount(p.id) > 0 ? "Varyantlı fiyat" : "Fiyatı değiştir"}
                                     </button>
                                   </div>
                                   <div className="flex items-center gap-1">
@@ -2147,24 +2294,137 @@ export default function AdminDashboard() {
                 
                 {/* GÜNCELLENEN FORM BURASI: İNGİLİZCE VE RUSÇA KUTULARI EKLENDİ */}
                 <form onSubmit={handleProductSubmit} className="p-4 md:p-8 space-y-4 md:space-y-6 overflow-y-auto text-gray-900 pb-20 md:pb-8">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <select
-                          required
-                          className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base"
-                          value={newProduct.category_id}
-                          onChange={(e) => {
-                            const categoryId = e.target.value;
-                            setNewProduct({ ...newProduct, category_id: categoryId });
-                            if (getActiveRestaurantMenus().length >= 2 && categoryId) {
-                              applyProductMenuSelectionForCategory(categoryId, { intersectPrevious: true });
-                              setProductMenuError(null);
-                            }
-                          }}
-                        >
-                            <option value="">Kategori Seç</option>
-                            {categories.map((cat: any) => <option key={cat.id} value={cat.id}>{cat.name} ({cat.main_group || 'YİYECEKLER'})</option>)}
-                        </select>
-                        <input required type="text" placeholder="Fiyat (Örn: 250 ₺)" className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-black outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
+                    <select
+                      required
+                      className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base"
+                      value={newProduct.category_id}
+                      onChange={(e) => {
+                        const categoryId = e.target.value;
+                        setNewProduct({ ...newProduct, category_id: categoryId });
+                        if (getActiveRestaurantMenus().length >= 2 && categoryId) {
+                          applyProductMenuSelectionForCategory(categoryId, { intersectPrevious: true });
+                          setProductMenuError(null);
+                        }
+                      }}
+                    >
+                      <option value="">Kategori Seç</option>
+                      {categories.map((cat: any) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name} ({cat.main_group || "YİYECEKLER"})
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="p-4 md:p-5 border-2 border-amber-100 rounded-2xl bg-amber-50/40 space-y-4">
+                      <div>
+                        <span className="text-[10px] font-black text-amber-900 uppercase tracking-widest">
+                          Fiyatlandırma
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                          <label
+                            className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                              newProduct.pricing_mode === "single"
+                                ? "border-amber-400 bg-white shadow-sm"
+                                : "border-amber-100 bg-white/70 hover:border-amber-200"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="pricing_mode"
+                              value="single"
+                              checked={newProduct.pricing_mode === "single"}
+                              onChange={() => setProductPricingMode("single")}
+                              className="accent-amber-600"
+                            />
+                            <span className="text-sm font-bold text-gray-800">Tek fiyat</span>
+                          </label>
+                          <label
+                            className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                              newProduct.pricing_mode === "variants"
+                                ? "border-amber-400 bg-white shadow-sm"
+                                : "border-amber-100 bg-white/70 hover:border-amber-200"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="pricing_mode"
+                              value="variants"
+                              checked={newProduct.pricing_mode === "variants"}
+                              onChange={() => setProductPricingMode("variants")}
+                              className="accent-amber-600"
+                            />
+                            <span className="text-sm font-bold text-gray-800">Varyantlı fiyat</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {newProduct.pricing_mode === "single" ? (
+                        <input
+                          type="text"
+                          placeholder="Fiyat (Örn: 250 ₺)"
+                          className="w-full border-2 border-gray-50 bg-white p-3 md:p-4 rounded-2xl font-black outline-none focus:border-amber-500 text-gray-900 text-sm md:text-base"
+                          value={newProduct.price}
+                          onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
+                        />
+                      ) : (
+                        <div className="space-y-3">
+                          {newProduct.variants.map((variant, index) => (
+                            <div
+                              key={`variant-row-${index}`}
+                              className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-center"
+                            >
+                              <input
+                                type="text"
+                                placeholder="Etiket (ör. 20 CL, Küçük)"
+                                className="w-full border-2 border-gray-50 bg-white p-3 rounded-xl font-bold text-gray-900 text-sm outline-none focus:border-amber-500"
+                                value={variant.label}
+                                onChange={(e) =>
+                                  updateProductVariantRow(index, "label", e.target.value)
+                                }
+                              />
+                              <input
+                                type="text"
+                                placeholder="Fiyat (ör. 350)"
+                                className="w-full border-2 border-gray-50 bg-white p-3 rounded-xl font-black text-gray-900 text-sm outline-none focus:border-amber-500"
+                                value={variant.price}
+                                onChange={(e) =>
+                                  updateProductVariantRow(index, "price", e.target.value)
+                                }
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeProductVariantRow(index)}
+                                className="p-2.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors justify-self-end sm:justify-self-auto"
+                                title="Varyantı sil"
+                                aria-label="Varyantı sil"
+                              >
+                                <Trash2 size={16} aria-hidden />
+                              </button>
+                            </div>
+                          ))}
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={addProductVariantRow}
+                              disabled={newProduct.variants.length >= MAX_PRODUCT_VARIANTS}
+                              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-amber-200 bg-white text-amber-800 text-xs font-black uppercase tracking-wide hover:bg-amber-50 disabled:opacity-50"
+                            >
+                              <Plus size={14} aria-hidden />
+                              Varyant ekle
+                            </button>
+                            {newProduct.variants.length > 0 && (
+                              <p className="text-[10px] font-bold text-amber-800">
+                                Önizleme:{" "}
+                                {formatProductVariantPriceRange(newProduct.variants) || "—"}
+                              </p>
+                            )}
+                          </div>
+                          <p className="text-[9px] font-medium text-gray-500">
+                            En az 1, en fazla {MAX_PRODUCT_VARIANTS} varyant. Sıra listedeki
+                            görünüm sırasıdır.
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {getActiveRestaurantMenus().length >= 2 && newProduct.category_id && (
