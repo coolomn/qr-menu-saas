@@ -13,6 +13,7 @@ import {
 } from "@/lib/public-menu/product-menu-collections";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
+import { normalizeLogoDisplayMode } from "@/lib/public-menu/logo-display";
 
 export const runtime = "nodejs";
 
@@ -25,11 +26,14 @@ type RestaurantRow = {
   slider_images: string[] | null;
   welcome_bg_url: string | null;
   instagram: string | null;
+  logo_display_mode?: string | null;
   tenant_status?: string | null;
   subscription_ends_at?: string | null;
 };
 
-type PublicRestaurant = Omit<RestaurantRow, "id">;
+type PublicRestaurant = Omit<RestaurantRow, "id" | "logo_display_mode"> & {
+  logo_display_mode: ReturnType<typeof normalizeLogoDisplayMode>;
+};
 
 type CategoryRow = {
   id: string;
@@ -86,7 +90,7 @@ function toProductRows(value: unknown): ProductRow[] {
   return value.filter(isProductRow);
 }
 
-const RESTAURANT_COLUMNS = [
+const RESTAURANT_COLUMNS_BASE = [
   "id",
   "slug",
   "name",
@@ -95,6 +99,11 @@ const RESTAURANT_COLUMNS = [
   "slider_images",
   "welcome_bg_url",
   "instagram",
+].join(",");
+
+const RESTAURANT_COLUMNS = [
+  RESTAURANT_COLUMNS_BASE,
+  "logo_display_mode",
   "tenant_status",
   "subscription_ends_at",
 ].join(",");
@@ -159,25 +168,26 @@ export async function GET(
   let gateColumnsAvailable = true;
 
   if (restaurantError && isMissingColumn(restaurantError)) {
-    gateColumnsAvailable = false;
-    const fallback = await supabase
+    const retryWithLogoMode = await supabase
       .from("restaurants")
-      .select(
-        [
-          "id",
-          "slug",
-          "name",
-          "logo_url",
-          "primary_color",
-          "slider_images",
-          "welcome_bg_url",
-          "instagram",
-        ].join(",")
-      )
+      .select([RESTAURANT_COLUMNS_BASE, "logo_display_mode"].join(","))
       .eq("slug", normalizedSlug)
       .maybeSingle();
-    restaurant = fallback.data;
-    restaurantError = fallback.error;
+
+    if (!retryWithLogoMode.error) {
+      restaurant = retryWithLogoMode.data;
+      restaurantError = null;
+      gateColumnsAvailable = false;
+    } else {
+      gateColumnsAvailable = false;
+      const fallback = await supabase
+        .from("restaurants")
+        .select(RESTAURANT_COLUMNS_BASE)
+        .eq("slug", normalizedSlug)
+        .maybeSingle();
+      restaurant = fallback.data;
+      restaurantError = fallback.error;
+    }
   }
 
   if (restaurantError) {
@@ -268,8 +278,14 @@ export async function GET(
     id: _restaurantId,
     tenant_status: _tenantStatus,
     subscription_ends_at: _subscriptionEndsAt,
+    logo_display_mode: rawLogoDisplayMode,
     ...publicRestaurant
   } = restaurantRow;
+
+  const restaurantPayload: PublicRestaurant = {
+    ...publicRestaurant,
+    logo_display_mode: normalizeLogoDisplayMode(rawLogoDisplayMode),
+  };
 
   const { menu_collections, menu_picker, menuIdsByCategory } =
     await buildMenuCollectionsPayload(supabase, restaurantRow.id, categoryIds);
@@ -293,7 +309,7 @@ export async function GET(
   );
 
   return NextResponse.json({
-    restaurant: publicRestaurant,
+    restaurant: restaurantPayload,
     menu_collections,
     menu_picker,
     categories: publicCategories,

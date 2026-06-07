@@ -8,6 +8,8 @@ import {
   getMenuPickSubtitle,
 } from "@/lib/public-menu/display";
 import type { PublicMenuCollection } from "@/lib/public-menu/menu-collections";
+import type { LogoDisplayMode } from "@/lib/public-menu/logo-display";
+import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
 
 type InstagramContext = {
   webUrl: string;
@@ -17,8 +19,8 @@ type InstagramContext = {
 type MenuPickScreenProps = {
   restaurantName: string;
   logoUrl: string | null;
+  logoDisplayMode?: LogoDisplayMode | null;
   welcomeBgUrl: string | null;
-  themeColor: string;
   language: string;
   onLanguageChange: (lang: string) => void;
   menuCollections: PublicMenuCollection[];
@@ -39,8 +41,8 @@ function InstagramGlyph({ className }: { className?: string }) {
 export function MenuPickScreen({
   restaurantName,
   logoUrl,
+  logoDisplayMode,
   welcomeBgUrl,
-  themeColor,
   language,
   onLanguageChange,
   menuCollections,
@@ -78,22 +80,13 @@ export function MenuPickScreen({
       </div>
 
       <div className="relative z-10 flex flex-col items-center px-6 pt-2 pb-4">
-        <div
-          className="px-8 py-6 sm:px-10 sm:py-7 shadow-2xl backdrop-blur-md rounded-sm flex items-center justify-center max-w-[280px]"
-          style={{ backgroundColor: `${themeColor}E6` }}
-        >
-          {logoUrl ? (
-            <img
-              src={logoUrl}
-              alt=""
-              className="max-h-20 sm:max-h-24 object-contain drop-shadow-md"
-            />
-          ) : (
-            <h1 className="text-2xl sm:text-3xl font-black tracking-widest text-white text-center">
-              {restaurantName}
-            </h1>
-          )}
-        </div>
+        <PublicRestaurantLogo
+          logoUrl={logoUrl}
+          restaurantName={restaurantName}
+          logoDisplayMode={logoDisplayMode}
+          variant="hero"
+          nameClassName="text-white"
+        />
         <p className="mt-5 text-sm sm:text-base font-semibold tracking-[0.2em] uppercase text-white/90 text-center drop-shadow-sm">
           {getMenuPickSubtitle(language)}
         </p>

@@ -8,6 +8,13 @@ import {
   nextProductSortOrderInCategory,
   sortProductsByOrder,
 } from "@/lib/admin-menu/product-sort";
+import {
+  LOGO_DISPLAY_MODE_LABELS,
+  LOGO_DISPLAY_MODES,
+  normalizeLogoDisplayMode,
+  type LogoDisplayMode,
+} from "@/lib/public-menu/logo-display";
+import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
 import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
@@ -148,6 +155,7 @@ export default function AdminDashboard() {
     slider_images: [] as string[],
     welcome_bg_url: "",
     instagram: "",
+    logo_display_mode: "auto" as LogoDisplayMode,
   });
   
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -266,6 +274,7 @@ export default function AdminDashboard() {
               resData.instagram != null && String(resData.instagram).trim() !== ""
                 ? String(resData.instagram).trim()
                 : "",
+            logo_display_mode: normalizeLogoDisplayMode(resData.logo_display_mode),
         });
         
         const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
@@ -368,13 +377,16 @@ export default function AdminDashboard() {
         slider_images: settings.slider_images,
         welcome_bg_url: finalWelcomeBgUrl,
         instagram: ig || null,
+        logo_display_mode: settings.logo_display_mode,
       };
 
       const { data: updatedRow, error: dbError } = await supabase
         .from("restaurants")
         .update(payload)
         .eq("id", restaurant.id)
-        .select("id, instagram, primary_color, logo_url, welcome_bg_url, slider_images")
+        .select(
+          "id, instagram, primary_color, logo_url, welcome_bg_url, slider_images, logo_display_mode"
+        )
         .single();
 
       if (dbError) {
@@ -400,6 +412,7 @@ export default function AdminDashboard() {
         logo_url: finalLogoUrl,
         welcome_bg_url: finalWelcomeBgUrl,
         instagram: savedIg,
+        logo_display_mode: normalizeLogoDisplayMode(updatedRow?.logo_display_mode),
       });
       setRestaurant((r: any) =>
         r ? { ...r, ...updatedRow, instagram: savedIg || null } : r
@@ -1944,6 +1957,66 @@ export default function AdminDashboard() {
                     <label className="block text-[10px] md:text-xs font-black text-gray-400 mb-2 md:mb-3 uppercase tracking-widest">Restoran Logosu</label>
                     {settings.logo_url && !logoFile && (<div className="mb-4 bg-gray-50 p-4 rounded-2xl inline-block border-2 border-gray-100 w-full text-center md:text-left"><img src={settings.logo_url} alt="Logo" className="h-12 md:h-16 object-contain mx-auto md:mx-0" /></div>)}
                     <input type="file" accept="image/*" onChange={e => setLogoFile(e.target.files ? e.target.files[0] : null)} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 outline-none" />
+                  </div>
+
+                  <div className="p-4 md:p-6 border-2 border-indigo-100 rounded-3xl bg-indigo-50/30 space-y-4">
+                    <div>
+                      <label className="block text-xs md:text-sm font-black text-indigo-900 uppercase mb-1">
+                        Logo görünümü
+                      </label>
+                      <p className="text-[10px] md:text-xs font-bold text-gray-500 mb-3">
+                        Müşteri menüsünde logonun nasıl çerçeveleneceğini seçin. Logo asla kırpılmaz; marka rengi logo arka planına basılmaz.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {LOGO_DISPLAY_MODES.map((mode) => (
+                          <label
+                            key={mode}
+                            className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                              settings.logo_display_mode === mode
+                                ? "border-indigo-400 bg-white shadow-sm"
+                                : "border-indigo-100 bg-white/70 hover:border-indigo-200"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="logo_display_mode"
+                              value={mode}
+                              checked={settings.logo_display_mode === mode}
+                              onChange={() =>
+                                setSettings({ ...settings, logo_display_mode: mode })
+                              }
+                              className="accent-indigo-600"
+                            />
+                            <span className="text-sm font-bold text-gray-800">
+                              {LOGO_DISPLAY_MODE_LABELS[mode]}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-gray-200 bg-[#F5F1EB] p-4 flex items-center justify-center min-h-[7rem]">
+                        <PublicRestaurantLogo
+                          logoUrl={settings.logo_url || null}
+                          restaurantName={restaurant?.name || "Restoran"}
+                          logoDisplayMode={settings.logo_display_mode}
+                          variant="hero"
+                          nameClassName="text-[#1F3B2B]"
+                        />
+                      </div>
+                      <div className="rounded-2xl border border-gray-700 bg-gradient-to-br from-gray-800 to-gray-900 p-4 flex items-center justify-center min-h-[7rem]">
+                        <PublicRestaurantLogo
+                          logoUrl={settings.logo_url || null}
+                          restaurantName={restaurant?.name || "Restoran"}
+                          logoDisplayMode={settings.logo_display_mode}
+                          variant="hero"
+                          nameClassName="text-white"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] font-medium text-gray-500">
+                      Sol: açık arka plan önizlemesi · Sağ: koyu arka plan önizlemesi
+                    </p>
                   </div>
 
                   <div className="p-4 md:p-6 border-2 border-green-100 rounded-3xl bg-green-50/30">

@@ -11,6 +11,7 @@ import {
 } from "@/lib/public-menu/display";
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 import { MULTI_MENU_PROTOTYPE_ENABLED } from "@/lib/menu-prototype/config";
+import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
 
 const ALLERGEN_OPTIONS = [
   { id: "gluten", label: "Gluten", icon: "🌾" },
@@ -484,8 +485,8 @@ export default function CustomerMenu() {
       <MenuPickScreen
         restaurantName={restaurant.name}
         logoUrl={restaurant.logo_url}
+        logoDisplayMode={restaurant.logo_display_mode}
         welcomeBgUrl={restaurant.welcome_bg_url}
-        themeColor={themeColor}
         language={language}
         onLanguageChange={setLanguage}
         menuCollections={menuCollections}
@@ -536,20 +537,13 @@ export default function CustomerMenu() {
         </div>
 
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-6">
-          <div
-            className="px-10 py-8 shadow-2xl backdrop-blur-sm flex items-center justify-center min-w-[200px]"
-            style={{ backgroundColor: `${themeColor}E6` }}
-          >
-            {restaurant.logo_url ? (
-              <img
-                src={restaurant.logo_url}
-                alt="Restoran Logosu"
-                className="max-h-24 object-contain filter drop-shadow-md"
-              />
-            ) : (
-              <h1 className="text-4xl font-black tracking-widest text-white">{restaurant.name}</h1>
-            )}
-          </div>
+          <PublicRestaurantLogo
+            logoUrl={restaurant.logo_url}
+            restaurantName={restaurant.name}
+            logoDisplayMode={restaurant.logo_display_mode}
+            variant="hero"
+            nameClassName="text-white"
+          />
         </div>
 
         <div className="relative z-10 w-full max-w-md mx-auto px-6 pb-12 space-y-3">
@@ -639,20 +633,13 @@ export default function CustomerMenu() {
             <div className="w-9 flex-shrink-0" aria-hidden />
           )}
           <div className="flex-1 min-w-0 flex justify-center px-1">
-            {restaurant.logo_url ? (
-              <img
-                src={restaurant.logo_url}
-                alt="Restoran Logosu"
-                className="h-8 max-w-[40vw] sm:max-w-none object-contain"
-              />
-            ) : (
-              <h1
-                style={{ color: themeColor }}
-                className="text-base sm:text-xl font-black tracking-tighter uppercase truncate text-center max-w-[42vw] sm:max-w-md"
-              >
-                {restaurant.name}
-              </h1>
-            )}
+            <PublicRestaurantLogo
+              logoUrl={restaurant.logo_url}
+              restaurantName={restaurant.name}
+              logoDisplayMode={restaurant.logo_display_mode}
+              variant="header"
+              nameStyle={{ color: themeColor }}
+            />
           </div>
           <div className="flex-shrink-0 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-black text-gray-900 shadow-lg flex gap-2 sm:gap-3 border border-gray-100 cursor-pointer select-none">
             <span onClick={() => setLanguage("tr")} className={language === "tr" ? "text-black" : "opacity-40 grayscale"}>
