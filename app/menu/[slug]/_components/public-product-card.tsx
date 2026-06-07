@@ -1,7 +1,11 @@
 "use client";
 
 import { formatPriceForDisplay } from "@/lib/format-price";
-import type { PublicProductVariant } from "@/lib/admin-menu/product-variants";
+import {
+  hasProductVariants,
+  type PublicProduct,
+  type PublicProductVariant,
+} from "@/lib/public-menu/product-variants";
 
 const ALLERGEN_OPTIONS = [
   { id: "gluten", label: "Gluten", icon: "🌾" },
@@ -14,27 +18,36 @@ const ALLERGEN_OPTIONS = [
 ];
 
 type PublicProductCardProps = {
-  product: {
-    id: string;
-    name: string;
-    name_en?: string | null;
-    name_ru?: string | null;
-    description?: string | null;
-    description_en?: string | null;
-    description_ru?: string | null;
-    price?: string | null;
-    image_url?: string | null;
-    allergens?: string[] | null;
-    variants?: PublicProductVariant[];
-  };
+  product: PublicProduct;
   themeColor: string;
   getText: (item: Record<string, unknown>, field: string) => string;
 };
 
-export function PublicProductCard({ product, themeColor, getText }: PublicProductCardProps) {
-  const variants = product.variants ?? [];
-  const hasVariants = variants.length > 0;
-  const productRecord = product as Record<string, unknown>;
+function getVariantLabel(
+  variant: PublicProductVariant,
+  language: string
+): string {
+  const pick = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  if (language === "en") {
+    const en = pick(variant.label_en);
+    if (en) return en;
+  }
+  if (language === "ru") {
+    const ru = pick(variant.label_ru);
+    if (ru) return ru;
+  }
+  return pick(variant.label) || variant.label;
+}
+
+export function PublicProductCard({
+  product,
+  themeColor,
+  getText,
+  language = "tr",
+}: PublicProductCardProps & { language?: string }) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const showVariants = hasProductVariants(variants);
+  const productRecord = product as unknown as Record<string, unknown>;
   const description = getText(productRecord, "description");
 
   return (
@@ -51,13 +64,13 @@ export function PublicProductCard({ product, themeColor, getText }: PublicProduc
       <div className="flex-1 flex flex-col min-w-0 justify-center">
         <div
           className={`flex justify-between items-start gap-2 ${
-            hasVariants ? "mb-1.5" : "mb-1"
+            showVariants ? "mb-1.5" : "mb-1"
           }`}
         >
           <h3 className="font-black text-gray-900 leading-tight text-base md:text-lg min-w-0">
             {getText(productRecord, "name")}
           </h3>
-          {!hasVariants && (
+          {!showVariants && (
             <span
               style={{ color: themeColor }}
               className="font-black text-lg md:text-xl whitespace-nowrap shrink-0"
@@ -67,14 +80,13 @@ export function PublicProductCard({ product, themeColor, getText }: PublicProduc
           )}
         </div>
 
-        {hasVariants && (
+        {showVariants && (
           <ul
             className="mb-2 rounded-xl border border-gray-100 bg-gray-50/80 divide-y divide-gray-100/90 overflow-hidden"
             aria-label="Fiyat seçenekleri"
           >
             {variants.map((variant) => {
-              const variantRecord = variant as unknown as Record<string, unknown>;
-              const label = getText(variantRecord, "label");
+              const label = getVariantLabel(variant, language);
               const priceLabel = formatPriceForDisplay(variant.price);
               return (
                 <li

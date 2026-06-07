@@ -21,6 +21,7 @@ import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
 import { normalizeLogoDisplayMode } from "@/lib/public-menu/logo-display";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type RestaurantRow = {
   id: string;
@@ -317,11 +318,18 @@ export async function GET(
   const variantsByProduct = await buildActivePublicVariantsMap(supabase, productIds);
   const publicProducts = attachProductVariants(productsWithMenus, variantsByProduct);
 
-  return NextResponse.json({
-    restaurant: restaurantPayload,
-    menu_collections,
-    menu_picker,
-    categories: publicCategories,
-    products: publicProducts,
-  });
+  return NextResponse.json(
+    {
+      restaurant: restaurantPayload,
+      menu_collections,
+      menu_picker,
+      categories: publicCategories,
+      products: publicProducts,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  );
 }

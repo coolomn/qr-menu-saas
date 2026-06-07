@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
 import { MenuPickScreen } from "@/app/menu/[slug]/_components/menu-pick-screen";
-import { formatPriceForDisplay } from "@/lib/format-price";
 import {
   categoryBelongsToMenuCollection,
   productBelongsToMenuCollection,
@@ -12,16 +11,11 @@ import {
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 import { MULTI_MENU_PROTOTYPE_ENABLED } from "@/lib/menu-prototype/config";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
-
-const ALLERGEN_OPTIONS = [
-  { id: "gluten", label: "Gluten", icon: "🌾" },
-  { id: "dairy", label: "Süt", icon: "🥛" },
-  { id: "nuts", label: "Kuruyemiş", icon: "🥜" },
-  { id: "seafood", label: "Deniz Ürünü", icon: "🦐" },
-  { id: "egg", label: "Yumurta", icon: "🥚" },
-  { id: "vegan", label: "Vegan", icon: "🌱" },
-  { id: "spicy", label: "Acı", icon: "🌶️" },
-];
+import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
+import {
+  normalizePublicProducts,
+  type PublicProduct,
+} from "@/lib/public-menu/product-variants";
 
 /** DB’de çeviri yokken EN/RU için bilinen Türkçe ana grup / kategori adları (genişletilebilir). */
 const MENU_LABEL_FALLBACK: Record<string, { en: string; ru: string }> = {
@@ -231,7 +225,7 @@ export default function CustomerMenu() {
 
   const [restaurant, setRestaurant] = useState<any>(null);
   const [categories, setCategories] = useState<PublicCategory[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<PublicProduct[]>([]);
   const [menuCollections, setMenuCollections] = useState<PublicMenuCollection[]>([]);
   const [menuPicker, setMenuPicker] = useState<PublicMenuPicker | null>(null);
   const [loading, setLoading] = useState(true);
@@ -260,7 +254,9 @@ export default function CustomerMenu() {
 
       try {
         setMenuUnavailable(false);
-        const response = await fetch(`/api/public-menu/${encodeURIComponent(slugValue)}`);
+        const response = await fetch(`/api/public-menu/${encodeURIComponent(slugValue)}`, {
+          cache: "no-store",
+        });
 
         if (response.status === 403) {
           setMenuUnavailable(true);
@@ -285,7 +281,7 @@ export default function CustomerMenu() {
         const data = (await response.json()) as {
           restaurant: any;
           categories: PublicCategory[];
-          products: any[];
+          products: unknown;
           menu_collections?: PublicMenuCollection[];
           menu_picker?: PublicMenuPicker;
         };
@@ -299,7 +295,7 @@ export default function CustomerMenu() {
         setMenuUnavailable(false);
         setRestaurant(data.restaurant || null);
         setCategories(data.categories || []);
-        setProducts(data.products || []);
+        setProducts(normalizePublicProducts(data.products));
         setMenuCollections(collections);
         setMenuPicker(picker);
 
@@ -719,54 +715,14 @@ export default function CustomerMenu() {
             )}
           </div>
         )}
-        {visibleProducts.map((product: any) => (
-          <div
+        {visibleProducts.map((product) => (
+          <PublicProductCard
             key={product.id}
-            className="bg-white p-3 md:p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-3 md:gap-4 hover:border-gray-200 transition-colors"
-          >
-            {product.image_url && (
-              <div className="w-24 h-24 md:w-28 md:h-28 flex-shrink-0 bg-gray-100 rounded-2xl overflow-hidden shadow-inner relative">
-                <img
-                  src={product.image_url}
-                  alt={product.name || "Ürün Görseli"}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-            <div className="flex-1 flex flex-col justify-center">
-              <div className="flex justify-between items-start gap-2 mb-1">
-                <h3 className="font-black text-gray-900 leading-tight text-base md:text-lg">
-                  {getText(product, "name")}
-                </h3>
-                <span style={{ color: themeColor }} className="font-black text-lg md:text-xl whitespace-nowrap">
-                  {formatPriceForDisplay(product.price)}
-                </span>
-              </div>
-              {getText(product, "description") && (
-                <p className="text-xs md:text-sm text-gray-500 font-medium leading-snug mb-2 line-clamp-2">
-                  {getText(product, "description")}
-                </p>
-              )}
-              {product.allergens && product.allergens.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-auto">
-                  {product.allergens.map((aId: string) => {
-                    const alg = ALLERGEN_OPTIONS.find((a: any) => a.id === aId);
-                    return alg ? (
-                      <div
-                        key={aId}
-                        className="flex items-center gap-1 bg-gray-50 border border-gray-100 px-1.5 py-0.5 rounded-lg"
-                      >
-                        <span className="text-[10px]">{alg.icon}</span>
-                        <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest">
-                          {alg.label}
-                        </span>
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+            product={product}
+            themeColor={themeColor}
+            getText={getText}
+            language={language}
+          />
         ))}
       </main>
     </div>
