@@ -20,6 +20,48 @@ const STRICT_OCR_RULES = `KESİN OCR KURALLARI (ihlal etme):
 - Kategori adını yalnızca menüde yazılı bölüm başlığından al; uydurma kategori yazma.
 - Eksik ürün bırakmak, uydurma ürün eklemekten iyidir.`;
 
+const MATRIX_VARIANT_RULES = `KOLON MATRİSİ — ZORUNLU (rakı/şarap/ölçü tabloları):
+- Bir kategori bloğunun üst satırında ölçü/hacim kolon başlıkları varsa (ör. 20 CL, 35 CL, 50 CL, 70 CL) → bu başlıklar o kategorideki HER ürün satırı için variants[].label değeridir.
+- Düzen: sol sütun = ürün adı (name); üst satır = kolon başlıkları (variant label); hücreler = fiyat.
+- Aynı kolon başlıkları kategorideki tüm ürün satırlarına uygulanır: Yeni Rakı, Yeni Rakı Yeni Seri, Tekirdağ Rakısı… hepsi aynı label setini alır.
+- Fiyat hücresi boş, çizgi (____), tire, nokta veya OCR ile okunamıyorsa → variants[].price = null; YİNE DE variants[] oluştur. Fiyat olmadığı için variants atma.
+- Kolon başlığı görünen matriste her ürün satırında variants zorunlu; variants olmadan product bırakma.
+- Varyant label uydurma; yalnızca menüde görünen kolon başlıklarını kullan.
+- Farklı ürün adları ayrı product kalır (birleştirme yok).
+
+Menü düzeni örneği:
+RAKILAR
+          20 CL   35 CL   50 CL   70 CL
+Yeni Rakı   ____   ____   ____   ____
+
+JSON çıktısı (Yeni Rakı):
+{"name":"Yeni Rakı","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null,"variants":[{"label":"20 CL","label_en":null,"label_ru":null,"price":null},{"label":"35 CL","label_en":null,"label_ru":null,"price":null},{"label":"50 CL","label_en":null,"label_ru":null,"price":null},{"label":"70 CL","label_en":null,"label_ru":null,"price":null}]}`;
+
+const VARIANT_RULES = `Ürün varyantları (variants) — genel:
+- Önce yukarıdaki KOLON MATRİSİ kurallarını kontrol et; üst satırda kolon başlıkları varsa matris modundasın.
+- Matris modunda: her ürün satırı → variants[] (kolon sayısı kadar); product.price = null.
+- Matris dışında: aynı ürün adı altında 2+ boyut/hacim/porsiyon ve ayrı fiyat → tek product + variants[].
+- Small/Medium/Large, Küçük/Orta/Büyük, Kadeh/Şişe, ml/L/cl gibi görünen ölçü etiketleri variant label.
+- Farklı yemek adları ayrı ürün kalır (ör. Sade Omlet, Kaşarlı Omlet, Mantarlı Omlet → 3 ayrı product).
+- Farklı marka/çeşit adları ayrı product kalır (Yeni Rakı ≠ Tekirdağ Rakısı).
+- Kolon başlığı veya ölçü etiketi menüde görünmüyorsa varyant label uydurma; tek ürün/tek fiyat bırak.
+- Menüde fiyat yoksa variants[].price null olabilir.
+- Tek fiyatlı (matris olmayan) ürünlerde variants ekleme.`;
+
+const VARIANT_JSON_EXAMPLES = `JSON örnekleri (yalnızca format; menüde olmayanı yazma):
+
+Rakı matrisi — fiyatlar okunmuş:
+{"name":"Yeni Rakı","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null,"variants":[{"label":"20 CL","label_en":null,"label_ru":null,"price":"450"},{"label":"35 CL","label_en":null,"label_ru":null,"price":"650"},{"label":"50 CL","label_en":null,"label_ru":null,"price":"850"},{"label":"70 CL","label_en":null,"label_ru":null,"price":"1100"}]}
+
+Rakı matrisi — fiyatlar boş/çizgi (variants yine zorunlu):
+{"name":"Yeni Rakı Yeni Seri","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null,"variants":[{"label":"20 CL","label_en":null,"label_ru":null,"price":null},{"label":"35 CL","label_en":null,"label_ru":null,"price":null},{"label":"50 CL","label_en":null,"label_ru":null,"price":null},{"label":"70 CL","label_en":null,"label_ru":null,"price":null}]}
+
+Pizza boyutları:
+{"name":"Margarita Pizza","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null,"variants":[{"label":"Küçük","label_en":"Small","label_ru":null,"price":"280"},{"label":"Orta","label_en":"Medium","label_ru":null,"price":"350"},{"label":"Büyük","label_en":"Large","label_ru":null,"price":"420"}]}
+
+Tek fiyat (matris yok):
+{"name":"Izgara Köfte","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":"320"}`;
+
 const DESCRIPTION_RULES = `Açıklama (description / description_en / description_ru):
 - Menüde ürün adının altında veya yanında gerçekten yazılı açıklama/cümle varsa ilgili dildeki alana yaz (ör. "Bazlama bread with acuka sauce…" → description_en).
 - Menüde açıklama yoksa null; ürün adından, fiyattan veya tahminden açıklama üretme; içerik/tarif uydurma.
@@ -28,7 +70,7 @@ const DESCRIPTION_RULES = `Açıklama (description / description_en / descriptio
 - İngilizce adı description veya description_en'e yazma; name_en kullan.`;
 
 const MENU_JSON_INSTRUCTION = `Yanıt YALNIZCA geçerli JSON (markdown yok):
-{"categories":[{"name":"string","name_en":null,"name_ru":null,"main_group":"YİYECEKLER|İÇECEKLER|DİĞER|null","products":[{"name":"string","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null|string}]}]}
+{"categories":[{"name":"string","name_en":null,"name_ru":null,"main_group":"YİYECEKLER|İÇECEKLER|DİĞER|null","products":[{"name":"string","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null|string,"variants":[{"label":"string","label_en":null,"label_ru":null,"price":null|string}]}]}]}
 
 ${STRICT_OCR_RULES}
 
@@ -38,10 +80,15 @@ Kategori başlıkları (bölüm adları):
 - Rusça kategori başlığı varsa name_ru; yoksa null.
 
 Ürün satırları:
-- Bölüm başlığı altındaki yemek/fiyat satırları → tek kategori; her satır ayrı ürün. Her yemeği ayrı kategori yapma.
+- Bölüm başlığı altındaki satırlar → tek kategori; her yemeği ayrı kategori yapma.
+- Farklı ürün/yemek adları → ayrı product (her satır ayrı ürün).
+- Ürün adı sol sütunda, üstte kolon başlıkları varsa → matris modu; her satır için variants[] zorunlu (KOLON MATRİSİ kuralları).
 - Ürün: TR ad→name; net okunan EN kısa yemek adı→name_en; RU→name_ru.
-- price: menüde görünen fiyat; yoksa null.
+- Tek fiyatlı ürün (matris yok): price menüde görünen fiyat; yoksa null; variants ekleme.
 - Çeviri veya yorum üretme; yalnızca okunan metin.
+${MATRIX_VARIANT_RULES}
+${VARIANT_RULES}
+${VARIANT_JSON_EXAMPLES}
 ${DESCRIPTION_RULES}`;
 
 function getClient() {
@@ -145,7 +192,7 @@ export async function structureMenuFromImageBase64(
         content: [
           {
             type: "text",
-            text: "Bu menü fotoğrafındaki yazıları harfiyen oku. Ürün adları, fiyatlar ve menüde görünen açıklama cümlelerini ilgili alanlara yaz. Tahmin etme; emin olmadığın satırı atla. Açıklama menüde yoksa null.",
+            text: "Bu menü fotoğrafındaki yazıları harfiyen oku. Ürün adları, fiyatlar ve menüde görünen açıklama cümlelerini ilgili alanlara yaz. Bir kategoride üst satırda ölçü/hacim kolonları (20 CL, 35 CL, 50 CL, 70 CL vb.) varsa o kategorideki her ürün satırı için variants[] oluştur; fiyat boş çizgi veya okunamazsa variants[].price null bırak. Tahmin etme; emin olmadığın ürün satırını atla. Açıklama menüde yoksa null.",
           },
           {
             type: "image_url",

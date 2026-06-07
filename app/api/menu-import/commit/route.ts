@@ -17,6 +17,11 @@ import {
   type ImportProduct,
 } from "@/lib/menu-import/schema";
 import { resolveImportTargetMenuCollection } from "@/lib/menu-import/target-menu";
+import {
+  normalizeImportVariantsForCommit,
+  resolveImportProductPrice,
+  type ImportVariantCommitRow,
+} from "@/lib/menu-import/variant-templates";
 
 export const runtime = "nodejs";
 
@@ -73,11 +78,12 @@ async function insertProduct(
   categoryId: string,
   product: ImportProduct
 ): Promise<{ id: string } | { error: string }> {
+  const price = resolveImportProductPrice(product);
   const row = {
     category_id: categoryId,
     name: product.name.trim(),
     description: product.description ?? "",
-    price: (product.price ?? "").trim() || "",
+    price,
     is_active: true,
     allergens: [] as string[],
     image_url: "",
@@ -96,7 +102,7 @@ async function insertProduct(
           category_id: categoryId,
           name: product.name.trim(),
           description: product.description ?? "",
-          price: (product.price ?? "").trim() || "",
+          price,
           is_active: true,
           allergens: [] as string[],
           image_url: "",
@@ -114,13 +120,66 @@ async function insertProduct(
   return { id: pr.data.id };
 }
 
+async function deleteProduct(admin: SupabaseClient, productId: string): Promise<void> {
+  const { error } = await admin.from("products").delete().eq("id", productId);
+  if (error) {
+    console.error("[menu-import] product rollback failed:", error);
+  }
+}
+
+async function insertProductVariants(
+  admin: SupabaseClient,
+  productId: string,
+  restaurantId: string,
+  variantRows: ImportVariantCommitRow[]
+): Promise<
+  | { ok: true; count: number }
+  | { ok: false; error: string; schemaMismatch: boolean }
+> {
+  if (variantRows.length === 0) {
+    return { ok: true, count: 0 };
+  }
+
+  const insertRows = variantRows.map((variant, index) => ({
+    product_id: productId,
+    restaurant_id: restaurantId,
+    label: variant.label,
+    label_en: variant.label_en,
+    label_ru: variant.label_ru,
+    price: variant.price,
+    sort_order: index,
+    is_active: true,
+  }));
+
+  const { data, error } = await admin.from("product_variants").insert(insertRows).select("id");
+
+  if (error) {
+    console.error("[menu-import] variant insert failed:", error);
+    return {
+      ok: false,
+      error: error.message || "Varyantlar kaydedilemedi.",
+      schemaMismatch: isSchemaMismatch(error.message),
+    };
+  }
+
+  return { ok: true, count: data?.length ?? variantRows.length };
+}
+
 async function linkCategoryAndProductsToMenu(
   admin: SupabaseClient,
+  restaurantId: string,
   categoryId: string,
   products: ImportProduct[],
   targetMenuId: string
 ): Promise<
-  | { ok: true; productsCreated: number; productMenuLinksSkipped: boolean }
+  | {
+      ok: true;
+      productsCreated: number;
+      productMenuLinksSkipped: boolean;
+      variantsCreated: number;
+      variantProductsCreated: number;
+      variantsSkipped: boolean;
+    }
   | { ok: false; error: string; productsCreated: number }
 > {
   try {
@@ -132,11 +191,39 @@ async function linkCategoryAndProductsToMenu(
 
   let productsCreated = 0;
   let productMenuLinksSkipped = false;
+  let variantsCreated = 0;
+  let variantProductsCreated = 0;
+  let variantsSkipped = false;
 
   for (const p of products) {
+    const variantRows = normalizeImportVariantsForCommit(p.variants);
     const inserted = await insertProduct(admin, categoryId, p);
     if ("error" in inserted) {
       return { ok: false, error: inserted.error, productsCreated };
+    }
+
+    if (variantRows.length > 0) {
+      const variantResult = await insertProductVariants(
+        admin,
+        inserted.id,
+        restaurantId,
+        variantRows
+      );
+      if (!variantResult.ok) {
+        if (variantResult.schemaMismatch) {
+          variantsSkipped = true;
+        } else {
+          await deleteProduct(admin, inserted.id);
+          return {
+            ok: false,
+            error: variantResult.error,
+            productsCreated,
+          };
+        }
+      } else {
+        variantsCreated += variantResult.count;
+        variantProductsCreated++;
+      }
     }
 
     const productLink = await ensureProductMenuCollectionLink(admin, inserted.id, targetMenuId);
@@ -155,7 +242,14 @@ async function linkCategoryAndProductsToMenu(
     productsCreated++;
   }
 
-  return { ok: true, productsCreated, productMenuLinksSkipped };
+  return {
+    ok: true,
+    productsCreated,
+    productMenuLinksSkipped,
+    variantsCreated,
+    variantProductsCreated,
+    variantsSkipped,
+  };
 }
 
 export async function POST(request: Request) {
@@ -242,6 +336,9 @@ export async function POST(request: Request) {
     let categoriesReused = 0;
     let productsCreated = 0;
     let productMenuLinksSkipped = false;
+    let variantsCreated = 0;
+    let variantProductsCreated = 0;
+    let variantsSkipped = false;
 
     for (const unit of units) {
       const target = unit.target;
@@ -287,6 +384,7 @@ export async function POST(request: Request) {
 
       const linkResult = await linkCategoryAndProductsToMenu(
         admin,
+        restaurantId,
         categoryId,
         unit.products,
         targetMenu.id
@@ -305,8 +403,13 @@ export async function POST(request: Request) {
       }
 
       productsCreated += linkResult.productsCreated;
+      variantsCreated += linkResult.variantsCreated;
+      variantProductsCreated += linkResult.variantProductsCreated;
       if (linkResult.productMenuLinksSkipped) {
         productMenuLinksSkipped = true;
+      }
+      if (linkResult.variantsSkipped) {
+        variantsSkipped = true;
       }
     }
 
@@ -316,9 +419,12 @@ export async function POST(request: Request) {
       categoriesReused,
       categoriesMergedInBatch,
       productsCreated,
+      variantsCreated,
+      variantProductsCreated,
       target_menu_collection_id: targetMenu.id,
       target_menu_name: targetMenu.name,
       product_menu_links_skipped: productMenuLinksSkipped,
+      variants_skipped: variantsSkipped,
     });
   } catch (e) {
     console.error(e);

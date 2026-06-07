@@ -12,8 +12,13 @@ import {
   Check,
   AlertCircle,
   AlertTriangle,
+  Layers,
 } from "lucide-react";
-import type { ImportCategoryTarget, ImportMenuPayload } from "@/lib/menu-import/schema";
+import type { ImportCategoryTarget, ImportMenuPayload, ImportVariant } from "@/lib/menu-import/schema";
+import {
+  applyVariantTemplateToProducts,
+  countProductsWithVariants,
+} from "@/lib/menu-import/variant-templates";
 import { MENU_IMPORTS_BUCKET, buildImportStoragePath } from "@/lib/menu-import/paths";
 import {
   buildSuggestedCategoryTargets,
@@ -26,6 +31,8 @@ import {
   type CategoryTargetUiState,
   type ExistingImportCategory,
 } from "@/app/admin/import/_components/ImportCategoryTargetCard";
+import { ImportVariantTemplatePanel } from "@/app/admin/import/_components/ImportVariantTemplatePanel";
+import { ImportProductPreviewRow } from "@/app/admin/import/_components/ImportProductPreviewRow";
 
 const supabase = getBrowserSupabase();
 
@@ -109,6 +116,9 @@ export default function AdminMenuImportPage() {
   const [targetMenuCollectionId, setTargetMenuCollectionId] = useState<string | null>(null);
   const [existingCategories, setExistingCategories] = useState<ExistingImportCategory[]>([]);
   const [categoryTargets, setCategoryTargets] = useState<CategoryTargetUiState[]>([]);
+  const [variantTemplateCategoryIndex, setVariantTemplateCategoryIndex] = useState<number | null>(
+    null
+  );
 
   const showTargetMenuPicker = activeMenus.length >= 2;
   const targetMenuName =
@@ -214,6 +224,57 @@ export default function AdminMenuImportPage() {
       });
     },
     []
+  );
+
+  const updateProductVariants = useCallback(
+    (ci: number, pi: number, variants: ImportVariant[] | undefined) => {
+      setPreview((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, categories: [...prev.categories] };
+        const prods = [...next.categories[ci].products];
+        const hasVariants = !!(variants && variants.length > 0);
+        prods[pi] = {
+          ...prods[pi],
+          variants: hasVariants ? variants : undefined,
+          price: hasVariants ? null : prods[pi].price,
+        };
+        next.categories[ci] = { ...next.categories[ci], products: prods };
+        return next;
+      });
+    },
+    []
+  );
+
+  const applyVariantTemplate = useCallback(
+    (ci: number, labels: string[]) => {
+      if (!preview) return;
+      const category = preview.categories[ci];
+      const productsWithVariants = countProductsWithVariants(category.products);
+      let overwrite = false;
+      if (productsWithVariants > 0) {
+        overwrite = window.confirm(
+          `${productsWithVariants} üründe zaten varyant var. Tümüne şablonu uygulayıp mevcut varyantların üzerine yazmak istiyor musunuz?\n\nİptal = yalnızca varyantı olmayan ürünlere uygula`
+        );
+      }
+      const { products, applied } = applyVariantTemplateToProducts(
+        category.products,
+        labels,
+        overwrite
+      );
+      if (applied === 0) {
+        setError("Varyant şablonu uygulanamadı. En az bir geçerli etiket girin.");
+        return;
+      }
+      setError(null);
+      setPreview((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, categories: [...prev.categories] };
+        next.categories[ci] = { ...category, products };
+        return next;
+      });
+      setVariantTemplateCategoryIndex(null);
+    },
+    [preview]
   );
 
   const removeProduct = useCallback((ci: number, pi: number) => {
@@ -424,8 +485,11 @@ export default function AdminMenuImportPage() {
         categoriesReused?: number;
         categoriesMergedInBatch?: number;
         productsCreated?: number;
+        variantsCreated?: number;
+        variantProductsCreated?: number;
         target_menu_name?: string;
         product_menu_links_skipped?: boolean;
+        variants_skipped?: boolean;
       }>(res);
       if (parseError) {
         throw new Error(parseError);
@@ -443,6 +507,21 @@ export default function AdminMenuImportPage() {
       }
       if (typeof json.categoriesMergedInBatch === "number" && json.categoriesMergedInBatch > 0) {
         successMessage += `\n${json.categoriesMergedInBatch} aynı isimli kategori birleştirildi.`;
+      }
+      if (typeof json.variantsCreated === "number" && json.variantsCreated > 0) {
+        successMessage += `\n${json.variantsCreated} varyant eklendi`;
+        if (
+          typeof json.variantProductsCreated === "number" &&
+          json.variantProductsCreated > 0
+        ) {
+          successMessage += ` (${json.variantProductsCreated} ürün).`;
+        } else {
+          successMessage += ".";
+        }
+      }
+      if (json.variants_skipped) {
+        successMessage +=
+          "\n\nUyarı: Varyant tablosu kullanılamadı; ürünler eklendi ancak varyantlar kaydedilmedi. Veritabanı migration’ını kontrol edin.";
       }
       if (json.product_menu_links_skipped) {
         successMessage +=
@@ -643,6 +722,7 @@ export default function AdminMenuImportPage() {
                   setStep("upload");
                   setPreview(null);
                   setCategoryTargets([]);
+                  setVariantTemplateCategoryIndex(null);
                   setFile(null);
                 }}
                 className="text-sm font-bold text-gray-500 hover:text-gray-800"
@@ -667,7 +747,21 @@ export default function AdminMenuImportPage() {
                 key={ci}
                 className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden"
               >
-                <div className="flex justify-end p-2 bg-gray-50/80 border-b border-gray-100">
+                <div className="flex justify-between items-center gap-2 p-2 bg-gray-50/80 border-b border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVariantTemplateCategoryIndex((prev) => (prev === ci ? null : ci))
+                    }
+                    className={`text-xs font-bold flex items-center gap-1.5 px-3 py-2 rounded-xl transition-colors ${
+                      variantTemplateCategoryIndex === ci
+                        ? "bg-violet-100 text-violet-800"
+                        : "text-violet-700 hover:bg-violet-50"
+                    }`}
+                  >
+                    <Layers size={16} />
+                    Varyant şablonu uygula
+                  </button>
                   <button
                     type="button"
                     onClick={() => removeCategory(ci)}
@@ -678,6 +772,14 @@ export default function AdminMenuImportPage() {
                     Kategoriyi kaldır
                   </button>
                 </div>
+                {variantTemplateCategoryIndex === ci && (
+                  <ImportVariantTemplatePanel
+                    productCount={cat.products.length}
+                    productsWithVariants={countProductsWithVariants(cat.products)}
+                    onApply={(labels) => applyVariantTemplate(ci, labels)}
+                    onClose={() => setVariantTemplateCategoryIndex(null)}
+                  />
+                )}
                 {target && (
                   <ImportCategoryTargetCard
                     aiName={cat.name}
@@ -690,64 +792,15 @@ export default function AdminMenuImportPage() {
                 )}
                 <ul className="divide-y divide-gray-100">
                   {cat.products.map((p, pi) => (
-                    <li key={pi} className="p-4 md:p-5 space-y-2">
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => removeProduct(ci, pi)}
-                          className="text-gray-400 hover:text-red-500 p-1 rounded-lg"
-                          title="Ürünü sil"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                      <input
-                        className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 font-bold text-sm outline-none focus:border-blue-500"
-                        value={p.name}
-                        onChange={(e) => updateProduct(ci, pi, "name", e.target.value)}
-                        placeholder="Ürün adı"
-                      />
-                      <input
-                        className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-500"
-                        value={p.description ?? ""}
-                        onChange={(e) => updateProduct(ci, pi, "description", e.target.value)}
-                        placeholder="Açıklama (TR)"
-                      />
-                      {(p.name_en || p.name_ru || p.description_en || p.description_ru) && (
-                        <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs text-gray-600 space-y-1">
-                          {p.name_en && (
-                            <p>
-                              <span className="font-bold text-gray-500">EN:</span> {p.name_en}
-                              {p.description_en ? ` — ${p.description_en}` : ""}
-                            </p>
-                          )}
-                          {p.name_ru && (
-                            <p>
-                              <span className="font-bold text-gray-500">RU:</span> {p.name_ru}
-                              {p.description_ru ? ` — ${p.description_ru}` : ""}
-                            </p>
-                          )}
-                          {!p.name_en && p.description_en && (
-                            <p>
-                              <span className="font-bold text-gray-500">EN açıklama:</span>{" "}
-                              {p.description_en}
-                            </p>
-                          )}
-                          {!p.name_ru && p.description_ru && (
-                            <p>
-                              <span className="font-bold text-gray-500">RU açıklama:</span>{" "}
-                              {p.description_ru}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      <input
-                        className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 text-sm font-black text-blue-600 outline-none focus:border-blue-500"
-                        value={p.price ?? ""}
-                        onChange={(e) => updateProduct(ci, pi, "price", e.target.value)}
-                        placeholder="Fiyat"
-                      />
-                    </li>
+                    <ImportProductPreviewRow
+                      key={pi}
+                      product={p}
+                      onChangeName={(value) => updateProduct(ci, pi, "name", value)}
+                      onChangeDescription={(value) => updateProduct(ci, pi, "description", value)}
+                      onChangePrice={(value) => updateProduct(ci, pi, "price", value)}
+                      onChangeVariants={(variants) => updateProductVariants(ci, pi, variants)}
+                      onRemove={() => removeProduct(ci, pi)}
+                    />
                   ))}
                 </ul>
               </div>

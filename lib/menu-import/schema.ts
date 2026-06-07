@@ -7,16 +7,29 @@ const optionalNullableText = (max: number) =>
     .nullable()
     .transform((v) => (v == null || v === "" ? null : v));
 
-/** AI ve commit için ortak yapı */
-export const importProductSchema = z.object({
-  name: z.string().trim().min(1).max(240),
-  name_en: optionalNullableText(240),
-  name_ru: optionalNullableText(240),
-  description: optionalNullableText(4000),
-  description_en: optionalNullableText(4000),
-  description_ru: optionalNullableText(4000),
+export const importVariantSchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  label_en: optionalNullableText(80),
+  label_ru: optionalNullableText(80),
   price: optionalNullableText(64),
 });
+
+/** AI ve commit için ortak yapı */
+export const importProductSchema = z
+  .object({
+    name: z.string().trim().min(1).max(240),
+    name_en: optionalNullableText(240),
+    name_ru: optionalNullableText(240),
+    description: optionalNullableText(4000),
+    description_en: optionalNullableText(4000),
+    description_ru: optionalNullableText(4000),
+    price: optionalNullableText(64),
+    variants: z.array(importVariantSchema).max(20).optional(),
+  })
+  .transform((product) => ({
+    ...product,
+    variants: product.variants?.length ? product.variants : undefined,
+  }));
 
 export const importCategorySchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -36,6 +49,7 @@ export const importMenuPayloadSchema = z.object({
 
 export type ImportMenuPayload = z.infer<typeof importMenuPayloadSchema>;
 export type ImportCategory = z.infer<typeof importCategorySchema>;
+export type ImportVariant = z.infer<typeof importVariantSchema>;
 export type ImportProduct = z.infer<typeof importProductSchema>;
 
 export const importCategoryTargetSchema = z.object({
