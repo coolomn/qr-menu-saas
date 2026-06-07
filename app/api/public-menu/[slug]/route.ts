@@ -11,6 +11,11 @@ import {
   attachProductMenuCollectionIds,
   buildProductMenuCollectionsMaps,
 } from "@/lib/public-menu/product-menu-collections";
+import {
+  attachProductVariants,
+  buildActivePublicVariantsMap,
+} from "@/lib/public-menu/product-variants";
+import type { PublicProductVariant } from "@/lib/admin-menu/product-variants";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
 import { normalizeLogoDisplayMode } from "@/lib/public-menu/logo-display";
@@ -60,6 +65,7 @@ type ProductRow = {
   allergens: string[] | null;
   sort_order?: number | null;
   created_at?: string | null;
+  variants?: PublicProductVariant[];
 };
 
 function isRestaurantRow(value: unknown): value is RestaurantRow {
@@ -300,13 +306,16 @@ export async function GET(
     activeMenuIdSet
   );
 
-  const publicProducts = attachProductMenuCollectionIds(
+  const productsWithMenus = attachProductMenuCollectionIds(
     products,
     menuIdsByProduct,
     productsWithJunction,
     menuIdsByCategory,
     menu_picker.default_menu_collection_id
   );
+
+  const variantsByProduct = await buildActivePublicVariantsMap(supabase, productIds);
+  const publicProducts = attachProductVariants(productsWithMenus, variantsByProduct);
 
   return NextResponse.json({
     restaurant: restaurantPayload,
