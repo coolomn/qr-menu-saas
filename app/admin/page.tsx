@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote } from "lucide-react";
+import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
+import { isProductPriceEmpty } from "@/lib/admin-menu/bulk-price-edit";
 import {
   nextProductSortOrderInCategory,
   sortProductsByOrder,
@@ -230,6 +232,8 @@ export default function AdminDashboard() {
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("all");
   const [productMenuFilter, setProductMenuFilter] = useState("all");
+  const [productPriceEmptyOnly, setProductPriceEmptyOnly] = useState(false);
+  const [productViewMode, setProductViewMode] = useState<"cards" | "pricing">("cards");
   const [productDeletingId, setProductDeletingId] = useState<string | null>(null);
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({});
   
@@ -1547,9 +1551,21 @@ export default function AdminDashboard() {
         const linked = productMenuLinksMap[p.id] || [];
         if (!linked.includes(productMenuFilter)) return false;
       }
-      return productMatchesSearchQuery(p, productSearchQuery);
+      if (!productMatchesSearchQuery(p, productSearchQuery)) return false;
+      if (productPriceEmptyOnly && !isProductPriceEmpty(p.price, productVariantsMap[p.id])) {
+        return false;
+      }
+      return true;
     });
-  }, [products, productCategoryFilter, productMenuFilter, productMenuLinksMap, productSearchQuery]);
+  }, [
+    products,
+    productCategoryFilter,
+    productMenuFilter,
+    productMenuLinksMap,
+    productSearchQuery,
+    productPriceEmptyOnly,
+    productVariantsMap,
+  ]);
 
   const groupedFilteredProducts = useMemo(() => {
     const safeCategories = categories ?? [];
@@ -1605,7 +1621,38 @@ export default function AdminDashboard() {
   const productFiltersActive =
     productSearchQuery.trim().length > 0 ||
     productCategoryFilter !== "all" ||
-    productMenuFilter !== "all";
+    productMenuFilter !== "all" ||
+    productPriceEmptyOnly;
+
+  const handleBulkPricesSaved = ({
+    productPrices,
+    variantPrices,
+  }: {
+    productPrices: Record<string, string>;
+    variantPrices: Record<string, string>;
+    affectedProductIds: string[];
+  }) => {
+    if (Object.keys(productPrices).length > 0) {
+      setProducts((prev) =>
+        prev.map((p) =>
+          productPrices[p.id] !== undefined ? { ...p, price: productPrices[p.id] } : p
+        )
+      );
+    }
+    if (Object.keys(variantPrices).length > 0) {
+      setProductVariantsMap((prev) => {
+        const next = { ...prev };
+        for (const productId of Object.keys(next)) {
+          next[productId] = next[productId].map((variant) =>
+            variantPrices[variant.id] !== undefined
+              ? { ...variant, price: variantPrices[variant.id] }
+              : variant
+          );
+        }
+        return next;
+      });
+    }
+  };
 
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-gray-400 italic">TapMenu Hazırlanıyor...</div>;
 
@@ -1693,6 +1740,32 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="p-4 md:p-6 border-b bg-white space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setProductViewMode("cards")}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                        productViewMode === "cards"
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <LayoutGrid size={14} />
+                      Kart Görünümü
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProductViewMode("pricing")}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                        productViewMode === "pricing"
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <Banknote size={14} />
+                      Fiyat Düzenleme
+                    </button>
+                  </div>
                   <div className="relative">
                     <Search
                       size={16}
@@ -1745,25 +1818,44 @@ export default function AdminDashboard() {
                       </label>
                     )}
                   </div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={productPriceEmptyOnly}
+                      onChange={(e) => setProductPriceEmptyOnly(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                    />
+                    Sadece fiyatı boş olanlar
+                  </label>
                 </div>
 
-                {!productFiltersActive && groupedFilteredProducts.length > 0 && (
+                {productViewMode === "cards" && !productFiltersActive && groupedFilteredProducts.length > 0 && (
                   <p className="px-4 md:px-6 pt-3 text-[10px] text-gray-500 font-medium leading-relaxed border-b border-gray-50 pb-3">
                     Ürün sırasını sol tutacak simgeden sürükleyip aynı kategori içinde başka bir ürünün üzerine bırakın.
                     Müşteri menüsü bu sırayı kullanır.
                   </p>
                 )}
-                {productFiltersActive && groupedFilteredProducts.length > 0 && (
+                {productViewMode === "cards" && productFiltersActive && groupedFilteredProducts.length > 0 && (
                   <p className="px-4 md:px-6 pt-3 text-[10px] text-amber-700 font-medium leading-relaxed border-b border-amber-50 pb-3 bg-amber-50/40">
                     Sıralama için arama ve filtreleri temizleyin.
                   </p>
                 )}
-                {productReorderBusy && (
+                {productViewMode === "cards" && productReorderBusy && (
                   <p className="px-4 md:px-6 pt-2 text-xs font-bold text-blue-600" role="status">
                     Ürün sırası kaydediliyor…
                   </p>
                 )}
 
+                {productViewMode === "pricing" ? (
+                  <div className="p-3 md:p-4">
+                    <BulkPriceEditPanel
+                      groups={groupedFilteredProducts}
+                      productVariantsMap={productVariantsMap}
+                      menuBadgeForProduct={formatProductMenuBadge}
+                      onSaved={handleBulkPricesSaved}
+                    />
+                  </div>
+                ) : (
                 <div className="p-3 md:p-4 space-y-5">
                   {groupedFilteredProducts.length === 0 ? (
                     <div className="py-12 text-center text-sm font-medium text-gray-500">
@@ -1932,6 +2024,7 @@ export default function AdminDashboard() {
                     ))
                   )}
                 </div>
+                )}
               </div>
             )}
 
