@@ -125,6 +125,16 @@ export default function LoginPage() {
       <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
         
         <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <img
+              src="/brand/tapmenu-mark.png"
+              alt="TapMenu"
+              width={64}
+              height={64}
+              className="h-14 w-14 sm:h-16 sm:w-16 object-contain"
+              decoding="async"
+            />
+          </div>
           <h1 className="text-2xl font-bold text-gray-900">Yönetim Paneli</h1>
           <p className="text-gray-500 mt-2 text-sm">Menünüzü yönetmek için giriş yapın</p>
         </div>
