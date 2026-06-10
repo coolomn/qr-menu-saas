@@ -1,11 +1,12 @@
 "use client";
 
-import { formatPriceForDisplay } from "@/lib/format-price";
 import {
   hasProductVariants,
   type PublicProduct,
   type PublicProductVariant,
 } from "@/lib/public-menu/product-variants";
+import { PublicMenuPrice } from "@/app/menu/[slug]/_components/public-menu-price";
+import { parsePriceForDisplay } from "@/lib/format-price";
 import {
   resolveMenuPresentation,
   type ResolvedMenuPresentation,
@@ -51,7 +52,6 @@ export function PublicProductCard({
 }: PublicProductCardProps & { language?: string }) {
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
   const c = resolvedTheme.classes;
-  const priceColor = resolvedTheme.priceColor;
 
   const variants = Array.isArray(product.variants) ? product.variants : [];
   const showVariants = hasProductVariants(variants);
@@ -79,12 +79,11 @@ export function PublicProductCard({
             {getText(productRecord, "name")}
           </h3>
           {!showVariants && (
-            <span
-              style={{ color: priceColor }}
-              className={`${resolvedTheme.priceTypography.product} ${c.productPrice}`.trim()}
-            >
-              {formatPriceForDisplay(product.price)}
-            </span>
+            <PublicMenuPrice
+              raw={product.price}
+              theme={resolvedTheme}
+              size="product"
+            />
           )}
         </div>
 
@@ -92,17 +91,16 @@ export function PublicProductCard({
           <ul className={c.variantList} aria-label="Fiyat seçenekleri">
             {variants.map((variant) => {
               const label = getVariantLabel(variant, language);
-              const priceLabel = formatPriceForDisplay(variant.price);
+              const hasPrice = parsePriceForDisplay(variant.price) != null;
               return (
                 <li key={variant.id} className={c.variantItem}>
                   <span className={c.variantLabel}>{label}</span>
-                  {priceLabel ? (
-                    <span
-                      style={{ color: priceColor }}
-                      className={`${resolvedTheme.priceTypography.variant} ${c.variantPrice}`.trim()}
-                    >
-                      {priceLabel}
-                    </span>
+                  {hasPrice ? (
+                    <PublicMenuPrice
+                      raw={variant.price}
+                      theme={resolvedTheme}
+                      size="variant"
+                    />
                   ) : null}
                 </li>
               );
