@@ -19,6 +19,10 @@ import type { PublicProductVariant } from "@/lib/admin-menu/product-variants";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
 import { normalizeLogoDisplayMode } from "@/lib/public-menu/logo-display";
+import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
+import type { FontStyleId } from "@/lib/public-menu/themes/font-ids";
+import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
+import type { ThemeId } from "@/lib/public-menu/themes/ids";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,12 +37,19 @@ type RestaurantRow = {
   welcome_bg_url: string | null;
   instagram: string | null;
   logo_display_mode?: string | null;
+  theme_id?: string | null;
+  font_style_id?: string | null;
   tenant_status?: string | null;
   subscription_ends_at?: string | null;
 };
 
-type PublicRestaurant = Omit<RestaurantRow, "id" | "logo_display_mode"> & {
+type PublicRestaurant = Omit<
+  RestaurantRow,
+  "id" | "logo_display_mode" | "theme_id" | "font_style_id"
+> & {
   logo_display_mode: ReturnType<typeof normalizeLogoDisplayMode>;
+  theme_id: ThemeId;
+  font_style_id: FontStyleId;
 };
 
 type CategoryRow = {
@@ -111,6 +122,8 @@ const RESTAURANT_COLUMNS_BASE = [
 const RESTAURANT_COLUMNS = [
   RESTAURANT_COLUMNS_BASE,
   "logo_display_mode",
+  "theme_id",
+  "font_style_id",
   "tenant_status",
   "subscription_ends_at",
 ].join(",");
@@ -175,25 +188,49 @@ export async function GET(
   let gateColumnsAvailable = true;
 
   if (restaurantError && isMissingColumn(restaurantError)) {
-    const retryWithLogoMode = await supabase
+    const retryWithFont = await supabase
       .from("restaurants")
-      .select([RESTAURANT_COLUMNS_BASE, "logo_display_mode"].join(","))
+      .select([RESTAURANT_COLUMNS_BASE, "logo_display_mode", "theme_id", "font_style_id"].join(","))
       .eq("slug", normalizedSlug)
       .maybeSingle();
 
-    if (!retryWithLogoMode.error) {
-      restaurant = retryWithLogoMode.data;
+    if (!retryWithFont.error) {
+      restaurant = retryWithFont.data;
       restaurantError = null;
       gateColumnsAvailable = false;
     } else {
-      gateColumnsAvailable = false;
-      const fallback = await supabase
+      const retryWithTheme = await supabase
         .from("restaurants")
-        .select(RESTAURANT_COLUMNS_BASE)
+        .select([RESTAURANT_COLUMNS_BASE, "logo_display_mode", "theme_id"].join(","))
         .eq("slug", normalizedSlug)
         .maybeSingle();
-      restaurant = fallback.data;
-      restaurantError = fallback.error;
+
+      if (!retryWithTheme.error) {
+        restaurant = retryWithTheme.data;
+        restaurantError = null;
+        gateColumnsAvailable = false;
+      } else {
+        const retryWithLogoMode = await supabase
+          .from("restaurants")
+          .select([RESTAURANT_COLUMNS_BASE, "logo_display_mode"].join(","))
+          .eq("slug", normalizedSlug)
+          .maybeSingle();
+
+        if (!retryWithLogoMode.error) {
+          restaurant = retryWithLogoMode.data;
+          restaurantError = null;
+          gateColumnsAvailable = false;
+        } else {
+          gateColumnsAvailable = false;
+          const fallback = await supabase
+            .from("restaurants")
+            .select(RESTAURANT_COLUMNS_BASE)
+            .eq("slug", normalizedSlug)
+            .maybeSingle();
+          restaurant = fallback.data;
+          restaurantError = fallback.error;
+        }
+      }
     }
   }
 
@@ -286,12 +323,16 @@ export async function GET(
     tenant_status: _tenantStatus,
     subscription_ends_at: _subscriptionEndsAt,
     logo_display_mode: rawLogoDisplayMode,
+    theme_id: rawThemeId,
+    font_style_id: rawFontStyleId,
     ...publicRestaurant
   } = restaurantRow;
 
   const restaurantPayload: PublicRestaurant = {
     ...publicRestaurant,
     logo_display_mode: normalizeLogoDisplayMode(rawLogoDisplayMode),
+    theme_id: normalizeThemeId(rawThemeId),
+    font_style_id: normalizeFontStyleId(rawFontStyleId),
   };
 
   const { menu_collections, menu_picker, menuIdsByCategory } =

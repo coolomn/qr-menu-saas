@@ -30,7 +30,12 @@ import {
   normalizeLogoDisplayMode,
   type LogoDisplayMode,
 } from "@/lib/public-menu/logo-display";
+import { MenuThemeSettingsPanel } from "@/app/admin/_components/settings/MenuThemeSettingsPanel";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
+import { type FontStyleId } from "@/lib/public-menu/themes/font-ids";
+import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
+import { type ThemeId } from "@/lib/public-menu/themes/ids";
+import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
 import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
@@ -172,6 +177,8 @@ export default function AdminDashboard() {
     welcome_bg_url: "",
     instagram: "",
     logo_display_mode: "auto" as LogoDisplayMode,
+    theme_id: "classic" as ThemeId,
+    font_style_id: "classic" as FontStyleId,
   });
   
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -296,6 +303,8 @@ export default function AdminDashboard() {
                 ? String(resData.instagram).trim()
                 : "",
             logo_display_mode: normalizeLogoDisplayMode(resData.logo_display_mode),
+            theme_id: normalizeThemeId(resData.theme_id),
+            font_style_id: normalizeFontStyleId(resData.font_style_id),
         });
         
         const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
@@ -413,6 +422,8 @@ export default function AdminDashboard() {
         welcome_bg_url: finalWelcomeBgUrl,
         instagram: ig || null,
         logo_display_mode: settings.logo_display_mode,
+        theme_id: settings.theme_id,
+        font_style_id: settings.font_style_id,
       };
 
       const { data: updatedRow, error: dbError } = await supabase
@@ -420,7 +431,7 @@ export default function AdminDashboard() {
         .update(payload)
         .eq("id", restaurant.id)
         .select(
-          "id, instagram, primary_color, logo_url, welcome_bg_url, slider_images, logo_display_mode"
+          "id, instagram, primary_color, logo_url, welcome_bg_url, slider_images, logo_display_mode, theme_id, font_style_id"
         )
         .single();
 
@@ -448,6 +459,10 @@ export default function AdminDashboard() {
         welcome_bg_url: finalWelcomeBgUrl,
         instagram: savedIg,
         logo_display_mode: normalizeLogoDisplayMode(updatedRow?.logo_display_mode),
+        theme_id: normalizeThemeId(updatedRow?.theme_id ?? settings.theme_id),
+        font_style_id: normalizeFontStyleId(
+          updatedRow?.font_style_id ?? settings.font_style_id
+        ),
       });
       setRestaurant((r: any) =>
         r ? { ...r, ...updatedRow, instagram: savedIg || null } : r
@@ -2291,6 +2306,18 @@ export default function AdminDashboard() {
                     {settings.slider_images.length < 3 && (<div className="relative mt-2"><input type="file" accept="image/*" onChange={handleSliderUpload} disabled={uploadingSlider} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 md:file:mr-4 file:py-2 md:file:py-3 file:px-4 md:file:px-6 file:rounded-xl file:border-0 file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer disabled:opacity-50" />{uploadingSlider && <div className="absolute top-3 right-4 text-xs font-black text-blue-600 animate-pulse">Yükleniyor...</div>}</div>)}
                   </div>
                   <div><label className="block text-[10px] md:text-xs font-black text-gray-400 mb-2 md:mb-3 uppercase tracking-widest">Marka Rengi</label><div className="flex gap-3 md:gap-4 p-3 md:p-4 bg-gray-50 rounded-2xl border-2 border-gray-50"><input type="color" className="w-12 h-12 md:w-16 md:h-16 rounded-xl cursor-pointer border-0 p-0 bg-transparent" value={settings.primary_color} onChange={e => setSettings({...settings, primary_color: e.target.value})} /><input type="text" className="flex-1 bg-transparent font-mono font-black text-lg md:text-xl text-gray-900 outline-none w-full" value={settings.primary_color} onChange={e => setSettings({...settings, primary_color: e.target.value})} /></div></div>
+
+                  <MenuThemeSettingsPanel
+                    themeId={settings.theme_id}
+                    fontStyleId={settings.font_style_id}
+                    primaryColor={settings.primary_color}
+                    restaurantName={restaurant?.name || "Restoran"}
+                    logoUrl={settings.logo_url || null}
+                    onThemeChange={(themeId) => setSettings({ ...settings, theme_id: themeId })}
+                    onFontChange={(fontStyleId) =>
+                      setSettings({ ...settings, font_style_id: fontStyleId })
+                    }
+                  />
 
                   <div className="p-4 md:p-6 border-2 border-red-200 rounded-3xl bg-red-50/50 space-y-3">
                     <div className="flex items-center gap-2 text-red-800">

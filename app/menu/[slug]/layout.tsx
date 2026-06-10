@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@supabase/supabase-js";
+import { MENU_FONT_VARIABLE_CLASSES } from "@/lib/public-menu/themes/fonts";
 
 export async function generateMetadata({
   params,
@@ -24,5 +25,5 @@ export async function generateMetadata({
 }
 
 export default function MenuSlugLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <div className={MENU_FONT_VARIABLE_CLASSES}>{children}</div>;
 }
