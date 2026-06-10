@@ -8,26 +8,31 @@ export type PriceTypography = {
   variant: string;
 };
 
+const PRICE_INSET = "pr-3 md:pr-4";
+
 /**
  * Fiyat tipografisi — seçili font_style ile uyumlu, ürün adından daha hafif.
- * Aile: premium/geometric’te başlıkla aynı (heading), diğerlerinde body.
+ * Premium/geometric: başlıkla aynı aile (Playfair / Space Grotesk).
  */
 export function resolvePriceTypography(font: FontStyleId): PriceTypography {
   const fonts = FONT_REGISTRY[font];
   const family =
     font === "premium" || font === "geometric" ? fonts.heading : fonts.body;
 
-  const weight =
-    font === "premium"
-      ? "font-normal"
-      : font === "classic"
-        ? "font-semibold"
-        : "font-medium";
+  const base = `${family} tracking-tight tabular-nums whitespace-nowrap shrink-0 ${PRICE_INSET}`;
 
-  const base = `${family} ${weight} tracking-tight tabular-nums whitespace-nowrap shrink-0`;
+  if (font === "premium") {
+    return {
+      product: `${base} font-medium text-base md:text-lg`,
+      variant: `${base} font-medium text-sm md:text-base`,
+    };
+  }
+
+  const weight =
+    font === "classic" ? "font-semibold" : "font-medium";
 
   return {
-    product: `${base} text-sm md:text-base`,
-    variant: `${base} text-xs md:text-sm`,
+    product: `${base} ${weight} text-sm md:text-base`,
+    variant: `${base} ${weight} text-xs md:text-sm`,
   };
 }
