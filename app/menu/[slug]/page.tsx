@@ -11,11 +11,13 @@ import {
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 import { MULTI_MENU_PROTOTYPE_ENABLED } from "@/lib/menu-prototype/config";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
+import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
 import {
   normalizePublicProducts,
   type PublicProduct,
 } from "@/lib/public-menu/product-variants";
+import { resolveMenuPresentation } from "@/lib/public-menu/themes/resolve";
 
 /** DB’de çeviri yokken EN/RU için bilinen Türkçe ana grup / kategori adları (genişletilebilir). */
 const MENU_LABEL_FALLBACK: Record<string, { en: string; ru: string }> = {
@@ -430,7 +432,13 @@ export default function CustomerMenu() {
     );
   }
 
-  const themeColor = restaurant.primary_color || "#2563eb";
+  const menuTheme = resolveMenuPresentation(
+    restaurant.theme_id,
+    restaurant.font_style_id,
+    restaurant.primary_color
+  );
+  const themeColor = menuTheme.tabActiveColor;
+  const tc = menuTheme.classes;
   const getText = (item: any, field: string) => {
     const pick = (v: unknown) => (typeof v === "string" ? v.trim() : "");
     const en = pick(item[`${field}_en`]);
@@ -609,19 +617,15 @@ export default function CustomerMenu() {
   }
 
   return (
-    <div
-      className={`min-h-screen bg-gray-50 pb-24 font-sans selection:bg-gray-200 transition-opacity duration-500 ${
-        menuViewEntered ? "opacity-100" : "opacity-0"
-      }`}
-    >
-      <header className="bg-white shadow-sm sticky top-0 z-30">
-        <div className="p-4 flex items-center gap-2 max-w-2xl mx-auto border-b border-gray-50">
+    <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
+      <header className={tc.header}>
+        <div className={tc.headerInner}>
           {showMenuPicker ? (
             <button
               type="button"
               aria-label="Menü seçimine dön"
               onClick={backToMenuPick}
-              className="flex-shrink-0 flex items-center justify-center text-gray-500 hover:text-gray-900 bg-gray-100 p-2 rounded-lg transition-colors"
+              className={tc.backButton}
             >
               <ChevronLeft size={16} aria-hidden />
             </button>
@@ -635,25 +639,26 @@ export default function CustomerMenu() {
               logoDisplayMode={restaurant.logo_display_mode}
               variant="header"
               nameStyle={{ color: themeColor }}
+              nameClassName={tc.fontHeading}
             />
           </div>
-          <div className="flex-shrink-0 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-black text-gray-900 shadow-lg flex gap-2 sm:gap-3 border border-gray-100 cursor-pointer select-none">
-            <span onClick={() => setLanguage("tr")} className={language === "tr" ? "text-black" : "opacity-40 grayscale"}>
+          <div className={tc.langSwitcher}>
+            <span onClick={() => setLanguage("tr")} className={language === "tr" ? tc.langActive : tc.langInactive}>
               TR
             </span>
-            <span onClick={() => setLanguage("en")} className={language === "en" ? "text-black" : "opacity-40 grayscale"}>
+            <span onClick={() => setLanguage("en")} className={language === "en" ? tc.langActive : tc.langInactive}>
               EN
             </span>
-            <span onClick={() => setLanguage("ru")} className={language === "ru" ? "text-black" : "opacity-40 grayscale"}>
+            <span onClick={() => setLanguage("ru")} className={language === "ru" ? tc.langActive : tc.langInactive}>
               RU
             </span>
           </div>
         </div>
 
         {restaurant.slider_images && restaurant.slider_images.length > 0 && (
-          <div className="w-full bg-white pb-3 pt-3">
-            <div className="max-w-2xl mx-auto px-4">
-              <div className="relative overflow-hidden rounded-2xl shadow-sm border border-gray-100 aspect-[16/9] bg-gray-900">
+          <div className={tc.sliderSection}>
+            <div className={tc.sliderInner}>
+              <div className={tc.sliderFrame}>
                 {restaurant.slider_images.map((img: string, idx: number) => {
                   const isActive = currentSlide === idx;
                   return (
@@ -675,13 +680,15 @@ export default function CustomerMenu() {
         )}
 
         {menuCategories.length > 0 && (
-          <div className="flex overflow-x-auto gap-2 p-3 max-w-2xl mx-auto no-scrollbar scroll-smooth">
+          <div className={tc.categoryTabs}>
             {menuCategories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
                 style={activeCategory === cat.id ? { backgroundColor: themeColor, color: "#fff" } : {}}
-                className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${activeCategory === cat.id ? "shadow-md shadow-gray-200" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+                className={`${tc.categoryTabBase} ${
+                  activeCategory === cat.id ? tc.categoryTabActiveExtra : tc.categoryTabInactive
+                }`}
               >
                 {getText(cat, "name")}
               </button>
@@ -690,10 +697,10 @@ export default function CustomerMenu() {
         )}
       </header>
 
-      <main className="p-3 max-w-2xl mx-auto space-y-3 mt-1">
+      <main className={tc.main}>
         {menuCategories.length === 0 && filterByMenuCollection && (
           <div className="text-center py-12 px-4 space-y-4">
-            <p className="text-sm font-bold text-gray-500">
+            <p className={tc.emptyStateText}>
               {language === "en"
                 ? "No items in this menu yet."
                 : language === "ru"
@@ -701,11 +708,7 @@ export default function CustomerMenu() {
                   : "Bu menüde henüz ürün yok."}
             </p>
             {showMenuPicker && (
-              <button
-                type="button"
-                onClick={backToMenuPick}
-                className="text-sm font-black uppercase tracking-wide text-gray-800 underline underline-offset-4"
-              >
+              <button type="button" onClick={backToMenuPick} className={tc.emptyStateLink}>
                 {language === "en"
                   ? "Back to menu selection"
                   : language === "ru"
@@ -719,12 +722,12 @@ export default function CustomerMenu() {
           <PublicProductCard
             key={product.id}
             product={product}
-            themeColor={themeColor}
+            theme={menuTheme}
             getText={getText}
             language={language}
           />
         ))}
       </main>
-    </div>
+    </MenuThemeShell>
   );
 }
