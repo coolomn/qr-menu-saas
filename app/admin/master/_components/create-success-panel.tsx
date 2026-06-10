@@ -27,6 +27,7 @@ export function CreateSuccessPanel({ data, onCreateAnother }: CreateSuccessPanel
   const {
     restaurant,
     owner_email,
+    login_username,
     owner_creation_mode,
     owner_invited,
     owner_exists,
@@ -39,14 +40,14 @@ export function CreateSuccessPanel({ data, onCreateAnother }: CreateSuccessPanel
     owner_creation_mode === "temporary_password" && Boolean(temporary_password);
 
   const credentialsBlock = isTemporaryPassword
-    ? `TapMenu giriş bilgileri\nE-posta: ${owner_email}\nGeçici şifre: ${temporary_password}\nGiriş: ${login_url}\n\nBu şifre yalnızca bir kez gösterilir. İlk girişten sonra şifresini değiştirmesini önerin.`
+    ? `TapMenu giriş bilgileri\nE-posta: ${owner_email}\nKullanıcı adı: ${login_username}\nGeçici şifre: ${temporary_password}\nGiriş: ${login_url}\n\nBu şifre yalnızca bir kez gösterilir. İlk girişten sonra şifresini değiştirmesini önerin.`
     : "";
 
   const shareBlurb = isTemporaryPassword
     ? credentialsBlock
     : owner_invited
-      ? `TapMenu paneliniz hazır.\n1) ${owner_email} adresine gelen davet mailini açın\n2) Davet linkinden şifrenizi oluşturun\n3) Sonraki girişler: ${login_url}`
-      : `TapMenu paneliniz hazır.\nGiriş adresi: ${login_url}\nHesap: ${owner_email}`;
+      ? `TapMenu paneliniz hazır.\n1) ${owner_email} adresine gelen davet mailini açın\n2) Davet linkinden şifrenizi oluşturun\n3) Sonraki girişler: ${login_url}\nKullanıcı adı: ${login_username}`
+      : `TapMenu paneliniz hazır.\nGiriş adresi: ${login_url}\nE-posta: ${owner_email}\nKullanıcı adı: ${login_username}`;
 
   return (
     <div className="space-y-6">
@@ -82,6 +83,10 @@ export function CreateSuccessPanel({ data, onCreateAnother }: CreateSuccessPanel
             <div>
               <dt className="text-xs font-bold text-gray-500 uppercase">E-posta</dt>
               <dd className="font-mono text-gray-900 mt-0.5 break-all">{owner_email}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-gray-500 uppercase">Kullanıcı adı</dt>
+              <dd className="font-mono text-gray-900 mt-0.5 break-all">{login_username}</dd>
             </div>
             <div>
               <dt className="text-xs font-bold text-gray-500 uppercase">Geçici şifre</dt>

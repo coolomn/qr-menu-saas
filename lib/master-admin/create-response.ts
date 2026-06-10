@@ -11,6 +11,7 @@ export type MasterCreateRestaurantResponse = {
     created_at: string;
   };
   owner_email: string;
+  login_username: string;
   owner_creation_mode: OwnerCreationMode;
   owner_invited: boolean;
   owner_exists: boolean;

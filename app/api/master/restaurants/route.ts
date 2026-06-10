@@ -153,6 +153,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bu slug zaten kullanılıyor." }, { status: 409 });
   }
 
+  const { data: usernameConflict } = await auth.admin
+    .from("restaurants")
+    .select("id")
+    .eq("login_username", payload.login_username)
+    .maybeSingle();
+
+  if (usernameConflict) {
+    return NextResponse.json({ error: "Bu giriş kullanıcı adı zaten kullanılıyor." }, { status: 409 });
+  }
+
   let dates: { starts_at: string; ends_at: string | null };
   try {
     dates = resolveSubscriptionDates(payload.plan_type, {
@@ -196,6 +206,7 @@ export async function POST(request: Request) {
     .insert({
       name: payload.name,
       slug: payload.slug,
+      login_username: payload.login_username,
       owner_id: ownerUserId,
       tenant_status: "active",
       subscription_ends_at: dates.ends_at,
@@ -205,7 +216,10 @@ export async function POST(request: Request) {
 
   if (restaurantError) {
     if (restaurantError.code === "23505") {
-      return NextResponse.json({ error: "Bu slug zaten kullanılıyor." }, { status: 409 });
+      const msg = restaurantError.message?.toLowerCase().includes("login_username")
+        ? "Bu giriş kullanıcı adı zaten kullanılıyor."
+        : "Bu slug zaten kullanılıyor.";
+      return NextResponse.json({ error: msg }, { status: 409 });
     }
     console.error(restaurantError);
     return NextResponse.json({ error: "Restoran oluşturulamadı." }, { status: 500 });
@@ -237,6 +251,7 @@ export async function POST(request: Request) {
     new_values: {
       name: payload.name,
       slug: payload.slug,
+      login_username: payload.login_username,
       owner_email: payload.owner_email,
       owner_id: ownerUserId,
       plan_type: payload.plan_type,
@@ -265,6 +280,7 @@ export async function POST(request: Request) {
   const responseBody: Record<string, unknown> = {
     restaurant,
     owner_email: payload.owner_email,
+    login_username: payload.login_username,
     owner_creation_mode: payload.owner_creation_mode,
     owner_invited: ownerInvited,
     owner_exists: ownerExists,

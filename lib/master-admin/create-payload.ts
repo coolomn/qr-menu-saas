@@ -1,3 +1,4 @@
+import { validateLoginUsername, normalizeLoginUsername } from "@/lib/admin-auth/login-username";
 import type { PlanType } from "@/lib/master-admin/plans";
 import { isValidEmail } from "@/lib/master-admin/owners";
 import { isValidSlug, normalizeSlugInput } from "@/lib/master-admin/slug";
@@ -7,6 +8,7 @@ export type OwnerCreationMode = "invite" | "temporary_password";
 export type CreateRestaurantPayload = {
   name: string;
   slug: string;
+  login_username: string;
   owner_email: string;
   owner_creation_mode: OwnerCreationMode;
   plan_type: PlanType;
@@ -38,6 +40,8 @@ export function parseCreateRestaurantBody(
   const raw = body as Record<string, unknown>;
   const name = typeof raw.name === "string" ? raw.name.trim() : "";
   const slugInput = typeof raw.slug === "string" ? raw.slug.trim() : "";
+  const loginUsernameInput =
+    typeof raw.login_username === "string" ? raw.login_username.trim() : "";
   const ownerEmail = typeof raw.owner_email === "string" ? raw.owner_email.trim() : "";
   const modeRaw =
     typeof raw.owner_creation_mode === "string" ? raw.owner_creation_mode.trim() : "invite";
@@ -47,6 +51,7 @@ export function parseCreateRestaurantBody(
 
   if (!name) return { ok: false, error: "Restoran adı zorunlu." };
   if (!slugInput) return { ok: false, error: "Slug zorunlu." };
+  if (!loginUsernameInput) return { ok: false, error: "Giriş kullanıcı adı zorunlu." };
   if (!ownerEmail) return { ok: false, error: "Owner e-postası zorunlu." };
   if (!isValidEmail(ownerEmail)) return { ok: false, error: "Geçerli bir owner e-postası girin." };
   if (!PLAN_TYPES.includes(planType as PlanType)) {
@@ -59,6 +64,12 @@ export function parseCreateRestaurantBody(
       ok: false,
       error: "Slug yalnızca küçük harf, rakam ve tire içerebilir (en az 2 karakter).",
     };
+  }
+
+  const loginUsername = normalizeLoginUsername(loginUsernameInput);
+  const loginUsernameError = validateLoginUsername(loginUsername);
+  if (loginUsernameError) {
+    return { ok: false, error: loginUsernameError };
   }
 
   const maxProducts = parseOptionalLimit(raw.max_products);
@@ -92,6 +103,7 @@ export function parseCreateRestaurantBody(
     data: {
       name,
       slug,
+      login_username: loginUsername,
       owner_email: ownerEmail,
       owner_creation_mode: ownerCreationMode,
       plan_type: planType as PlanType,

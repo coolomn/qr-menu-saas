@@ -10,6 +10,7 @@ import type { OwnerCreationMode } from "@/lib/master-admin/create-payload";
 import type { MasterCreateRestaurantResponse } from "@/lib/master-admin/create-response";
 import type { PlanType } from "@/lib/master-admin/plans";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
+import { suggestLoginUsernameFromSlug } from "@/lib/admin-auth/login-username";
 import { slugifyName } from "@/lib/master-admin/slug";
 import { getBrowserSupabase, waitForBrowserSession } from "@/lib/supabase/browser";
 
@@ -22,6 +23,7 @@ type MasterMeResponse = {
 type FormState = {
   name: string;
   slug: string;
+  login_username: string;
   owner_email: string;
   owner_creation_mode: OwnerCreationMode;
   plan_type: PlanType;
@@ -37,6 +39,7 @@ type FormState = {
 const initialForm: FormState = {
   name: "",
   slug: "",
+  login_username: "",
   owner_email: "",
   owner_creation_mode: "invite",
   plan_type: "6_months",
@@ -61,6 +64,7 @@ export default function MasterNewRestaurantPage() {
   const [authReady, setAuthReady] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const [slugTouched, setSlugTouched] = useState(false);
+  const [loginUsernameTouched, setLoginUsernameTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createResult, setCreateResult] = useState<MasterCreateRestaurantResponse | null>(null);
@@ -117,6 +121,10 @@ export default function MasterNewRestaurantPage() {
       if (key === "name" && !slugTouched) {
         next.slug = slugifyName(String(value));
       }
+      if ((key === "name" || key === "slug") && !loginUsernameTouched) {
+        const slugSource = key === "slug" ? String(value) : next.slug;
+        next.login_username = suggestLoginUsernameFromSlug(slugSource);
+      }
       return next;
     });
   };
@@ -137,6 +145,7 @@ export default function MasterNewRestaurantPage() {
       const body = {
         name: form.name.trim(),
         slug: form.slug.trim(),
+        login_username: form.login_username.trim(),
         owner_email: form.owner_email.trim(),
         owner_creation_mode: form.owner_creation_mode,
         plan_type: form.plan_type,
@@ -185,6 +194,7 @@ export default function MasterNewRestaurantPage() {
     setCreateResult(null);
     setForm(initialForm);
     setSlugTouched(false);
+    setLoginUsernameTouched(false);
     setError(null);
   };
 
@@ -272,6 +282,24 @@ export default function MasterNewRestaurantPage() {
                 placeholder="ornek-restoran"
               />
               <p className="text-xs text-gray-500 mt-1">Public menü: /menu/{form.slug || "slug"}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Giriş kullanıcı adı *
+              </label>
+              <input
+                required
+                value={form.login_username}
+                onChange={(e) => {
+                  setLoginUsernameTouched(true);
+                  updateField("login_username", e.target.value);
+                }}
+                className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="ornek-restoran"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Owner panel girişi: küçük harf, rakam, tire, alt çizgi; en az 3 karakter.
+              </p>
             </div>
           </section>
 

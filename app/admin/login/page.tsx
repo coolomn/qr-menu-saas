@@ -12,8 +12,10 @@ import { resolvePostLoginPath } from "@/lib/master-admin/client-auth";
 
 const supabase = getBrowserSupabase();
 
+const LOGIN_ERROR_MESSAGE = "E-posta/kullanıcı adı veya şifre hatalı.";
+
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -50,14 +52,42 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    // Supabase ile giriş yapmayı deniyoruz
+    const trimmedIdentifier = identifier.trim();
+    let loginEmail = trimmedIdentifier;
+
+    if (!trimmedIdentifier.includes("@")) {
+      try {
+        const resolveRes = await fetch("/api/admin/auth/resolve-login-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: trimmedIdentifier }),
+        });
+        if (!resolveRes.ok) {
+          setError(LOGIN_ERROR_MESSAGE);
+          setLoading(false);
+          return;
+        }
+        const resolveJson = (await resolveRes.json()) as { email?: string };
+        if (!resolveJson.email) {
+          setError(LOGIN_ERROR_MESSAGE);
+          setLoading(false);
+          return;
+        }
+        loginEmail = resolveJson.email;
+      } catch {
+        setError(LOGIN_ERROR_MESSAGE);
+        setLoading(false);
+        return;
+      }
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: loginEmail,
       password,
     });
 
     if (error) {
-      setError("Giriş başarısız: E-posta veya şifre hatalı.");
+      setError(LOGIN_ERROR_MESSAGE);
       setLoading(false);
       return;
     }
@@ -107,14 +137,17 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">E-posta Adresi</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              E-posta veya kullanıcı adı
+            </label>
             <input
-              type="email"
+              type="text"
               required
+              autoComplete="username"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-              placeholder="ornek@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="ornek@email.com veya kullanici-adi"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
             />
           </div>
 
