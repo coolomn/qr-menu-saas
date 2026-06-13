@@ -10,13 +10,18 @@ import {
 } from "@/lib/menu-import/paths";
 import { isImageMime, isPdfMime } from "@/lib/menu-import/mime";
 import { optimizeBufferForVision } from "@/lib/menu-import/analyze-buffer";
+import { analyzePdfBuffer } from "@/lib/menu-import/analyze-pdf";
 import {
   IMPORT_MAX_FILE_BYTES,
   PDF_INVALID_MESSAGE,
-  PDF_MAX_PAGES_V1,
+  PDF_MAX_PAGES_SYNC,
   PDF_MULTI_PAGE_MESSAGE,
 } from "@/lib/menu-import/pdf-constants";
-import { assertPdfMagicBytes, getPdfPageCount } from "@/lib/menu-import/pdf-meta";
+import {
+  assertPdfMagicBytes,
+  assertPdfPageCountWithinLimit,
+  getPdfPageCount,
+} from "@/lib/menu-import/pdf-meta";
 import { mergeImportMenuPayloads } from "@/lib/menu-import/payload-merge";
 import { structureMenuFromImageBase64 } from "@/lib/menu-import/openai-menu";
 
@@ -145,12 +150,10 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       try {
         assertPdfMagicBytes(buffer);
         const pageCount = await getPdfPageCount(buffer);
-        if (pageCount > PDF_MAX_PAGES_V1) {
+        if (pageCount > PDF_MAX_PAGES_SYNC) {
           return NextResponse.json({ error: PDF_MULTI_PAGE_MESSAGE }, { status: 422 });
         }
-        if (pageCount < 1) {
-          return NextResponse.json({ error: PDF_INVALID_MESSAGE }, { status: 422 });
-        }
+        assertPdfPageCountWithinLimit(pageCount);
       } catch (e) {
         const msg = e instanceof Error ? e.message : PDF_INVALID_MESSAGE;
         return NextResponse.json({ error: msg }, { status: 422 });
@@ -189,22 +192,29 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     }
     jobId = jobRow.id;
 
-    const optimizedImage = await optimizeBufferForVision(buffer, mimeType);
-    console.info("[menu-import/analyze] vision input", {
-      sourceMime: mimeType,
-      originalBytes: optimizedImage.originalBytes,
-      optimizedBytes: optimizedImage.optimizedBytes,
-      originalWidth: optimizedImage.originalWidth,
-      originalHeight: optimizedImage.originalHeight,
-      optimizedWidth: optimizedImage.optimizedWidth,
-      optimizedHeight: optimizedImage.optimizedHeight,
-      optimized: optimizedImage.optimized,
-      isPdf,
-    });
-
-    const b64 = optimizedImage.buffer.toString("base64");
-    const pagePayload = await structureMenuFromImageBase64(optimizedImage.mime, b64);
-    const payload = mergeImportMenuPayloads([pagePayload]);
+    let payload;
+    if (isPdf) {
+      payload = await analyzePdfBuffer(buffer);
+      console.info("[menu-import/analyze] pdf merged", {
+        categories: payload.categories.length,
+        products: payload.categories.reduce((n, c) => n + c.products.length, 0),
+      });
+    } else {
+      const optimizedImage = await optimizeBufferForVision(buffer);
+      console.info("[menu-import/analyze] vision input", {
+        sourceMime: mimeType,
+        originalBytes: optimizedImage.originalBytes,
+        optimizedBytes: optimizedImage.optimizedBytes,
+        originalWidth: optimizedImage.originalWidth,
+        originalHeight: optimizedImage.originalHeight,
+        optimizedWidth: optimizedImage.optimizedWidth,
+        optimizedHeight: optimizedImage.optimizedHeight,
+        optimized: optimizedImage.optimized,
+      });
+      const b64 = optimizedImage.buffer.toString("base64");
+      const pagePayload = await structureMenuFromImageBase64(optimizedImage.mime, b64);
+      payload = mergeImportMenuPayloads([pagePayload]);
+    }
 
     await admin
       .from("menu_import_jobs")

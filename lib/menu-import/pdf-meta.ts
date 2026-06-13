@@ -2,7 +2,7 @@ import {
   PDF_INVALID_MESSAGE,
   PDF_MAGIC,
   PDF_MULTI_PAGE_MESSAGE,
-  PDF_MAX_PAGES_V1,
+  PDF_MAX_PAGES_SYNC,
 } from "./pdf-constants";
 import { loadPdfDocument } from "./pdf-render";
 
@@ -18,13 +18,11 @@ export async function getPdfPageCount(buffer: Buffer): Promise<number> {
   return doc.numPages;
 }
 
-/** Tek sayfalık PDF (Faz PDF-1). */
-export async function assertSinglePagePdf(buffer: Buffer): Promise<void> {
-  const count = await getPdfPageCount(buffer);
-  if (count > PDF_MAX_PAGES_V1) {
+export function assertPdfPageCountWithinLimit(pageCount: number): void {
+  if (pageCount > PDF_MAX_PAGES_SYNC) {
     throw new Error(PDF_MULTI_PAGE_MESSAGE);
   }
-  if (count < 1) {
+  if (pageCount < 1) {
     throw new Error(PDF_INVALID_MESSAGE);
   }
 }

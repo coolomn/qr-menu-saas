@@ -53,6 +53,12 @@ function resolveUploadMimeType(file: File): string {
   return "image/jpeg";
 }
 
+function isPdfUploadFile(file: File): boolean {
+  return (
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
 const UNEXPECTED_SERVER_RESPONSE = "Sunucu beklenmeyen bir yanıt döndürdü.";
 const ANALYZE_TIMEOUT_MESSAGE =
   "Görsel çok büyük veya analiz uzun sürdü. Lütfen daha küçük bir görsel yükleyin.";
@@ -115,6 +121,7 @@ export default function AdminMenuImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [busy, setBusy] = useState(false);
+  const [analyzeHint, setAnalyzeHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportMenuPayload | null>(null);
   const [missingEnv, setMissingEnv] = useState<string[]>([]);
@@ -372,6 +379,11 @@ export default function AdminMenuImportPage() {
     if (!file || !restaurantId) return;
     if (!requireTargetMenuSelection()) return;
     setError(null);
+    setAnalyzeHint(
+      file && isPdfUploadFile(file)
+        ? "PDF sayfaları analiz ediliyor. Bu işlem biraz sürebilir."
+        : null
+    );
     setBusy(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -430,6 +442,7 @@ export default function AdminMenuImportPage() {
       setError(mapAnalyzeErrorMessage(message));
     } finally {
       setBusy(false);
+      setAnalyzeHint(null);
     }
   };
 
@@ -618,8 +631,8 @@ export default function AdminMenuImportPage() {
         {step === "upload" && (
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-4">
             <p className="text-sm text-gray-500 leading-relaxed">
-              Menü dosyası yükleyin (JPEG, PNG, WebP, GIF veya tek sayfalık PDF). Sonuçlar canlı
-              menüye yazılmaz; önce önizleyip onaylarsınız.
+              Menü dosyası yükleyin (JPEG, PNG, WebP, GIF veya en fazla 3 sayfalık PDF). Sonuçlar
+              canlı menüye yazılmaz; önce önizleyip onaylarsınız.
             </p>
             {showTargetMenuPicker && (
               <div className="p-4 md:p-5 bg-violet-50 rounded-2xl border border-violet-100 space-y-3">
@@ -672,6 +685,11 @@ export default function AdminMenuImportPage() {
                 }}
               />
             </label>
+            {analyzeHint && (
+              <p className="text-sm font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                {analyzeHint}
+              </p>
+            )}
             <button
               type="button"
               disabled={

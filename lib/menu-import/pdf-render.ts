@@ -1,6 +1,11 @@
 import { join } from "path";
 import { createCanvas } from "@napi-rs/canvas";
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import {
+  getDocument,
+  GlobalWorkerOptions,
+  type PDFDocumentProxy,
+  type PDFPageProxy,
+} from "pdfjs-dist/legacy/build/pdf.mjs";
 
 const PDF_RENDER_SCALE = 2;
 const PDF_MAX_RENDER_SIDE = 2400;
@@ -27,10 +32,7 @@ export async function loadPdfDocument(buffer: Buffer): Promise<PDFDocumentProxy>
   return task.promise;
 }
 
-/** PDF ilk sayfasını PNG buffer olarak rasterize eder (vision öncesi). */
-export async function renderFirstPdfPageToPngBuffer(buffer: Buffer): Promise<Buffer> {
-  const doc = await loadPdfDocument(buffer);
-  const page = await doc.getPage(1);
+async function renderPdfPageToPng(page: PDFPageProxy): Promise<Buffer> {
   const baseViewport = page.getViewport({ scale: 1 });
   const longest = Math.max(baseViewport.width, baseViewport.height);
   const scale =
@@ -49,4 +51,19 @@ export async function renderFirstPdfPageToPngBuffer(buffer: Buffer): Promise<Buf
   }).promise;
 
   return canvas.toBuffer("image/png");
+}
+
+/** Belirli sayfa numarasını PNG buffer olarak rasterize eder (1 tabanlı). */
+export async function renderPdfPageToPngBuffer(
+  doc: PDFDocumentProxy,
+  pageNumber: number
+): Promise<Buffer> {
+  const page = await doc.getPage(pageNumber);
+  return renderPdfPageToPng(page);
+}
+
+/** PDF ilk sayfasını PNG buffer olarak rasterize eder (vision öncesi). */
+export async function renderFirstPdfPageToPngBuffer(buffer: Buffer): Promise<Buffer> {
+  const doc = await loadPdfDocument(buffer);
+  return renderPdfPageToPngBuffer(doc, 1);
 }
