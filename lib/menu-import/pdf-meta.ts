@@ -1,8 +1,8 @@
 import {
   PDF_INVALID_MESSAGE,
   PDF_MAGIC,
-  PDF_MULTI_PAGE_MESSAGE,
-  PDF_MAX_PAGES_SYNC,
+  PDF_MAX_PAGES_ASYNC,
+  PDF_MAX_PAGES_MESSAGE,
 } from "./pdf-constants";
 import { loadPdfDocument } from "./pdf-render";
 
@@ -18,11 +18,14 @@ export async function getPdfPageCount(buffer: Buffer): Promise<number> {
   return doc.numPages;
 }
 
-export function assertPdfPageCountWithinLimit(pageCount: number): void {
-  if (pageCount > PDF_MAX_PAGES_SYNC) {
-    throw new Error(PDF_MULTI_PAGE_MESSAGE);
-  }
+export function assertPdfPageCountWithinLimit(
+  pageCount: number,
+  maxPages: number = PDF_MAX_PAGES_ASYNC
+): void {
   if (pageCount < 1) {
     throw new Error(PDF_INVALID_MESSAGE);
+  }
+  if (pageCount > maxPages) {
+    throw new Error(maxPages >= PDF_MAX_PAGES_ASYNC ? PDF_MAX_PAGES_MESSAGE : PDF_INVALID_MESSAGE);
   }
 }

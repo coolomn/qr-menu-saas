@@ -12,14 +12,13 @@ import { optimizeBufferForVision } from "@/lib/menu-import/analyze-buffer";
 import { analyzePdfBuffer } from "@/lib/menu-import/analyze-pdf";
 import {
   IMPORT_MAX_FILE_BYTES,
-  PDF_ASYNC_LIMIT_MESSAGE,
   PDF_INVALID_MESSAGE,
   PDF_MAX_PAGES_ASYNC,
   PDF_MAX_PAGES_SYNC,
 } from "@/lib/menu-import/pdf-constants";
 import {
   assertPdfMagicBytes,
-  assertPdfPageCountWithinSyncLimit,
+  assertPdfPageCountWithinLimit,
   getPdfPageCount,
 } from "@/lib/menu-import/pdf-meta";
 import { mergeImportMenuPayloads } from "@/lib/menu-import/payload-merge";
@@ -140,17 +139,9 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       try {
         assertPdfMagicBytes(buffer);
         const pageCount = await getPdfPageCount(buffer);
-        if (pageCount > PDF_MAX_PAGES_ASYNC) {
-          return NextResponse.json({ error: PDF_ASYNC_LIMIT_MESSAGE }, { status: 422 });
-        }
-        if (pageCount < 1) {
-          return NextResponse.json({ error: PDF_INVALID_MESSAGE }, { status: 422 });
-        }
+        assertPdfPageCountWithinLimit(pageCount, PDF_MAX_PAGES_ASYNC);
         pdfPageCount = pageCount;
         isAsyncPdf = pageCount > PDF_MAX_PAGES_SYNC;
-        if (!isAsyncPdf) {
-          assertPdfPageCountWithinSyncLimit(pageCount);
-        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : PDF_INVALID_MESSAGE;
         return NextResponse.json({ error: msg }, { status: 422 });
