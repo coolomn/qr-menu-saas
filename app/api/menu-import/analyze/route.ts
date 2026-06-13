@@ -4,22 +4,22 @@ import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import {
   assertImportStoragePath,
-  isLegacyImportPath,
-  MENU_IMPORTS_BUCKET,
   resolveImportDownloadTarget,
 } from "@/lib/menu-import/paths";
+import { cleanupImportFile } from "@/lib/menu-import/cleanup-import-file";
 import { isImageMime, isPdfMime } from "@/lib/menu-import/mime";
 import { optimizeBufferForVision } from "@/lib/menu-import/analyze-buffer";
 import { analyzePdfBuffer } from "@/lib/menu-import/analyze-pdf";
 import {
   IMPORT_MAX_FILE_BYTES,
+  PDF_ASYNC_LIMIT_MESSAGE,
   PDF_INVALID_MESSAGE,
+  PDF_MAX_PAGES_ASYNC,
   PDF_MAX_PAGES_SYNC,
-  PDF_MULTI_PAGE_MESSAGE,
 } from "@/lib/menu-import/pdf-constants";
 import {
   assertPdfMagicBytes,
-  assertPdfPageCountWithinLimit,
+  assertPdfPageCountWithinSyncLimit,
   getPdfPageCount,
 } from "@/lib/menu-import/pdf-meta";
 import { mergeImportMenuPayloads } from "@/lib/menu-import/payload-merge";
@@ -57,25 +57,12 @@ type Body = {
   mimeType?: string;
 };
 
-async function cleanupImportFile(
-  admin: SupabaseClient,
-  storagePath: string,
-  userId: string
-): Promise<void> {
-  if (isLegacyImportPath(storagePath, userId)) {
-    return;
-  }
-  const { error } = await admin.storage.from(MENU_IMPORTS_BUCKET).remove([storagePath]);
-  if (error) {
-    console.error("Import file cleanup failed:", storagePath, error.message);
-  }
-}
-
 async function handleAnalyzePost(request: Request): Promise<NextResponse> {
   let jobId: string | null = null;
   let admin: SupabaseClient | undefined;
   let storagePathForCleanup: string | null = null;
   let userIdForCleanup: string | null = null;
+  let deferCleanup = false;
 
   try {
     const { user, error: authErr } = await getUserFromBearer(request);
@@ -148,23 +135,63 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     }
 
     let pdfPageCount: number | null = null;
+    let isAsyncPdf = false;
     if (isPdf) {
       try {
         assertPdfMagicBytes(buffer);
         const pageCount = await getPdfPageCount(buffer);
-        if (pageCount > PDF_MAX_PAGES_SYNC) {
-          return NextResponse.json({ error: PDF_MULTI_PAGE_MESSAGE }, { status: 422 });
+        if (pageCount > PDF_MAX_PAGES_ASYNC) {
+          return NextResponse.json({ error: PDF_ASYNC_LIMIT_MESSAGE }, { status: 422 });
         }
-        assertPdfPageCountWithinLimit(pageCount);
+        if (pageCount < 1) {
+          return NextResponse.json({ error: PDF_INVALID_MESSAGE }, { status: 422 });
+        }
         pdfPageCount = pageCount;
+        isAsyncPdf = pageCount > PDF_MAX_PAGES_SYNC;
+        if (!isAsyncPdf) {
+          assertPdfPageCountWithinSyncLimit(pageCount);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : PDF_INVALID_MESSAGE;
         return NextResponse.json({ error: msg }, { status: 422 });
       }
     }
 
-    const startedAt = new Date().toISOString();
     const pageCount = isPdf ? pdfPageCount : 1;
+
+    if (isAsyncPdf) {
+      const { data: jobRow, error: jobInsertErr } = await admin
+        .from("menu_import_jobs")
+        .insert({
+          restaurant_id: restaurantId,
+          user_id: user.id,
+          status: "pending",
+          storage_path: storagePath,
+          file_mime: mimeType || null,
+          source_type: "pdf",
+          page_count: pageCount,
+          pages_processed: 0,
+          progress_phase: "queued",
+          progress_message: "PDF analizi kuyruğa alındı…",
+          page_payloads: [],
+          openai_calls: 0,
+        })
+        .select("id")
+        .single();
+
+      if (jobInsertErr || !jobRow) {
+        console.error(jobInsertErr);
+        throw new Error("İş kaydı oluşturulamadı.");
+      }
+
+      deferCleanup = true;
+      return NextResponse.json(
+        { ok: true, async: true, jobId: jobRow.id },
+        { status: 202 }
+      );
+    }
+
+    const startedAt = new Date().toISOString();
 
     const { data: jobRow, error: jobInsertErr } = await admin
       .from("menu_import_jobs")
@@ -280,7 +307,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         console.error("menu-import/analyze job status update failed:", jobUpdateErr);
       }
     }
-    if (admin && storagePathForCleanup && userIdForCleanup) {
+    if (!deferCleanup && admin && storagePathForCleanup && userIdForCleanup) {
       try {
         await cleanupImportFile(admin, storagePathForCleanup, userIdForCleanup);
       } catch (cleanupErr) {

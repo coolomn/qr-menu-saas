@@ -55,7 +55,7 @@ export type MenuImportJobStatusResponse = {
   updated_at: string;
 };
 
-/** POST /api/menu-import/analyze yanıt şeması (sync + gelecek async) */
+/** POST /api/menu-import/analyze yanıt şeması (sync + async) */
 export type MenuImportAnalyzeResponse = {
   ok: boolean;
   jobId?: string;
@@ -63,6 +63,16 @@ export type MenuImportAnalyzeResponse = {
   payload?: ImportMenuPayload;
   error?: string;
 };
+
+/** POST /api/menu-import/jobs/[id]/continue yanıt şeması */
+export type MenuImportJobContinueResponse = MenuImportJobStatusResponse & {
+  ok: boolean;
+  advanced?: boolean;
+};
+
+export function pdfAnalyzeProgressLabel(pagesProcessed: number, pageCount: number): string {
+  return `PDF analiz ediliyor: ${pagesProcessed} / ${pageCount} sayfa`;
+}
 
 export function mapMenuImportJobRowToStatusResponse(
   row: MenuImportJobRow

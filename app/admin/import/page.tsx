@@ -15,7 +15,12 @@ import {
   Layers,
 } from "lucide-react";
 import type { ImportCategoryTarget, ImportMenuPayload, ImportVariant } from "@/lib/menu-import/schema";
-import type { MenuImportAnalyzeResponse } from "@/lib/menu-import/import-job";
+import type {
+  MenuImportAnalyzeResponse,
+  MenuImportJobContinueResponse,
+  MenuImportJobStatusResponse,
+} from "@/lib/menu-import/import-job";
+import { pdfAnalyzeProgressLabel as formatPdfAnalyzeProgress } from "@/lib/menu-import/import-job";
 import {
   applyVariantTemplateToProducts,
   countProductsWithVariants,
@@ -115,6 +120,17 @@ function mapAnalyzeErrorMessage(message: string): string {
   return message;
 }
 
+type AsyncImportProgress = {
+  jobId: string;
+  pagesProcessed: number;
+  pageCount: number;
+  progressMessage: string | null;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function AdminMenuImportPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -134,6 +150,7 @@ export default function AdminMenuImportPage() {
   const [variantTemplateCategoryIndex, setVariantTemplateCategoryIndex] = useState<number | null>(
     null
   );
+  const [asyncProgress, setAsyncProgress] = useState<AsyncImportProgress | null>(null);
 
   const showTargetMenuPicker = activeMenus.length >= 2;
   const targetMenuName =
@@ -376,6 +393,97 @@ export default function AdminMenuImportPage() {
     );
   }, [categoryTargets]);
 
+  const applyPreviewFromPayload = useCallback(
+    (payload: ImportMenuPayload) => {
+      const suggested = buildSuggestedCategoryTargets(payload.categories, existingCategories);
+      setCategoryTargets(
+        suggested.map((s) =>
+          categoryTargetFromAi(
+            s.import_index,
+            payload.categories[s.import_index].name,
+            payload.categories[s.import_index].main_group,
+            s.suggested_match_name,
+            s.existing_category_id ?? null,
+            s.mode
+          )
+        )
+      );
+      setPreview(payload);
+      setStep("preview");
+    },
+    [existingCategories]
+  );
+
+  const updateAsyncProgressFromJob = useCallback((job: MenuImportJobStatusResponse) => {
+    setAsyncProgress({
+      jobId: job.id,
+      pagesProcessed: job.pages_processed,
+      pageCount: job.page_count ?? 0,
+      progressMessage: job.progress_message,
+    });
+  }, []);
+
+  const runAsyncPdfAnalyze = useCallback(
+    async (jobId: string, accessToken: string): Promise<ImportMenuPayload> => {
+      const headers = { Authorization: `Bearer ${accessToken}` };
+
+      while (true) {
+        const statusRes = await fetch(`/api/menu-import/jobs/${jobId}`, {
+          headers,
+          cache: "no-store",
+        });
+        const { data: status, parseError } =
+          await readApiJsonResponse<MenuImportJobStatusResponse & Record<string, unknown>>(statusRes);
+        if (parseError || !status) {
+          throw new Error(parseError || "İş durumu alınamadı.");
+        }
+        if (!statusRes.ok) {
+          throw new Error("İş durumu alınamadı.");
+        }
+
+        updateAsyncProgressFromJob(status);
+
+        if (status.status === "completed" && status.payload) {
+          return status.payload;
+        }
+        if (status.status === "failed") {
+          throw new Error(status.error || "PDF analizi başarısız.");
+        }
+
+        const total = status.page_count ?? 0;
+        if (status.pages_processed < total || status.status === "pending") {
+          const contRes = await fetch(`/api/menu-import/jobs/${jobId}/continue`, {
+            method: "POST",
+            headers,
+            cache: "no-store",
+          });
+          const { data: cont, parseError: contErr } =
+            await readApiJsonResponse<MenuImportJobContinueResponse & Record<string, unknown>>(
+              contRes
+            );
+          if (contErr || !cont) {
+            throw new Error(contErr || "Analiz devam ettirilemedi.");
+          }
+          if (!contRes.ok) {
+            throw new Error(cont.error || "Analiz devam ettirilemedi.");
+          }
+
+          updateAsyncProgressFromJob(cont);
+
+          if (cont.status === "completed" && cont.payload) {
+            return cont.payload;
+          }
+          if (cont.status === "failed") {
+            throw new Error(cont.error || "PDF analizi başarısız.");
+          }
+        } else {
+          await sleep(1500);
+        }
+      }
+    },
+    [updateAsyncProgressFromJob]
+  );
+
   const runAnalyze = async () => {
     if (!file || !restaurantId) return;
     if (!requireTargetMenuSelection()) return;
@@ -409,37 +517,40 @@ export default function AdminMenuImportPage() {
           mimeType: resolveUploadMimeType(file),
         }),
       });
-      const { data: json, parseError } = await readApiJsonResponse<MenuImportAnalyzeResponse>(res);
+      const { data: json, parseError } = await readApiJsonResponse<
+        MenuImportAnalyzeResponse & Record<string, unknown>
+      >(res);
       if (parseError) {
         throw new Error(parseError);
       }
       if (!res.ok) {
         throw new Error(json?.error || `Analiz başarısız (HTTP ${res.status}).`);
       }
+
+      if (res.status === 202 && json?.async && json.jobId) {
+        setAnalyzeHint(null);
+        setAsyncProgress({
+          jobId: json.jobId,
+          pagesProcessed: 0,
+          pageCount: 0,
+          progressMessage: "PDF analizi başlatılıyor…",
+        });
+        const payload = await runAsyncPdfAnalyze(json.jobId, session.access_token);
+        applyPreviewFromPayload(payload);
+        return;
+      }
+
       if (!json?.payload) {
         throw new Error(json?.error || "Analiz sonucu alınamadı.");
       }
-      const suggested = buildSuggestedCategoryTargets(json.payload.categories, existingCategories);
-      setCategoryTargets(
-        suggested.map((s) =>
-          categoryTargetFromAi(
-            s.import_index,
-            json.payload!.categories[s.import_index].name,
-            json.payload!.categories[s.import_index].main_group,
-            s.suggested_match_name,
-            s.existing_category_id ?? null,
-            s.mode
-          )
-        )
-      );
-      setPreview(json.payload);
-      setStep("preview");
+      applyPreviewFromPayload(json.payload);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Hata";
       setError(mapAnalyzeErrorMessage(message));
     } finally {
       setBusy(false);
       setAnalyzeHint(null);
+      setAsyncProgress(null);
     }
   };
 
@@ -628,7 +739,7 @@ export default function AdminMenuImportPage() {
         {step === "upload" && (
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-4">
             <p className="text-sm text-gray-500 leading-relaxed">
-              Menü dosyası yükleyin (JPEG, PNG, WebP, GIF veya en fazla 3 sayfalık PDF). Sonuçlar
+              Menü dosyası yükleyin (JPEG, PNG, WebP, GIF veya en fazla 8 sayfalık PDF). Sonuçlar
               canlı menüye yazılmaz; önce önizleyip onaylarsınız.
             </p>
             {showTargetMenuPicker && (
@@ -682,6 +793,34 @@ export default function AdminMenuImportPage() {
                 }}
               />
             </label>
+            {asyncProgress && (
+              <div className="space-y-2 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                <p className="text-sm font-bold text-blue-900">
+                  {asyncProgress.pageCount > 0
+                    ? formatPdfAnalyzeProgress(
+                        asyncProgress.pagesProcessed,
+                        asyncProgress.pageCount
+                      )
+                    : "PDF analizi başlatılıyor…"}
+                </p>
+                {asyncProgress.pageCount > 0 && (
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-blue-100">
+                    <div
+                      className="h-full bg-blue-600 transition-all duration-500"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (asyncProgress.pagesProcessed / asyncProgress.pageCount) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                )}
+                {asyncProgress.progressMessage && (
+                  <p className="text-xs text-blue-800">{asyncProgress.progressMessage}</p>
+                )}
+              </div>
+            )}
             {analyzeHint && (
               <p className="text-sm font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
                 {analyzeHint}
@@ -724,6 +863,7 @@ export default function AdminMenuImportPage() {
                   setPreview(null);
                   setCategoryTargets([]);
                   setVariantTemplateCategoryIndex(null);
+                  setAsyncProgress(null);
                   setFile(null);
                 }}
                 className="text-sm font-bold text-gray-500 hover:text-gray-800"
