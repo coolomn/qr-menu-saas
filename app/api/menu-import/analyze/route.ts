@@ -9,11 +9,16 @@ import {
   resolveImportDownloadTarget,
 } from "@/lib/menu-import/paths";
 import { isImageMime, isPdfMime } from "@/lib/menu-import/mime";
-import { optimizeImageForAnalyze } from "@/lib/menu-import/image-optimize";
+import { optimizeBufferForVision } from "@/lib/menu-import/analyze-buffer";
+import {
+  IMPORT_MAX_FILE_BYTES,
+  PDF_INVALID_MESSAGE,
+  PDF_MAX_PAGES_V1,
+  PDF_MULTI_PAGE_MESSAGE,
+} from "@/lib/menu-import/pdf-constants";
+import { assertPdfMagicBytes, getPdfPageCount } from "@/lib/menu-import/pdf-meta";
+import { mergeImportMenuPayloads } from "@/lib/menu-import/payload-merge";
 import { structureMenuFromImageBase64 } from "@/lib/menu-import/openai-menu";
-
-const PDF_UNSUPPORTED_MESSAGE =
-  "PDF metin çıkarımı şu anda desteklenmiyor. Lütfen menüyü görsel olarak yükleyin.";
 
 const GENERIC_ANALYZE_ERROR =
   "Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.";
@@ -108,13 +113,12 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 });
     }
 
-    if (isPdfMime(mimeType)) {
-      return NextResponse.json({ error: PDF_UNSUPPORTED_MESSAGE }, { status: 422 });
-    }
+    const isPdf = isPdfMime(mimeType);
+    const isImage = isImageMime(mimeType);
 
-    if (!isImageMime(mimeType)) {
+    if (!isPdf && !isImage) {
       return NextResponse.json(
-        { error: "Yalnızca JPEG, PNG, WebP veya GIF desteklenir." },
+        { error: "Yalnızca JPEG, PNG, WebP, GIF veya PDF desteklenir." },
         { status: 400 }
       );
     }
@@ -124,6 +128,33 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         { error: "Sunucu yapılandırması eksik: OPENAI_API_KEY." },
         { status: 503 }
       );
+    }
+
+    const { bucket, path: downloadPath } = resolveImportDownloadTarget(storagePath, user.id);
+    const { data: blob, error: dlErr } = await admin.storage.from(bucket).download(downloadPath);
+    if (dlErr || !blob) {
+      throw new Error(dlErr?.message || "Dosya indirilemedi.");
+    }
+
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    if (buffer.length > IMPORT_MAX_FILE_BYTES) {
+      throw new Error("Dosya çok büyük (en fazla 12 MB).");
+    }
+
+    if (isPdf) {
+      try {
+        assertPdfMagicBytes(buffer);
+        const pageCount = await getPdfPageCount(buffer);
+        if (pageCount > PDF_MAX_PAGES_V1) {
+          return NextResponse.json({ error: PDF_MULTI_PAGE_MESSAGE }, { status: 422 });
+        }
+        if (pageCount < 1) {
+          return NextResponse.json({ error: PDF_INVALID_MESSAGE }, { status: 422 });
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : PDF_INVALID_MESSAGE;
+        return NextResponse.json({ error: msg }, { status: 422 });
+      }
     }
 
     const { data: jobRow, error: jobInsertErr } = await admin
@@ -158,19 +189,9 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     }
     jobId = jobRow.id;
 
-    const { bucket, path: downloadPath } = resolveImportDownloadTarget(storagePath, user.id);
-    const { data: blob, error: dlErr } = await admin.storage.from(bucket).download(downloadPath);
-    if (dlErr || !blob) {
-      throw new Error(dlErr?.message || "Dosya indirilemedi.");
-    }
-
-    const buffer = Buffer.from(await blob.arrayBuffer());
-    if (buffer.length > 12 * 1024 * 1024) {
-      throw new Error("Dosya çok büyük (en fazla 12 MB).");
-    }
-
-    const optimizedImage = await optimizeImageForAnalyze(buffer);
-    console.info("[menu-import/analyze] image size", {
+    const optimizedImage = await optimizeBufferForVision(buffer, mimeType);
+    console.info("[menu-import/analyze] vision input", {
+      sourceMime: mimeType,
       originalBytes: optimizedImage.originalBytes,
       optimizedBytes: optimizedImage.optimizedBytes,
       originalWidth: optimizedImage.originalWidth,
@@ -178,10 +199,12 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       optimizedWidth: optimizedImage.optimizedWidth,
       optimizedHeight: optimizedImage.optimizedHeight,
       optimized: optimizedImage.optimized,
+      isPdf,
     });
 
     const b64 = optimizedImage.buffer.toString("base64");
-    const payload = await structureMenuFromImageBase64(optimizedImage.mime, b64);
+    const pagePayload = await structureMenuFromImageBase64(optimizedImage.mime, b64);
+    const payload = mergeImportMenuPayloads([pagePayload]);
 
     await admin
       .from("menu_import_jobs")
