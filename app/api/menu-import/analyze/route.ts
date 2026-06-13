@@ -24,6 +24,7 @@ import {
 } from "@/lib/menu-import/pdf-meta";
 import { mergeImportMenuPayloads } from "@/lib/menu-import/payload-merge";
 import { structureMenuFromImageBase64 } from "@/lib/menu-import/openai-menu";
+import { patchImportJob, pdfProgressMessage } from "@/lib/menu-import/import-job";
 
 const GENERIC_ANALYZE_ERROR =
   "Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.";
@@ -146,6 +147,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       throw new Error("Dosya çok büyük (en fazla 12 MB).");
     }
 
+    let pdfPageCount: number | null = null;
     if (isPdf) {
       try {
         assertPdfMagicBytes(buffer);
@@ -154,11 +156,15 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
           return NextResponse.json({ error: PDF_MULTI_PAGE_MESSAGE }, { status: 422 });
         }
         assertPdfPageCountWithinLimit(pageCount);
+        pdfPageCount = pageCount;
       } catch (e) {
         const msg = e instanceof Error ? e.message : PDF_INVALID_MESSAGE;
         return NextResponse.json({ error: msg }, { status: 422 });
       }
     }
+
+    const startedAt = new Date().toISOString();
+    const pageCount = isPdf ? pdfPageCount : 1;
 
     const { data: jobRow, error: jobInsertErr } = await admin
       .from("menu_import_jobs")
@@ -168,6 +174,14 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         status: "processing",
         storage_path: storagePath,
         file_mime: mimeType || null,
+        source_type: isPdf ? "pdf" : "image",
+        page_count: pageCount,
+        pages_processed: 0,
+        progress_phase: isPdf ? "rasterizing" : "analyzing",
+        progress_message: isPdf
+          ? pdfProgressMessage(0, pageCount ?? 0)
+          : "Görsel analiz ediliyor…",
+        started_at: startedAt,
       })
       .select("id")
       .single();
@@ -193,8 +207,20 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     jobId = jobRow.id;
 
     let payload;
+    let openaiCalls = 0;
     if (isPdf) {
-      payload = await analyzePdfBuffer(buffer);
+      payload = await analyzePdfBuffer(buffer, async (update) => {
+        if (!jobId || !admin) return;
+        await patchImportJob(admin, jobId, {
+          progress_phase: update.phase,
+          pages_processed: update.pagesProcessed,
+          progress_message:
+            update.phase === "merging"
+              ? "Sayfa sonuçları birleştiriliyor…"
+              : pdfProgressMessage(update.pagesProcessed, update.totalPages),
+        });
+      });
+      openaiCalls = pdfPageCount ?? 0;
       console.info("[menu-import/analyze] pdf merged", {
         categories: payload.categories.length,
         products: payload.categories.reduce((n, c) => n + c.products.length, 0),
@@ -214,14 +240,21 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       const b64 = optimizedImage.buffer.toString("base64");
       const pagePayload = await structureMenuFromImageBase64(optimizedImage.mime, b64);
       payload = mergeImportMenuPayloads([pagePayload]);
+      openaiCalls = 1;
     }
 
+    const completedAt = new Date().toISOString();
     await admin
       .from("menu_import_jobs")
       .update({
         status: "completed",
         parsed_json: payload,
         error_message: null,
+        pages_processed: pageCount,
+        progress_phase: "completed",
+        progress_message: null,
+        openai_calls: openaiCalls,
+        completed_at: completedAt,
       })
       .eq("id", jobId);
 
@@ -239,6 +272,8 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
           .update({
             status: "failed",
             error_message: rawMessage.slice(0, 2000),
+            progress_phase: "failed",
+            completed_at: new Date().toISOString(),
           })
           .eq("id", jobId);
       } catch (jobUpdateErr) {

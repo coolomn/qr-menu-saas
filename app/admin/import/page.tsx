@@ -15,6 +15,7 @@ import {
   Layers,
 } from "lucide-react";
 import type { ImportCategoryTarget, ImportMenuPayload, ImportVariant } from "@/lib/menu-import/schema";
+import type { MenuImportAnalyzeResponse } from "@/lib/menu-import/import-job";
 import {
   applyVariantTemplateToProducts,
   countProductsWithVariants,
@@ -408,11 +409,7 @@ export default function AdminMenuImportPage() {
           mimeType: resolveUploadMimeType(file),
         }),
       });
-      const { data: json, parseError } = await readApiJsonResponse<{
-        ok?: boolean;
-        payload?: ImportMenuPayload;
-        error?: string;
-      }>(res);
+      const { data: json, parseError } = await readApiJsonResponse<MenuImportAnalyzeResponse>(res);
       if (parseError) {
         throw new Error(parseError);
       }
