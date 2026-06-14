@@ -1,6 +1,7 @@
 import { optimizeImageForAnalyze } from "./image-optimize";
 import { structureMenuFromImageBase64 } from "./openai-menu";
 import { assertPdfMagicBytes, assertPdfPageCountWithinLimit } from "./pdf-meta";
+import { PDF_MAX_PAGES_SYNC } from "./pdf-constants";
 import { loadPdfDocument, renderPdfPageToPngBuffer } from "./pdf-render";
 import { mergeImportMenuPayloads } from "./payload-merge";
 import type { ImportJobProgressPhase } from "./import-job";
@@ -19,7 +20,7 @@ export async function analyzePdfBuffer(
 ): Promise<ImportMenuPayload> {
   assertPdfMagicBytes(buffer);
   const doc = await loadPdfDocument(buffer);
-  assertPdfPageCountWithinLimit(doc.numPages);
+  assertPdfPageCountWithinLimit(doc.numPages, PDF_MAX_PAGES_SYNC);
 
   const pagePayloads: ImportMenuPayload[] = [];
 
