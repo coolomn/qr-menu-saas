@@ -47,6 +47,36 @@ function userFacingAnalyzeError(rawMessage: string): { message: string; status: 
   return { message: trimmed.slice(0, 2000), status: 422 };
 }
 
+type ImportUploadCleanup = {
+  admin: SupabaseClient | undefined;
+  storagePath: string | null;
+  userId: string | null;
+  deferCleanup: boolean;
+  cleanedUp: boolean;
+};
+
+async function maybeCleanupUploadedImportFile(cleanup: ImportUploadCleanup): Promise<void> {
+  if (
+    cleanup.deferCleanup ||
+    cleanup.cleanedUp ||
+    !cleanup.admin ||
+    !cleanup.storagePath ||
+    !cleanup.userId
+  ) {
+    return;
+  }
+  cleanup.cleanedUp = true;
+  await cleanupImportFile(cleanup.admin, cleanup.storagePath, cleanup.userId);
+}
+
+async function respondAfterUploadCleanup(
+  cleanup: ImportUploadCleanup,
+  response: NextResponse
+): Promise<NextResponse> {
+  await maybeCleanupUploadedImportFile(cleanup);
+  return response;
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -58,10 +88,13 @@ type Body = {
 
 async function handleAnalyzePost(request: Request): Promise<NextResponse> {
   let jobId: string | null = null;
-  let admin: SupabaseClient | undefined;
-  let storagePathForCleanup: string | null = null;
-  let userIdForCleanup: string | null = null;
-  let deferCleanup = false;
+  const cleanup: ImportUploadCleanup = {
+    admin: undefined,
+    storagePath: null,
+    userId: null,
+    deferCleanup: false,
+    cleanedUp: false,
+  };
 
   try {
     const { user, error: authErr } = await getUserFromBearer(request);
@@ -73,7 +106,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     if (!svc.ok) {
       return NextResponse.json({ error: svc.error }, { status: 503 });
     }
-    admin = svc.client;
+    cleanup.admin = svc.client;
 
     let body: Body;
     try {
@@ -91,10 +124,10 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     }
 
     assertImportStoragePath(storagePath, restaurantId, user.id);
-    storagePathForCleanup = storagePath;
-    userIdForCleanup = user.id;
+    cleanup.storagePath = storagePath;
+    cleanup.userId = user.id;
 
-    const { data: restaurant, error: resErr } = await admin
+    const { data: restaurant, error: resErr } = await cleanup.admin
       .from("restaurants")
       .select("id")
       .eq("id", restaurantId)
@@ -102,28 +135,37 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       .maybeSingle();
 
     if (resErr || !restaurant) {
-      return NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 });
+      return respondAfterUploadCleanup(
+        cleanup,
+        NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 })
+      );
     }
 
     const isPdf = isPdfMime(mimeType);
     const isImage = isImageMime(mimeType);
 
     if (!isPdf && !isImage) {
-      return NextResponse.json(
-        { error: "Yalnızca JPEG, PNG, WebP, GIF veya PDF desteklenir." },
-        { status: 400 }
+      return respondAfterUploadCleanup(
+        cleanup,
+        NextResponse.json(
+          { error: "Yalnızca JPEG, PNG, WebP, GIF veya PDF desteklenir." },
+          { status: 400 }
+        )
       );
     }
 
     if (!process.env.OPENAI_API_KEY?.trim()) {
-      return NextResponse.json(
-        { error: "Sunucu yapılandırması eksik: OPENAI_API_KEY." },
-        { status: 503 }
+      return respondAfterUploadCleanup(
+        cleanup,
+        NextResponse.json(
+          { error: "Sunucu yapılandırması eksik: OPENAI_API_KEY." },
+          { status: 503 }
+        )
       );
     }
 
     const { bucket, path: downloadPath } = resolveImportDownloadTarget(storagePath, user.id);
-    const { data: blob, error: dlErr } = await admin.storage.from(bucket).download(downloadPath);
+    const { data: blob, error: dlErr } = await cleanup.admin.storage.from(bucket).download(downloadPath);
     if (dlErr || !blob) {
       throw new Error(dlErr?.message || "Dosya indirilemedi.");
     }
@@ -144,14 +186,17 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         isAsyncPdf = pageCount > PDF_MAX_PAGES_SYNC;
       } catch (e) {
         const msg = e instanceof Error ? e.message : PDF_INVALID_MESSAGE;
-        return NextResponse.json({ error: msg }, { status: 422 });
+        return respondAfterUploadCleanup(
+          cleanup,
+          NextResponse.json({ error: msg }, { status: 422 })
+        );
       }
     }
 
     const pageCount = isPdf ? pdfPageCount : 1;
 
     if (isAsyncPdf) {
-      const { data: jobRow, error: jobInsertErr } = await admin
+      const { data: jobRow, error: jobInsertErr } = await cleanup.admin
         .from("menu_import_jobs")
         .insert({
           restaurant_id: restaurantId,
@@ -175,7 +220,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         throw new Error("İş kaydı oluşturulamadı.");
       }
 
-      deferCleanup = true;
+      cleanup.deferCleanup = true;
       return NextResponse.json(
         { ok: true, async: true, jobId: jobRow.id },
         { status: 202 }
@@ -184,7 +229,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
 
     const startedAt = new Date().toISOString();
 
-    const { data: jobRow, error: jobInsertErr } = await admin
+    const { data: jobRow, error: jobInsertErr } = await cleanup.admin
       .from("menu_import_jobs")
       .insert({
         restaurant_id: restaurantId,
@@ -212,15 +257,21 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         /relation|does not exist|42P01|menu_import_jobs|schema cache|PGRST205/i.test(msg) ||
         code === "PGRST205"
       ) {
-        return NextResponse.json(
-          {
-            error:
-              "Veritabanında menu_import_jobs tablosu yok. Supabase Dashboard → SQL Editor’da proje klasöründeki supabase/migrations/20260513140000_menu_import_jobs_v1.sql dosyasının tamamını yapıştırıp Çalıştırın. Sonra 10–30 sn bekleyip tekrar deneyin.",
-          },
-          { status: 503 }
+        return respondAfterUploadCleanup(
+          cleanup,
+          NextResponse.json(
+            {
+              error:
+                "Veritabanında menu_import_jobs tablosu yok. Supabase Dashboard → SQL Editor’da proje klasöründeki supabase/migrations/20260513140000_menu_import_jobs_v1.sql dosyasının tamamını yapıştırıp Çalıştırın. Sonra 10–30 sn bekleyip tekrar deneyin.",
+            },
+            { status: 503 }
+          )
         );
       }
-      return NextResponse.json({ error: "İş kaydı oluşturulamadı." }, { status: 500 });
+      return respondAfterUploadCleanup(
+        cleanup,
+        NextResponse.json({ error: "İş kaydı oluşturulamadı." }, { status: 500 })
+      );
     }
     jobId = jobRow.id;
 
@@ -228,8 +279,8 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     let openaiCalls = 0;
     if (isPdf) {
       payload = await analyzePdfBuffer(buffer, async (update) => {
-        if (!jobId || !admin) return;
-        await patchImportJob(admin, jobId, {
+        if (!jobId || !cleanup.admin) return;
+        await patchImportJob(cleanup.admin, jobId, {
           progress_phase: update.phase,
           pages_processed: update.pagesProcessed,
           progress_message:
@@ -262,7 +313,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     }
 
     const completedAt = new Date().toISOString();
-    await admin
+    await cleanup.admin
       .from("menu_import_jobs")
       .update({
         status: "completed",
@@ -276,16 +327,16 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       })
       .eq("id", jobId);
 
-    await cleanupImportFile(admin, storagePath, user.id);
+    await maybeCleanupUploadedImportFile(cleanup);
 
     return NextResponse.json({ ok: true, jobId, payload });
   } catch (e) {
     const rawMessage = e instanceof Error ? e.message : "Bilinmeyen hata";
     console.error("menu-import/analyze failed:", e);
 
-    if (jobId && admin) {
+    if (jobId && cleanup.admin) {
       try {
-        await admin
+        await cleanup.admin
           .from("menu_import_jobs")
           .update({
             status: "failed",
@@ -298,13 +349,8 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         console.error("menu-import/analyze job status update failed:", jobUpdateErr);
       }
     }
-    if (!deferCleanup && admin && storagePathForCleanup && userIdForCleanup) {
-      try {
-        await cleanupImportFile(admin, storagePathForCleanup, userIdForCleanup);
-      } catch (cleanupErr) {
-        console.error("menu-import/analyze cleanup failed:", cleanupErr);
-      }
-    }
+
+    await maybeCleanupUploadedImportFile(cleanup);
 
     const { message, status } = userFacingAnalyzeError(rawMessage);
     return NextResponse.json({ ok: false, error: message }, { status });
