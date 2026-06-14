@@ -70,6 +70,19 @@ export type MenuImportJobContinueResponse = MenuImportJobStatusResponse & {
   advanced?: boolean;
 };
 
+/** GET /api/menu-import/jobs/active yanıt şeması */
+export type MenuImportActiveJobResponse = {
+  job: MenuImportJobStatusResponse | null;
+};
+
+export function buildMenuImportActiveJobResponse(
+  job: MenuImportJobRow | null
+): MenuImportActiveJobResponse {
+  return {
+    job: job ? mapMenuImportJobRowToStatusResponse(job) : null,
+  };
+}
+
 export function pdfAnalyzeProgressLabel(pagesProcessed: number, pageCount: number): string {
   return `PDF analiz ediliyor: ${pagesProcessed} / ${pageCount} sayfa`;
 }

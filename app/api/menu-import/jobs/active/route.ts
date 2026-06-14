@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import {
-  mapMenuImportJobRowToStatusResponse,
+  buildMenuImportActiveJobResponse,
   type MenuImportActiveJobResponse,
 } from "@/lib/menu-import/import-job";
 import { findActivePdfImportJobForOwner } from "@/lib/menu-import/job-access";
@@ -45,9 +45,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const response: MenuImportActiveJobResponse = {
-      job: result.job ? mapMenuImportJobRowToStatusResponse(result.job) : null,
-    };
+    const response: MenuImportActiveJobResponse = buildMenuImportActiveJobResponse(result.job);
 
     return NextResponse.json(response, { headers: NO_STORE_HEADERS });
   } catch (e) {
