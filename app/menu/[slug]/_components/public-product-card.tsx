@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   hasProductVariants,
   type PublicProduct,
@@ -11,6 +12,7 @@ import {
   resolveMenuPresentation,
   type ResolvedMenuPresentation,
 } from "@/lib/public-menu/themes/resolve";
+import { ProductImageLightbox } from "@/app/menu/[slug]/_components/ProductImageLightbox";
 
 const ALLERGEN_OPTIONS = [
   { id: "gluten", label: "Gluten", icon: "🌾" },
@@ -50,6 +52,7 @@ export function PublicProductCard({
   getText,
   language = "tr",
 }: PublicProductCardProps & { language?: string }) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
   const c = resolvedTheme.classes;
 
@@ -57,17 +60,23 @@ export function PublicProductCard({
   const showVariants = hasProductVariants(variants);
   const productRecord = product as unknown as Record<string, unknown>;
   const description = getText(productRecord, "description");
+  const imageUrl = product.image_url?.trim();
 
   return (
     <div className={c.productCard}>
-      {product.image_url && (
-        <div className={c.productImageWrap}>
+      {imageUrl && (
+        <button
+          type="button"
+          className={`${c.productImageWrap} cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
+          onClick={() => setLightboxOpen(true)}
+          aria-label="Ürün fotoğrafını büyüt"
+        >
           <img
-            src={product.image_url}
+            src={imageUrl}
             alt={product.name || "Ürün Görseli"}
             className="w-full h-full object-cover"
           />
-        </div>
+        </button>
       )}
       <div className="flex-1 flex flex-col min-w-0 justify-center">
         <div
@@ -124,6 +133,17 @@ export function PublicProductCard({
           </div>
         )}
       </div>
+
+      {imageUrl && (
+        <ProductImageLightbox
+          open={lightboxOpen}
+          onClose={() => setLightboxOpen(false)}
+          product={product}
+          theme={resolvedTheme}
+          getText={getText}
+          language={language}
+        />
+      )}
     </div>
   );
 }
