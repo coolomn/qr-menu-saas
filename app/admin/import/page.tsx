@@ -14,11 +14,13 @@ import {
   AlertCircle,
   AlertTriangle,
   Layers,
+  X,
 } from "lucide-react";
 import type { ImportCategoryTarget, ImportMenuPayload, ImportVariant } from "@/lib/menu-import/schema";
 import type {
   MenuImportActiveJobResponse,
   MenuImportAnalyzeResponse,
+  MenuImportJobCancelResponse,
   MenuImportJobContinueResponse,
   MenuImportJobStatusResponse,
 } from "@/lib/menu-import/import-job";
@@ -155,6 +157,7 @@ export default function AdminMenuImportPage() {
   );
   const [asyncProgress, setAsyncProgress] = useState<AsyncImportProgress | null>(null);
   const [resumableJob, setResumableJob] = useState<MenuImportJobStatusResponse | null>(null);
+  const [cancellingJob, setCancellingJob] = useState(false);
 
   const showTargetMenuPicker = activeMenus.length >= 2;
   const targetMenuName =
@@ -535,6 +538,49 @@ export default function AdminMenuImportPage() {
     }
   };
 
+  const cancelResumableJob = async () => {
+    if (!resumableJob || cancellingJob) return;
+    const confirmed = window.confirm(
+      "Devam eden PDF analizini iptal etmek istediğinize emin misiniz?"
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    setCancellingJob(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Oturum bulunamadı.");
+
+      const res = await fetch(`/api/menu-import/jobs/${resumableJob.id}/cancel`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        cache: "no-store",
+      });
+      const { data: json, parseError } = await readApiJsonResponse<
+        MenuImportJobCancelResponse & Record<string, unknown>
+      >(res);
+      if (parseError) {
+        throw new Error(parseError);
+      }
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Analiz iptal edilemedi.");
+      }
+
+      setResumableJob(null);
+      setAsyncProgress(null);
+      setFile(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Analiz iptal edilemedi.";
+      setError(message);
+    } finally {
+      setCancellingJob(false);
+    }
+  };
+
   const runAnalyze = async () => {
     if (!file || !restaurantId) return;
     if (!requireTargetMenuSelection()) return;
@@ -797,7 +843,7 @@ export default function AdminMenuImportPage() {
                 <p className="text-sm font-bold text-amber-950">Devam eden PDF analizi bulundu</p>
                 <p className="text-xs text-amber-900/90 leading-relaxed">
                   Sekme kapatıldığı için analiz yarım kalmış olabilir. Devam ettiğinizde kaldığı
-                  yerden sürdürülür.
+                  yerden sürdürülür veya iptal ederek yeni bir dosya yükleyebilirsiniz.
                 </p>
               </div>
             </div>
@@ -825,14 +871,35 @@ export default function AdminMenuImportPage() {
                 />
               </div>
             )}
-            <button
-              type="button"
-              onClick={resumePdfImport}
-              className="inline-flex items-center justify-center gap-2 bg-amber-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-amber-800 transition-colors"
-            >
-              <Play size={16} />
-              Devam et
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={resumePdfImport}
+                disabled={cancellingJob}
+                className="inline-flex items-center justify-center gap-2 bg-amber-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-amber-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Play size={16} />
+                Devam et
+              </button>
+              <button
+                type="button"
+                onClick={() => void cancelResumableJob()}
+                disabled={cancellingJob}
+                className="inline-flex items-center justify-center gap-2 border border-amber-300 bg-white text-amber-900 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-amber-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {cancellingJob ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    İptal ediliyor…
+                  </>
+                ) : (
+                  <>
+                    <X size={16} />
+                    İptal et
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
