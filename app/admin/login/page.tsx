@@ -8,7 +8,7 @@ import {
   shouldRedirectLoginToSetPassword,
 } from "@/lib/admin-auth/invite-flow";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
-import { resolvePostLoginPath } from "@/lib/master-admin/client-auth";
+import { resolvePostLoginDestination } from "@/lib/admin-auth/resolve-owner-post-login";
 
 const supabase = getBrowserSupabase();
 
@@ -54,6 +54,7 @@ export default function LoginPage() {
 
     const trimmedIdentifier = identifier.trim();
     let loginEmail = trimmedIdentifier;
+    let preferredRestaurantId: string | null = null;
 
     if (!trimmedIdentifier.includes("@")) {
       try {
@@ -67,13 +68,14 @@ export default function LoginPage() {
           setLoading(false);
           return;
         }
-        const resolveJson = (await resolveRes.json()) as { email?: string };
+        const resolveJson = (await resolveRes.json()) as { email?: string; restaurantId?: string };
         if (!resolveJson.email) {
           setError(LOGIN_ERROR_MESSAGE);
           setLoading(false);
           return;
         }
         loginEmail = resolveJson.email;
+        preferredRestaurantId = resolveJson.restaurantId?.trim() || null;
       } catch {
         setError(LOGIN_ERROR_MESSAGE);
         setLoading(false);
@@ -108,7 +110,12 @@ export default function LoginPage() {
       return;
     }
 
-    const destination = await resolvePostLoginPath(session.access_token);
+    const destination = await resolvePostLoginDestination(
+      supabase,
+      session.access_token,
+      session.user.id,
+      preferredRestaurantId
+    );
     router.push(destination);
   };
 

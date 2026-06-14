@@ -36,10 +36,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "service_unavailable" }, { status: 503 });
   }
 
-  const email = await resolveOwnerEmailByLoginUsername(svc.client, username);
-  if (!email) {
+  const resolved = await resolveOwnerEmailByLoginUsername(svc.client, username);
+  if (!resolved) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  return NextResponse.json({ email });
+  return NextResponse.json({ email: resolved.email, restaurantId: resolved.restaurantId });
 }

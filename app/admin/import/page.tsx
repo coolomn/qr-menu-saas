@@ -41,6 +41,7 @@ import {
 } from "@/app/admin/import/_components/ImportCategoryTargetCard";
 import { ImportVariantTemplatePanel } from "@/app/admin/import/_components/ImportVariantTemplatePanel";
 import { ImportProductPreviewRow } from "@/app/admin/import/_components/ImportProductPreviewRow";
+import { loadSelectedOwnerRestaurant } from "@/lib/admin-auth/owner-restaurants";
 
 const supabase = getBrowserSupabase();
 
@@ -173,21 +174,24 @@ export default function AdminMenuImportPage() {
         router.replace("/admin/login");
         return;
       }
-      const { data: res } = await supabase
-        .from("restaurants")
-        .select("id")
-        .eq("owner_id", session.user.id)
-        .single();
-      if (!res?.id) {
+      const { selected, needsPicker } = await loadSelectedOwnerRestaurant(
+        supabase,
+        session.user.id
+      );
+      if (needsPicker) {
+        router.replace("/admin/select-restaurant");
+        return;
+      }
+      if (!selected?.id) {
         router.replace("/admin");
         return;
       }
-      setRestaurantId(res.id);
+      setRestaurantId(selected.id);
 
       const { data: menuRows } = await supabase
         .from("menu_collections")
         .select("id, name, is_active, sort_order")
-        .eq("restaurant_id", res.id)
+        .eq("restaurant_id", selected.id)
         .order("sort_order");
       const active = (menuRows || [])
         .filter((m) => m.is_active)
@@ -206,13 +210,13 @@ export default function AdminMenuImportPage() {
       const { data: catRows } = await supabase
         .from("categories")
         .select("id, name, main_group")
-        .eq("restaurant_id", res.id)
+        .eq("restaurant_id", selected.id)
         .order("sort_order");
 
       const { data: productRows } = await supabase
         .from("products")
         .select("category_id")
-        .eq("restaurant_id", res.id);
+        .eq("restaurant_id", selected.id);
 
       const productCountByCategory = new Map<string, number>();
       for (const row of productRows || []) {
@@ -242,7 +246,7 @@ export default function AdminMenuImportPage() {
 
       try {
         const activeRes = await fetch(
-          `/api/menu-import/jobs/active?restaurantId=${encodeURIComponent(res.id)}`,
+          `/api/menu-import/jobs/active?restaurantId=${encodeURIComponent(selected.id)}`,
           {
             headers: { Authorization: `Bearer ${session.access_token}` },
             cache: "no-store",

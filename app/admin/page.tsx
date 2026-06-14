@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight } from "lucide-react";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
 import { isProductPriceEmpty } from "@/lib/admin-menu/bulk-price-edit";
@@ -45,6 +45,10 @@ import { formatPriceForDisplay } from "@/lib/format-price";
 import { uploadProductImage, uploadPublicAsset } from "@/lib/admin-menu/product-image-upload";
 import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
 import Link from "next/link";
+import {
+  loadOwnerRestaurantById,
+  loadSelectedOwnerRestaurant,
+} from "@/lib/admin-auth/owner-restaurants";
 
 const supabase = getBrowserSupabase();
 
@@ -128,6 +132,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [restaurant, setRestaurant] = useState<any>(null);
+  const [hasMultipleRestaurants, setHasMultipleRestaurants] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   
@@ -254,9 +259,30 @@ export default function AdminDashboard() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push("/admin/login"); return; }
       setUser(session.user);
-      
-      const { data: resData } = await supabase.from("restaurants").select("*").eq("owner_id", session.user.id).single();
-        
+
+      const { restaurants, selected, needsPicker } = await loadSelectedOwnerRestaurant(
+        supabase,
+        session.user.id
+      );
+      setHasMultipleRestaurants(restaurants.length > 1);
+
+      if (needsPicker) {
+        router.replace("/admin/select-restaurant");
+        return;
+      }
+
+      if (!selected) {
+        setRestaurant(null);
+        setLoading(false);
+        return;
+      }
+
+      const resData = (await loadOwnerRestaurantById(
+        supabase,
+        session.user.id,
+        selected.id
+      )) as typeof restaurant;
+
       if (resData) {
         setRestaurant(resData);
         setSettings({ 
@@ -1674,7 +1700,19 @@ export default function AdminDashboard() {
           </Link>
           <button onClick={() => {setActiveTab("settings"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><Palette size={20} /> Görünüm Ayarları</button>
         </nav>
-        <div className="p-6 border-t"><button onClick={() => supabase.auth.signOut().then(() => router.push("/admin/login"))} className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold hover:bg-red-50 rounded-xl transition-all"><LogOut size={20} /> Çıkış Yap</button></div>
+        <div className="p-6 border-t space-y-2">
+          {hasMultipleRestaurants && (
+            <button
+              type="button"
+              onClick={() => router.push("/admin/select-restaurant")}
+              className="w-full flex items-center gap-3 px-4 py-3 text-blue-600 font-bold hover:bg-blue-50 rounded-xl transition-all"
+            >
+              <ArrowLeftRight size={20} aria-hidden />
+              Restoran değiştir
+            </button>
+          )}
+          <button onClick={() => supabase.auth.signOut().then(() => router.push("/admin/login"))} className="w-full flex items-center gap-3 px-4 py-3 text-red-500 font-bold hover:bg-red-50 rounded-xl transition-all"><LogOut size={20} /> Çıkış Yap</button>
+        </div>
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden w-full">
