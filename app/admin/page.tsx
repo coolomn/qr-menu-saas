@@ -5,6 +5,7 @@ import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote } from "lucide-react";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
+import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
 import { isProductPriceEmpty } from "@/lib/admin-menu/bulk-price-edit";
 import {
   nextProductSortOrderInCategory,
@@ -41,46 +42,11 @@ import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-colle
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { prepareProductImageForUpload } from "@/lib/prepare-product-image-client";
+import { uploadProductImage, uploadPublicAsset } from "@/lib/admin-menu/product-image-upload";
 import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
 import Link from "next/link";
 
 const supabase = getBrowserSupabase();
-
-const MENU_PUBLIC_BUCKET = "menu-public";
-
-type PublicAssetKind = "logo" | "background" | "slider" | "products";
-
-function sanitizeFileExtension(raw: string | undefined, fallback = "jpg"): string {
-  const ext = (raw || fallback).toLowerCase().replace(/[^a-z0-9]/g, "");
-  return ext || fallback;
-}
-
-function buildPublicAssetPath(restaurantId: string, kind: PublicAssetKind, ext: string): string {
-  const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-  return `restaurants/${restaurantId}/${kind}/${unique}.${sanitizeFileExtension(ext)}`;
-}
-
-async function uploadPublicAsset(
-  restaurantId: string,
-  kind: PublicAssetKind,
-  file: File | Blob,
-  options?: { ext?: string; contentType?: string }
-): Promise<{ url: string } | { error: string }> {
-  const ext =
-    options?.ext ??
-    (file instanceof File && file.name.includes(".") ? file.name.split(".").pop() : "jpg");
-  const path = buildPublicAssetPath(restaurantId, kind, ext ?? "jpg");
-  const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, file, {
-    contentType: options?.contentType ?? (file instanceof File ? file.type || undefined : undefined),
-    upsert: false,
-  });
-  if (error) {
-    return { error: error.message || "Görsel yüklenemedi." };
-  }
-  const url = supabase.storage.from(MENU_PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl;
-  return { url };
-}
 
 function AdminInstagramGlyph({ className }: { className?: string }) {
   return (
@@ -395,7 +361,7 @@ export default function AdminDashboard() {
       let finalWelcomeBgUrl = settings.welcome_bg_url;
 
       if (logoFile) {
-        const logoUpload = await uploadPublicAsset(restaurant.id, "logo", logoFile, {
+        const logoUpload = await uploadPublicAsset(supabase, restaurant.id, "logo", logoFile, {
           ext: logoFile.name.split(".").pop(),
         });
         if ("error" in logoUpload) {
@@ -405,7 +371,7 @@ export default function AdminDashboard() {
       }
 
       if (welcomeBgFile) {
-        const bgUpload = await uploadPublicAsset(restaurant.id, "background", welcomeBgFile, {
+        const bgUpload = await uploadPublicAsset(supabase, restaurant.id, "background", welcomeBgFile, {
           ext: welcomeBgFile.name.split(".").pop(),
         });
         if ("error" in bgUpload) {
@@ -485,7 +451,7 @@ export default function AdminDashboard() {
     }
     if (file.size > 2 * 1024 * 1024) { alert("Maksimum 2MB!"); return; }
     setUploadingSlider(true);
-    const sliderUpload = await uploadPublicAsset(restaurant.id, "slider", file, {
+    const sliderUpload = await uploadPublicAsset(supabase, restaurant.id, "slider", file, {
       ext: file.name.split(".").pop(),
     });
     if ("url" in sliderUpload) {
@@ -505,6 +471,14 @@ export default function AdminDashboard() {
   const handleToggleActive = async (productId: string, currentStatus: boolean) => {
     await supabase.from("products").update({ is_active: !currentStatus }).eq("id", productId);
     setProducts(products.map((p: any) => p.id === productId ? { ...p, is_active: !currentStatus } : p));
+  };
+
+  const handleProductImageUpdated = (productId: string, imageUrl: string) => {
+    setProducts((prev) =>
+      prev.map((p: { id: string; image_url?: string }) =>
+        p.id === productId ? { ...p, image_url: imageUrl } : p
+      )
+    );
   };
 
   const handleUpdatePrice = async (productId: string, currentPrice: string) => {
@@ -766,15 +740,7 @@ export default function AdminDashboard() {
     let imageUrl = newProduct.image_url;
     try {
       if (newProduct.file) {
-        const prep = await prepareProductImageForUpload(newProduct.file);
-        const ext =
-          prep.blob === newProduct.file && newProduct.file.name.includes(".")
-            ? (newProduct.file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg"
-            : "jpg";
-        const productUpload = await uploadPublicAsset(restaurant.id, "products", prep.blob, {
-          ext,
-          contentType: prep.contentType,
-        });
+        const productUpload = await uploadProductImage(supabase, restaurant.id, newProduct.file);
         if ("error" in productUpload) {
           alert(productUpload.error);
           return;
@@ -1931,17 +1897,15 @@ export default function AdminDashboard() {
                                       aria-hidden
                                     />
                                   )}
-                                  <div className="w-12 h-12 md:w-14 md:h-14 bg-gray-100 rounded-xl overflow-hidden border flex-shrink-0">
-                                    {p.image_url ? (
-                                      <img
-                                        src={p.image_url}
-                                        alt=""
-                                        className="w-full h-full object-cover"
-                                      />
-                                    ) : (
-                                      <UtensilsCrossed className="m-auto text-gray-300 h-6 w-6" />
-                                    )}
-                                  </div>
+                                  {restaurant?.id && (
+                                    <ProductCardQuickImage
+                                      productId={p.id}
+                                      imageUrl={p.image_url}
+                                      restaurantId={restaurant.id}
+                                      disabled={productDeletingId === p.id}
+                                      onImageUpdated={handleProductImageUpdated}
+                                    />
+                                  )}
                                   <div className="min-w-0 flex-1">
                                     <p
                                       className="font-black text-sm md:text-base text-gray-900 leading-tight line-clamp-2"
