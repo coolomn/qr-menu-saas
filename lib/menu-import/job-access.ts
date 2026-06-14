@@ -39,3 +39,40 @@ export async function loadImportJobForOwner(
 
   return { ok: true, job: job as MenuImportJobRow };
 }
+
+export async function findActivePdfImportJobForOwner(
+  admin: SupabaseClient,
+  restaurantId: string,
+  user: User
+): Promise<
+  | { ok: true; job: MenuImportJobRow | null }
+  | { ok: false; status: number; error: string }
+> {
+  const { data: restaurant, error: resErr } = await admin
+    .from("restaurants")
+    .select("id")
+    .eq("id", restaurantId)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  if (resErr || !restaurant) {
+    return { ok: false, status: 403, error: "Restoran bulunamadı veya yetkiniz yok." };
+  }
+
+  const { data: job, error: jobErr } = await admin
+    .from("menu_import_jobs")
+    .select(JOB_SELECT)
+    .eq("restaurant_id", restaurantId)
+    .eq("source_type", "pdf")
+    .in("status", ["pending", "processing"])
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (jobErr) {
+    console.error(jobErr);
+    return { ok: false, status: 500, error: "Aktif iş kaydı okunamadı." };
+  }
+
+  return { ok: true, job: job ? (job as MenuImportJobRow) : null };
+}

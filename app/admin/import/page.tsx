@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   FileUp,
   Loader2,
+  Play,
   Trash2,
   Check,
   AlertCircle,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import type { ImportCategoryTarget, ImportMenuPayload, ImportVariant } from "@/lib/menu-import/schema";
 import type {
+  MenuImportActiveJobResponse,
   MenuImportAnalyzeResponse,
   MenuImportJobContinueResponse,
   MenuImportJobStatusResponse,
@@ -151,6 +153,7 @@ export default function AdminMenuImportPage() {
     null
   );
   const [asyncProgress, setAsyncProgress] = useState<AsyncImportProgress | null>(null);
+  const [resumableJob, setResumableJob] = useState<MenuImportJobStatusResponse | null>(null);
 
   const showTargetMenuPicker = activeMenus.length >= 2;
   const targetMenuName =
@@ -236,6 +239,28 @@ export default function AdminMenuImportPage() {
       }
       setMissingEnv(missing);
       setEnvCheckDone(true);
+
+      try {
+        const activeRes = await fetch(
+          `/api/menu-import/jobs/active?restaurantId=${encodeURIComponent(res.id)}`,
+          {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            cache: "no-store",
+          }
+        );
+        const { data: activeJson, parseError: activeParseError } =
+          await readApiJsonResponse<MenuImportActiveJobResponse & Record<string, unknown>>(
+            activeRes
+          );
+        if (activeRes.ok && !activeParseError && activeJson?.job) {
+          setResumableJob(activeJson.job);
+        } else {
+          setResumableJob(null);
+        }
+      } catch {
+        setResumableJob(null);
+      }
+
       setLoading(false);
     })();
   }, [router]);
@@ -484,6 +509,28 @@ export default function AdminMenuImportPage() {
     [updateAsyncProgressFromJob]
   );
 
+  const resumePdfImport = async () => {
+    if (!resumableJob) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Oturum bulunamadı.");
+      updateAsyncProgressFromJob(resumableJob);
+      const payload = await runAsyncPdfAnalyze(resumableJob.id, session.access_token);
+      applyPreviewFromPayload(payload);
+      setResumableJob(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Hata";
+      setError(mapAnalyzeErrorMessage(message));
+    } finally {
+      setBusy(false);
+      setAsyncProgress(null);
+    }
+  };
+
   const runAnalyze = async () => {
     if (!file || !restaurantId) return;
     if (!requireTargetMenuSelection()) return;
@@ -494,6 +541,7 @@ export default function AdminMenuImportPage() {
         : null
     );
     setBusy(true);
+    setResumableJob(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) throw new Error("Oturum bulunamadı.");
@@ -537,6 +585,7 @@ export default function AdminMenuImportPage() {
         });
         const payload = await runAsyncPdfAnalyze(json.jobId, session.access_token);
         applyPreviewFromPayload(payload);
+        setResumableJob(null);
         return;
       }
 
@@ -736,6 +785,53 @@ export default function AdminMenuImportPage() {
           </div>
         )}
 
+        {resumableJob && step === "upload" && !busy && !asyncProgress && (
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 md:p-5 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="shrink-0 mt-0.5 text-amber-700" size={18} />
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-amber-950">Devam eden PDF analizi bulundu</p>
+                <p className="text-xs text-amber-900/90 leading-relaxed">
+                  Sekme kapatıldığı için analiz yarım kalmış olabilir. Devam ettiğinizde kaldığı
+                  yerden sürdürülür.
+                </p>
+              </div>
+            </div>
+            {(resumableJob.page_count ?? 0) > 0 && (
+              <p className="text-sm font-bold text-amber-900">
+                {formatPdfAnalyzeProgress(
+                  resumableJob.pages_processed,
+                  resumableJob.page_count ?? 0
+                )}
+              </p>
+            )}
+            {resumableJob.progress_message && (
+              <p className="text-xs text-amber-800">{resumableJob.progress_message}</p>
+            )}
+            {(resumableJob.page_count ?? 0) > 0 && (
+              <div className="h-2 w-full overflow-hidden rounded-full bg-amber-100">
+                <div
+                  className="h-full bg-amber-600 transition-all duration-500"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      (resumableJob.pages_processed / (resumableJob.page_count ?? 1)) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={resumePdfImport}
+              className="inline-flex items-center justify-center gap-2 bg-amber-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-amber-800 transition-colors"
+            >
+              <Play size={16} />
+              Devam et
+            </button>
+          </div>
+        )}
+
         {step === "upload" && (
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-4">
             <p className="text-sm text-gray-500 leading-relaxed">
@@ -864,6 +960,7 @@ export default function AdminMenuImportPage() {
                   setCategoryTargets([]);
                   setVariantTemplateCategoryIndex(null);
                   setAsyncProgress(null);
+                  setResumableJob(null);
                   setFile(null);
                 }}
                 className="text-sm font-bold text-gray-500 hover:text-gray-800"
