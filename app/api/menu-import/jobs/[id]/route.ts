@@ -3,8 +3,8 @@ import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import {
   mapMenuImportJobRowToStatusResponse,
-  type MenuImportJobRow,
 } from "@/lib/menu-import/import-job";
+import { loadImportJobForOwner } from "@/lib/menu-import/job-access";
 
 export const runtime = "nodejs";
 
@@ -31,36 +31,13 @@ export async function GET(request: Request, context: RouteContext) {
     if (!svc.ok) {
       return NextResponse.json({ error: svc.error }, { status: 503, headers: NO_STORE_HEADERS });
     }
-    const admin = svc.client;
 
-    const { data: job, error: jobErr } = await admin
-      .from("menu_import_jobs")
-      .select(
-        "id, restaurant_id, user_id, status, storage_path, file_mime, parsed_json, error_message, source_type, page_count, pages_processed, progress_phase, progress_message, page_payloads, openai_calls, started_at, completed_at, created_at, updated_at"
-      )
-      .eq("id", jobId)
-      .maybeSingle();
-
-    if (jobErr) {
-      console.error(jobErr);
-      return NextResponse.json({ error: "İş kaydı okunamadı." }, { status: 500, headers: NO_STORE_HEADERS });
-    }
-    if (!job) {
-      return NextResponse.json({ error: "İş bulunamadı." }, { status: 404, headers: NO_STORE_HEADERS });
+    const loaded = await loadImportJobForOwner(svc.client, jobId, user);
+    if (!loaded.ok) {
+      return NextResponse.json({ error: loaded.error }, { status: loaded.status, headers: NO_STORE_HEADERS });
     }
 
-    const { data: restaurant, error: resErr } = await admin
-      .from("restaurants")
-      .select("id")
-      .eq("id", job.restaurant_id)
-      .eq("owner_id", user.id)
-      .maybeSingle();
-
-    if (resErr || !restaurant) {
-      return NextResponse.json({ error: "İş bulunamadı veya yetkiniz yok." }, { status: 403, headers: NO_STORE_HEADERS });
-    }
-
-    const response = mapMenuImportJobRowToStatusResponse(job as MenuImportJobRow);
+    const response = mapMenuImportJobRowToStatusResponse(loaded.job);
     return NextResponse.json(response, { headers: NO_STORE_HEADERS });
   } catch (e) {
     console.error("menu-import/jobs/[id] failed:", e);
