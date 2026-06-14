@@ -566,8 +566,15 @@ export default function AdminMenuImportPage() {
       if (parseError) {
         throw new Error(parseError);
       }
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || "Analiz iptal edilemedi.");
+      if (!res.ok || (json && "error" in json && json.error)) {
+        throw new Error(
+          json && "error" in json && typeof json.error === "string"
+            ? json.error
+            : "Analiz iptal edilemedi."
+        );
+      }
+      if (!json || !("ok" in json) || json.ok !== true) {
+        throw new Error("Analiz iptal edilemedi.");
       }
 
       setResumableJob(null);

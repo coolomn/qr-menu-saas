@@ -70,6 +70,9 @@ export type MenuImportJobContinueResponse = MenuImportJobStatusResponse & {
   advanced?: boolean;
 };
 
+/** POST /api/menu-import/jobs/[id]/cancel yanıt şeması */
+export type MenuImportJobCancelResponse = { ok: true } | { error: string };
+
 /** GET /api/menu-import/jobs/active yanıt şeması */
 export type MenuImportActiveJobResponse = {
   job: MenuImportJobStatusResponse | null;
