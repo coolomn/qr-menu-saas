@@ -13,16 +13,7 @@ import {
   type ResolvedMenuPresentation,
 } from "@/lib/public-menu/themes/resolve";
 import { ProductImageLightbox } from "@/app/menu/[slug]/_components/ProductImageLightbox";
-
-const ALLERGEN_OPTIONS = [
-  { id: "gluten", label: "Gluten", icon: "🌾" },
-  { id: "dairy", label: "Süt", icon: "🥛" },
-  { id: "nuts", label: "Kuruyemiş", icon: "🥜" },
-  { id: "seafood", label: "Deniz Ürünü", icon: "🦐" },
-  { id: "egg", label: "Yumurta", icon: "🥚" },
-  { id: "vegan", label: "Vegan", icon: "🌱" },
-  { id: "spicy", label: "Acı", icon: "🌶️" },
-];
+import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
 
 type PublicProductCardProps = {
   product: PublicProduct;
@@ -120,19 +111,11 @@ export function PublicProductCard({
 
           {description && <p className={c.productDescription}>{description}</p>}
 
-          {product.allergens && product.allergens.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-auto">
-              {product.allergens.map((aId: string) => {
-                const alg = ALLERGEN_OPTIONS.find((a) => a.id === aId);
-                return alg ? (
-                  <div key={aId} className={c.allergenBadge}>
-                    <span className="text-[10px]">{alg.icon}</span>
-                    <span className={c.allergenLabel}>{alg.label}</span>
-                  </div>
-                ) : null;
-              })}
-            </div>
-          )}
+          <PublicProductAllergens
+            allergens={product.allergens}
+            language={language}
+            theme={resolvedTheme}
+          />
         </div>
       </button>
 

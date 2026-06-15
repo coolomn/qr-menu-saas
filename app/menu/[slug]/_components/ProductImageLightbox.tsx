@@ -15,16 +15,7 @@ import {
   type ResolvedMenuPresentation,
 } from "@/lib/public-menu/themes/resolve";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
-
-const ALLERGEN_OPTIONS = [
-  { id: "gluten", label: "Gluten", icon: "🌾" },
-  { id: "dairy", label: "Süt", icon: "🥛" },
-  { id: "nuts", label: "Kuruyemiş", icon: "🥜" },
-  { id: "seafood", label: "Deniz Ürünü", icon: "🦐" },
-  { id: "egg", label: "Yumurta", icon: "🥚" },
-  { id: "vegan", label: "Vegan", icon: "🌱" },
-  { id: "spicy", label: "Acı", icon: "🌶️" },
-];
+import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
 
 const OPTIONAL_META_FIELDS = [
   { keys: ["grammage", "gram", "weight", "weight_g", "portion"], label: "Gramaj" },
@@ -246,20 +237,12 @@ export function ProductImageLightbox({
             </dl>
           )}
 
-          {product.allergens && product.allergens.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {product.allergens.map((allergenId) => {
-                const allergen = ALLERGEN_OPTIONS.find((item) => item.id === allergenId);
-                if (!allergen) return null;
-                return (
-                  <div key={allergenId} className={c.allergenBadge}>
-                    <span className="text-[10px]">{allergen.icon}</span>
-                    <span className={c.allergenLabel}>{allergen.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <PublicProductAllergens
+            allergens={product.allergens}
+            language={language}
+            theme={resolvedTheme}
+            className="flex flex-wrap gap-2"
+          />
         </div>
       </div>
     </div>,
