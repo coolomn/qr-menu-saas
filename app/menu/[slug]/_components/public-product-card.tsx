@@ -52,98 +52,98 @@ export function PublicProductCard({
   getText,
   language = "tr",
 }: PublicProductCardProps & { language?: string }) {
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
   const c = resolvedTheme.classes;
 
   const variants = Array.isArray(product.variants) ? product.variants : [];
   const showVariants = hasProductVariants(variants);
   const productRecord = product as unknown as Record<string, unknown>;
+  const productName = getText(productRecord, "name");
   const description = getText(productRecord, "description");
   const imageUrl = product.image_url?.trim();
 
   return (
-    <div className={c.productCard}>
-      {imageUrl && (
-        <button
-          type="button"
-          className={`${c.productImageWrap} cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
-          onClick={() => setLightboxOpen(true)}
-          aria-label="Ürün fotoğrafını büyüt"
-        >
-          <img
-            src={imageUrl}
-            alt={product.name || "Ürün Görseli"}
-            className="w-full h-full object-cover"
-          />
-        </button>
-      )}
-      <div className="flex-1 flex flex-col min-w-0 justify-center">
-        <div
-          className={`flex justify-between items-start gap-2 ${
-            showVariants ? "mb-1.5" : "mb-1"
-          }`}
-        >
-          <h3 className={`${c.fontHeading} ${c.productTitle}`}>
-            {getText(productRecord, "name")}
-          </h3>
-          {!showVariants && (
-            <PublicMenuPrice
-              raw={product.price}
-              theme={resolvedTheme}
-              size="product"
+    <>
+      <button
+        type="button"
+        className={`${c.productCard} w-full cursor-pointer text-left transition-opacity hover:opacity-95 active:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
+        onClick={() => setDetailOpen(true)}
+        aria-label={productName ? `${productName} — detayları gör` : "Ürün detaylarını gör"}
+      >
+        {imageUrl && (
+          <div className={`${c.productImageWrap} pointer-events-none`}>
+            <img
+              src={imageUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              draggable={false}
             />
-          )}
-        </div>
-
-        {showVariants && (
-          <ul className={c.variantList} aria-label="Fiyat seçenekleri">
-            {variants.map((variant) => {
-              const label = getVariantLabel(variant, language);
-              const hasPrice = parsePriceForDisplay(variant.price) != null;
-              return (
-                <li key={variant.id} className={c.variantItem}>
-                  <span className={c.variantLabel}>{label}</span>
-                  {hasPrice ? (
-                    <PublicMenuPrice
-                      raw={variant.price}
-                      theme={resolvedTheme}
-                      size="variant"
-                    />
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        {description && <p className={c.productDescription}>{description}</p>}
-
-        {product.allergens && product.allergens.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-auto">
-            {product.allergens.map((aId: string) => {
-              const alg = ALLERGEN_OPTIONS.find((a) => a.id === aId);
-              return alg ? (
-                <div key={aId} className={c.allergenBadge}>
-                  <span className="text-[10px]">{alg.icon}</span>
-                  <span className={c.allergenLabel}>{alg.label}</span>
-                </div>
-              ) : null;
-            })}
           </div>
         )}
-      </div>
+        <div className="flex-1 flex flex-col min-w-0 justify-center pointer-events-none">
+          <div
+            className={`flex justify-between items-start gap-2 ${
+              showVariants ? "mb-1.5" : "mb-1"
+            }`}
+          >
+            <h3 className={`${c.fontHeading} ${c.productTitle}`}>{productName}</h3>
+            {!showVariants && (
+              <PublicMenuPrice
+                raw={product.price}
+                theme={resolvedTheme}
+                size="product"
+              />
+            )}
+          </div>
 
-      {imageUrl && (
-        <ProductImageLightbox
-          open={lightboxOpen}
-          onClose={() => setLightboxOpen(false)}
-          product={product}
-          theme={resolvedTheme}
-          getText={getText}
-          language={language}
-        />
-      )}
-    </div>
+          {showVariants && (
+            <ul className={c.variantList} aria-label="Fiyat seçenekleri">
+              {variants.map((variant) => {
+                const label = getVariantLabel(variant, language);
+                const hasPrice = parsePriceForDisplay(variant.price) != null;
+                return (
+                  <li key={variant.id} className={c.variantItem}>
+                    <span className={c.variantLabel}>{label}</span>
+                    {hasPrice ? (
+                      <PublicMenuPrice
+                        raw={variant.price}
+                        theme={resolvedTheme}
+                        size="variant"
+                      />
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {description && <p className={c.productDescription}>{description}</p>}
+
+          {product.allergens && product.allergens.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-auto">
+              {product.allergens.map((aId: string) => {
+                const alg = ALLERGEN_OPTIONS.find((a) => a.id === aId);
+                return alg ? (
+                  <div key={aId} className={c.allergenBadge}>
+                    <span className="text-[10px]">{alg.icon}</span>
+                    <span className={c.allergenLabel}>{alg.label}</span>
+                  </div>
+                ) : null;
+              })}
+            </div>
+          )}
+        </div>
+      </button>
+
+      <ProductImageLightbox
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        product={product}
+        theme={resolvedTheme}
+        getText={getText}
+        language={language}
+      />
+    </>
   );
 }

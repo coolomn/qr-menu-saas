@@ -150,16 +150,18 @@ export function ProductImageLightbox({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  if (!open || !imageUrl || typeof document === "undefined") {
+  if (!open || typeof document === "undefined") {
     return null;
   }
+
+  const hasImage = Boolean(imageUrl);
 
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-4 py-6 backdrop-blur-[2px]"
       role="dialog"
       aria-modal="true"
-      aria-label={name || "Ürün fotoğrafı"}
+      aria-label={name ? `${name} — ürün detayı` : "Ürün detayı"}
       onClick={onClose}
     >
       <div
@@ -177,20 +179,26 @@ export function ProductImageLightbox({
           </button>
         </div>
 
-        <div className="px-4 sm:px-5">
-          <div
-            className={`relative aspect-square w-full overflow-hidden rounded-2xl sm:rounded-3xl ${lightboxImageAreaClasses(appearance)}`}
-          >
-            <img
-              src={imageUrl}
-              alt={name || "Ürün görseli"}
-              className="absolute inset-0 h-full w-full object-cover"
-              draggable={false}
-            />
+        {hasImage && (
+          <div className="px-4 sm:px-5">
+            <div
+              className={`relative aspect-square w-full overflow-hidden rounded-2xl sm:rounded-3xl ${lightboxImageAreaClasses(appearance)}`}
+            >
+              <img
+                src={imageUrl}
+                alt={name || "Ürün görseli"}
+                className="absolute inset-0 h-full w-full object-cover"
+                draggable={false}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="flex flex-col gap-4 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-6 sm:gap-5 sm:px-5 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pt-7">
+        <div
+          className={`flex flex-col gap-4 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:gap-5 sm:px-5 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] ${
+            hasImage ? "pt-6 sm:pt-7" : "pt-2 sm:pt-3"
+          }`}
+        >
           <div className="flex items-start justify-between gap-4">
             <h2 className={`${c.fontHeading} ${c.productTitle} min-w-0 text-lg leading-snug sm:text-xl`}>
               {name}
