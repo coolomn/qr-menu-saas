@@ -352,8 +352,8 @@ export default function MasterNewRestaurantPage() {
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 {form.owner_creation_mode === "invite"
-                  ? "Kullanıcı zaten kayıtlıysa davet gönderilmez, mevcut hesap bağlanır."
-                  : "E-posta sistemde kayıtlıysa işlem reddedilir; davet modunu kullanın."}
+                  ? "Kullanıcı zaten kayıtlıysa davet gönderilmez; restoran mevcut hesaba bağlanır."
+                  : "Kullanıcı zaten kayıtlıysa yeni hesap açılmaz; restoran mevcut hesaba bağlanır."}
               </p>
             </div>
           </section>

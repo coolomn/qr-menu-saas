@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isValidEmail, normalizeEmailForOwner } from "@/lib/master-admin/owners";
+import {
+  findUserIdByEmail,
+  isValidEmail,
+  normalizeEmailForOwner,
+} from "@/lib/master-admin/owner-email";
 
 const LOWER = "abcdefghijkmnopqrstuvwxyz";
 const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -30,31 +34,8 @@ export function generateTemporaryPassword(length = 16): string {
 }
 
 export type CreateOwnerWithTemporaryPasswordResult =
-  | { ok: true; userId: string; temporaryPassword: string }
+  | { ok: true; userId: string; temporaryPassword?: string }
   | { ok: false; error: string };
-
-async function findUserIdByEmail(admin: SupabaseClient, email: string): Promise<string | null> {
-  const target = normalizeEmailForOwner(email);
-  let page = 1;
-  const perPage = 200;
-
-  while (page <= 10) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) {
-      console.error("listUsers failed:", error.message);
-      return null;
-    }
-
-    const users = data?.users ?? [];
-    const found = users.find((user) => user.email?.toLowerCase() === target);
-    if (found?.id) return found.id;
-
-    if (users.length < perPage) break;
-    page += 1;
-  }
-
-  return null;
-}
 
 /** Yeni owner hesabı; e-posta onaylı, davet maili yok. */
 export async function createOwnerWithTemporaryPassword(
@@ -68,11 +49,7 @@ export async function createOwnerWithTemporaryPassword(
   const normalized = normalizeEmailForOwner(email);
   const existingId = await findUserIdByEmail(admin, normalized);
   if (existingId) {
-    return {
-      ok: false,
-      error:
-        "Bu e-posta zaten kayıtlı. Davet modunu kullanın veya farklı bir e-posta girin.",
-    };
+    return { ok: true, userId: existingId };
   }
 
   const temporaryPassword = generateTemporaryPassword();
@@ -85,11 +62,10 @@ export async function createOwnerWithTemporaryPassword(
   if (error) {
     const alreadyExists = /already|registered|exists/i.test(error.message);
     if (alreadyExists) {
-      return {
-        ok: false,
-        error:
-          "Bu e-posta zaten kayıtlı. Davet modunu kullanın veya farklı bir e-posta girin.",
-      };
+      const retryId = await findUserIdByEmail(admin, normalized);
+      if (retryId) {
+        return { ok: true, userId: retryId };
+      }
     }
     console.error("createUser failed:", error.message);
     return { ok: false, error: error.message || "Owner hesabı oluşturulamadı." };

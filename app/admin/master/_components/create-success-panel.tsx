@@ -31,10 +31,15 @@ export function CreateSuccessPanel({ data, onCreateAnother }: CreateSuccessPanel
     owner_creation_mode,
     owner_invited,
     owner_exists,
+    linked_existing_owner,
+    created_owner,
     login_url,
     invite_sent_at,
     temporary_password,
+    message,
   } = data;
+
+  const linkedExisting = linked_existing_owner || owner_exists;
 
   const isTemporaryPassword =
     owner_creation_mode === "temporary_password" && Boolean(temporary_password);
@@ -118,13 +123,23 @@ export function CreateSuccessPanel({ data, onCreateAnother }: CreateSuccessPanel
             <span className="font-semibold">{owner_email}</span> için hesap geçici şifre ile
             oluşturuldu. Davet e-postası gönderilmedi.
           </p>
-        ) : owner_exists ? (
+        ) : linkedExisting ? (
           <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="font-bold">Bu kullanıcı zaten sistemde kayıtlıydı.</p>
             <p className="mt-1 text-amber-800/90">
-              <span className="font-semibold">{owner_email}</span> hesabı mevcut kullanıcıya
-              bağlandı. Yeni davet e-postası gönderilmedi.
+              {message ?? (
+                <>
+                  <span className="font-semibold">{owner_email}</span> hesabı mevcut kullanıcıya
+                  bağlandı. Yeni davet e-postası gönderilmedi.
+                </>
+              )}
             </p>
+            {!created_owner && (
+              <p className="mt-2 text-xs text-amber-800/80">
+                Kullanıcı aynı hesapla giriş yaptığında restoran seçiciden tüm işletmelerini
+                görebilir.
+              </p>
+            )}
           </div>
         ) : owner_invited ? (
           <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900 space-y-3">

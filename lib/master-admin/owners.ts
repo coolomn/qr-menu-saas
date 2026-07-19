@@ -1,43 +1,32 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { OwnerCreationMode } from "@/lib/master-admin/create-payload";
+import {
+  findUserIdByEmail,
+  isValidEmail,
+  normalizeEmailForOwner,
+} from "@/lib/master-admin/owner-email";
+import { createOwnerWithTemporaryPassword } from "@/lib/master-admin/temporary-password";
 
 export type ResolveOwnerResult =
   | { ok: true; userId: string; invited: boolean }
   | { ok: false; error: string };
 
-export function normalizeEmailForOwner(email: string): string {
-  return email.trim().toLowerCase();
-}
+export type ResolveOwnerForCreateResult =
+  | {
+      ok: true;
+      userId: string;
+      createdOwner: boolean;
+      linkedExistingOwner: boolean;
+      ownerInvited: boolean;
+      temporaryPassword?: string;
+      message?: string;
+    }
+  | { ok: false; error: string };
+
+export { isValidEmail, normalizeEmailForOwner, findUserIdByEmail } from "@/lib/master-admin/owner-email";
 
 function normalizeEmail(email: string): string {
   return normalizeEmailForOwner(email);
-}
-
-export function isValidEmail(email: string): boolean {
-  const normalized = normalizeEmail(email);
-  return normalized.length >= 5 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
-}
-
-async function findUserIdByEmail(admin: SupabaseClient, email: string): Promise<string | null> {
-  const target = normalizeEmail(email);
-  let page = 1;
-  const perPage = 200;
-
-  while (page <= 10) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) {
-      console.error("listUsers failed:", error);
-      return null;
-    }
-
-    const users = data?.users ?? [];
-    const found = users.find((user) => user.email?.toLowerCase() === target);
-    if (found?.id) return found.id;
-
-    if (users.length < perPage) break;
-    page += 1;
-  }
-
-  return null;
 }
 
 /** Mevcut kullanıcıyı bağlar; yoksa davet e-postası gönderir. */
@@ -78,4 +67,61 @@ export async function resolveOwnerByEmail(
   }
 
   return { ok: true, userId, invited: true };
+}
+
+const LINKED_EXISTING_OWNER_MESSAGE =
+  "Bu e-posta zaten kayıtlı. Restoran mevcut kullanıcıya bağlandı.";
+
+/** Yeni restoran için owner: mevcut hesabı bağlar veya moda göre yeni hesap açar. */
+export async function resolveOwnerForRestaurantCreation(
+  admin: SupabaseClient,
+  email: string,
+  mode: OwnerCreationMode,
+  redirectTo: string
+): Promise<ResolveOwnerForCreateResult> {
+  if (!isValidEmail(email)) {
+    return { ok: false, error: "Geçerli bir owner e-postası girin." };
+  }
+
+  const normalized = normalizeEmailForOwner(email);
+  const existingId = await findUserIdByEmail(admin, normalized);
+
+  if (existingId) {
+    return {
+      ok: true,
+      userId: existingId,
+      createdOwner: false,
+      linkedExistingOwner: true,
+      ownerInvited: false,
+      message: LINKED_EXISTING_OWNER_MESSAGE,
+    };
+  }
+
+  if (mode === "temporary_password") {
+    const created = await createOwnerWithTemporaryPassword(admin, normalized);
+    if (!created.ok) {
+      return { ok: false, error: created.error };
+    }
+    return {
+      ok: true,
+      userId: created.userId,
+      createdOwner: true,
+      linkedExistingOwner: false,
+      ownerInvited: false,
+      temporaryPassword: created.temporaryPassword,
+    };
+  }
+
+  const invited = await resolveOwnerByEmail(admin, normalized, redirectTo);
+  if (!invited.ok) {
+    return { ok: false, error: invited.error };
+  }
+
+  return {
+    ok: true,
+    userId: invited.userId,
+    createdOwner: invited.invited,
+    linkedExistingOwner: false,
+    ownerInvited: invited.invited,
+  };
 }

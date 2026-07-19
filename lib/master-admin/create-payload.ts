@@ -1,6 +1,6 @@
 import { validateLoginUsername, normalizeLoginUsername } from "@/lib/admin-auth/login-username";
 import type { PlanType } from "@/lib/master-admin/plans";
-import { isValidEmail } from "@/lib/master-admin/owners";
+import { isValidEmail } from "@/lib/master-admin/owner-email";
 import { isValidSlug, normalizeSlugInput } from "@/lib/master-admin/slug";
 
 export type OwnerCreationMode = "invite" | "temporary_password";

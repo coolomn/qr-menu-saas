@@ -2,8 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { requireMasterAdmin } from "@/lib/master-admin/auth";
 import { parseCreateRestaurantBody } from "@/lib/master-admin/create-payload";
-import { resolveOwnerByEmail } from "@/lib/master-admin/owners";
-import { createOwnerWithTemporaryPassword } from "@/lib/master-admin/temporary-password";
+import { resolveOwnerForRestaurantCreation } from "@/lib/master-admin/owners";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
 import { buildInviteSetPasswordUrl } from "@/lib/admin-auth/invite-flow";
 import { buildOwnerLoginUrl } from "@/lib/master-admin/create-response";
@@ -175,31 +174,23 @@ export async function POST(request: Request) {
   }
 
   const origin = new URL(request.url).origin;
-  let ownerUserId: string;
-  let ownerInvited = false;
-  let ownerExists = false;
-  let temporaryPassword: string | undefined;
+  const ownerResult = await resolveOwnerForRestaurantCreation(
+    auth.admin,
+    payload.owner_email,
+    payload.owner_creation_mode,
+    buildInviteSetPasswordUrl(origin)
+  );
 
-  if (payload.owner_creation_mode === "temporary_password") {
-    const created = await createOwnerWithTemporaryPassword(auth.admin, payload.owner_email);
-    if (!created.ok) {
-      return NextResponse.json({ error: created.error }, { status: 400 });
-    }
-    ownerUserId = created.userId;
-    temporaryPassword = created.temporaryPassword;
-  } else {
-    const ownerResult = await resolveOwnerByEmail(
-      auth.admin,
-      payload.owner_email,
-      buildInviteSetPasswordUrl(origin)
-    );
-    if (!ownerResult.ok) {
-      return NextResponse.json({ error: ownerResult.error }, { status: 400 });
-    }
-    ownerUserId = ownerResult.userId;
-    ownerInvited = ownerResult.invited;
-    ownerExists = !ownerResult.invited;
+  if (!ownerResult.ok) {
+    return NextResponse.json({ error: ownerResult.error }, { status: 400 });
   }
+
+  const ownerUserId = ownerResult.userId;
+  const ownerInvited = ownerResult.ownerInvited;
+  const ownerExists = ownerResult.linkedExistingOwner;
+  const createdOwner = ownerResult.createdOwner;
+  const linkedExistingOwner = ownerResult.linkedExistingOwner;
+  const temporaryPassword = ownerResult.temporaryPassword;
 
   const { data: restaurant, error: restaurantError } = await auth.admin
     .from("restaurants")
@@ -265,6 +256,8 @@ export async function POST(request: Request) {
       admin_notes: payload.admin_notes,
       owner_invited: ownerInvited,
       owner_creation_mode: payload.owner_creation_mode,
+      created_owner: createdOwner,
+      linked_existing_owner: linkedExistingOwner,
     },
     created_by: auth.user.id,
   });
@@ -284,9 +277,15 @@ export async function POST(request: Request) {
     owner_creation_mode: payload.owner_creation_mode,
     owner_invited: ownerInvited,
     owner_exists: ownerExists,
+    created_owner: createdOwner,
+    linked_existing_owner: linkedExistingOwner,
     login_url: loginUrl,
     invite_sent_at: inviteSentAt,
   };
+
+  if (ownerResult.message) {
+    responseBody.message = ownerResult.message;
+  }
 
   if (temporaryPassword) {
     responseBody.temporary_password = temporaryPassword;

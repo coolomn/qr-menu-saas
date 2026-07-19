@@ -73,28 +73,36 @@ function isPdfUploadFile(file: File): boolean {
 const UNEXPECTED_SERVER_RESPONSE = "Sunucu beklenmeyen bir yanıt döndürdü.";
 const ANALYZE_TIMEOUT_MESSAGE =
   "Görsel çok büyük veya analiz uzun sürdü. Lütfen daha küçük bir görsel yükleyin.";
+const ANALYZE_GENERIC_FALLBACK = "Analiz başarısız. Lütfen tekrar deneyin.";
+
+function isAnalyzeTimeoutSignal(status: number, text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    status === 504 ||
+    /timed out|task timed out|runtime timeout|gateway timeout/i.test(trimmed)
+  );
+}
 
 async function readApiJsonResponse<T extends Record<string, unknown>>(
   res: Response
 ): Promise<{ data: T | null; parseError: string | null }> {
   const text = await res.text();
   if (!text.trim()) {
-    if (res.status === 504) {
+    if (isAnalyzeTimeoutSignal(res.status, "")) {
       return { data: null, parseError: ANALYZE_TIMEOUT_MESSAGE };
     }
     return {
       data: null,
-      parseError: res.ok ? null : `${UNEXPECTED_SERVER_RESPONSE} (HTTP ${res.status})`,
+      parseError: res.ok
+        ? null
+        : `${ANALYZE_GENERIC_FALLBACK} (HTTP ${res.status})`,
     };
   }
   try {
     return { data: JSON.parse(text) as T, parseError: null };
   } catch {
     const trimmed = text.trim();
-    if (
-      res.status === 504 ||
-      /timed out|task timed out|runtime timeout/i.test(trimmed)
-    ) {
+    if (isAnalyzeTimeoutSignal(res.status, trimmed)) {
       return { data: null, parseError: ANALYZE_TIMEOUT_MESSAGE };
     }
     const looksLikeHtml = /<html/i.test(text);
@@ -112,17 +120,26 @@ async function readApiJsonResponse<T extends Record<string, unknown>>(
 }
 
 function mapAnalyzeErrorMessage(message: string): string {
-  const m = message.trim().toLowerCase();
-  if (
-    m.includes("504") ||
-    m.includes("timed out") ||
-    m.includes("task timed out") ||
-    m.includes("runtime timeout") ||
-    m.includes("gateway timeout")
-  ) {
+  const trimmed = message.trim();
+  if (!trimmed) return ANALYZE_GENERIC_FALLBACK;
+  if (isAnalyzeTimeoutSignal(0, trimmed)) {
     return ANALYZE_TIMEOUT_MESSAGE;
   }
-  return message;
+  return trimmed;
+}
+
+function extractApiErrorMessage(
+  json: Record<string, unknown> | null | undefined,
+  res: Response
+): string {
+  const apiError = json?.error;
+  if (typeof apiError === "string" && apiError.trim()) {
+    return apiError.trim();
+  }
+  if (!res.ok) {
+    return `${ANALYZE_GENERIC_FALLBACK} (HTTP ${res.status})`;
+  }
+  return ANALYZE_GENERIC_FALLBACK;
 }
 
 type AsyncImportProgress = {
@@ -629,7 +646,7 @@ export default function AdminMenuImportPage() {
         throw new Error(parseError);
       }
       if (!res.ok) {
-        throw new Error(json?.error || `Analiz başarısız (HTTP ${res.status}).`);
+        throw new Error(extractApiErrorMessage(json, res));
       }
 
       if (res.status === 202 && json?.async && json.jobId) {
@@ -647,7 +664,7 @@ export default function AdminMenuImportPage() {
       }
 
       if (!json?.payload) {
-        throw new Error(json?.error || "Analiz sonucu alınamadı.");
+        throw new Error(extractApiErrorMessage(json, res));
       }
       applyPreviewFromPayload(json.payload);
     } catch (e) {

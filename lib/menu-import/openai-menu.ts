@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { parseJsonFromModelContent } from "./parse-json";
+import { parseJsonFromModelContent, previewRawModelContent } from "./parse-json";
 import {
   enforceProductLimit,
   importMenuPayloadSchema,
@@ -7,7 +7,16 @@ import {
   type ImportMenuPayload,
 } from "./schema";
 
-const IMPORT_COMPLETION_MAX_TOKENS = 6000;
+/** Yoğun menü sayfaları (2+ sayfa PDF raster) için yeterli çıktı payı. */
+const IMPORT_IMAGE_MAX_TOKENS = 12_000;
+const IMPORT_TEXT_MAX_TOKENS = 8_000;
+
+const STRICT_JSON_OUTPUT_RULES = `ÇIKTI FORMATI — ZORUNLU (ihlal etme):
+- Yalnızca tek bir geçerli JSON nesnesi döndür.
+- İlk karakter { olmalı; son karakter } olmalı.
+- Markdown, code fence (\`\`\`), açıklama, ön/son metin YASAK.
+- "İşte JSON", "Sure", "Here is" gibi cümleler YASAK.
+- Yanıt parse edilebilir JSON olmalı; başka hiçbir şey yazma.`;
 /** Görsel OCR doğruluğu için tam vision modeli. */
 const IMPORT_IMAGE_MODEL = "gpt-4o";
 const IMPORT_TEXT_MODEL = "gpt-4o-mini";
@@ -69,7 +78,9 @@ const DESCRIPTION_RULES = `Açıklama (description / description_en / descriptio
 - "Sade Omlet / Plain Omelette" gibi yalnızca isim satırı → name + name_en; description null.
 - İngilizce adı description veya description_en'e yazma; name_en kullan.`;
 
-const MENU_JSON_INSTRUCTION = `Yanıt YALNIZCA geçerli JSON (markdown yok):
+const MENU_JSON_INSTRUCTION = `${STRICT_JSON_OUTPUT_RULES}
+
+Yanıt YALNIZCA geçerli JSON (markdown yok, açıklama yok):
 {"categories":[{"name":"string","name_en":null,"name_ru":null,"main_group":"YİYECEKLER|İÇECEKLER|DİĞER|null","products":[{"name":"string","name_en":null,"name_ru":null,"description":null,"description_en":null,"description_ru":null,"price":null|string,"variants":[{"label":"string","label_en":null,"label_ru":null,"price":null|string}]}]}]}
 
 ${STRICT_OCR_RULES}
@@ -119,12 +130,27 @@ function formatImportValidationError(parsed: unknown, zodMessage: string): strin
   return "Menü verisi doğrulanamadı. Lütfen dosyayı kontrol edip tekrar deneyin.";
 }
 
-async function parseMenuJsonResponse(raw: string | null | undefined): Promise<ImportMenuPayload> {
+async function parseMenuJsonResponse(
+  raw: string | null | undefined,
+  context?: { model?: string; finishReason?: string | null }
+): Promise<ImportMenuPayload> {
   if (!raw) throw new Error("AI yanıtı boş.");
   let parsed: unknown;
   try {
     parsed = parseJsonFromModelContent(raw);
-  } catch {
+  } catch (parseError) {
+    console.error("[menu-import] AI JSON parse failed:", {
+      route: "menu-import/openai-menu",
+      model: context?.model ?? null,
+      finishReason: context?.finishReason ?? null,
+      rawLength: raw.length,
+      rawPreview: previewRawModelContent(raw),
+      error: parseError instanceof Error ? parseError.message : parseError,
+      hint:
+        context?.finishReason === "length"
+          ? "Yanıt max_tokens sınırında kesilmiş olabilir."
+          : null,
+    });
     throw new Error("AI çıktısı JSON olarak çözülemedi.");
   }
 
@@ -155,11 +181,11 @@ export async function structureMenuFromText(menuText: string): Promise<ImportMen
     model: IMPORT_TEXT_MODEL,
     response_format: { type: "json_object" },
     temperature: 0,
-    max_tokens: IMPORT_COMPLETION_MAX_TOKENS,
+    max_tokens: IMPORT_TEXT_MAX_TOKENS,
     messages: [
       {
         role: "system",
-        content: `Menü metnini JSON'a çevir; yalnızca metinde yazanları al.\n${MENU_JSON_INSTRUCTION}`,
+        content: `Menü metnini JSON'a çevir; yalnızca metinde yazanları al. ${STRICT_JSON_OUTPUT_RULES}\n${MENU_JSON_INSTRUCTION}`,
       },
       {
         role: "user",
@@ -167,8 +193,12 @@ export async function structureMenuFromText(menuText: string): Promise<ImportMen
       },
     ],
   });
-  const raw = completion.choices[0]?.message?.content;
-  return parseMenuJsonResponse(raw);
+  const choice = completion.choices[0];
+  const raw = choice?.message?.content;
+  return parseMenuJsonResponse(raw, {
+    model: IMPORT_TEXT_MODEL,
+    finishReason: choice?.finish_reason ?? null,
+  });
 }
 
 export async function structureMenuFromImageBase64(
@@ -181,18 +211,18 @@ export async function structureMenuFromImageBase64(
     model: IMPORT_IMAGE_MODEL,
     response_format: { type: "json_object" },
     temperature: 0,
-    max_tokens: IMPORT_COMPLETION_MAX_TOKENS,
+    max_tokens: IMPORT_IMAGE_MAX_TOKENS,
     messages: [
       {
         role: "system",
-        content: `Sen menü OCR asistanısın. Görseldeki yazıları harfiyen oku; tek geçişte JSON üret.\n${MENU_JSON_INSTRUCTION}`,
+        content: `Sen menü OCR asistanısın. Görseldeki yazıları harfiyen oku; tek geçişte JSON üret. ${STRICT_JSON_OUTPUT_RULES}\n${MENU_JSON_INSTRUCTION}`,
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: "Bu menü fotoğrafındaki yazıları harfiyen oku. Ürün adları, fiyatlar ve menüde görünen açıklama cümlelerini ilgili alanlara yaz. Bir kategoride üst satırda ölçü/hacim kolonları (20 CL, 35 CL, 50 CL, 70 CL vb.) varsa o kategorideki her ürün satırı için variants[] oluştur; fiyat boş çizgi veya okunamazsa variants[].price null bırak. Tahmin etme; emin olmadığın ürün satırını atla. Açıklama menüde yoksa null.",
+            text: "Bu menü fotoğrafındaki yazıları harfiyen oku. Ürün adları, fiyatlar ve menüde görünen açıklama cümlelerini ilgili alanlara yaz. Bir kategoride üst satırda ölçü/hacim kolonları (20 CL, 35 CL, 50 CL, 70 CL vb.) varsa o kategorideki her ürün satırı için variants[] oluştur; fiyat boş çizgi veya okunamazsa variants[].price null bırak. Tahmin etme; emin olmadığın ürün satırını atla. Açıklama menüde yoksa null. Yanıtın yalnızca geçerli JSON olsun; markdown veya açıklama ekleme.",
           },
           {
             type: "image_url",
@@ -202,6 +232,16 @@ export async function structureMenuFromImageBase64(
       },
     ],
   });
-  const raw = completion.choices[0]?.message?.content;
-  return parseMenuJsonResponse(raw);
+  const choice = completion.choices[0];
+  const raw = choice?.message?.content;
+  if (choice?.finish_reason === "length") {
+    console.warn("[menu-import] OpenAI response truncated (finish_reason=length):", {
+      model: IMPORT_IMAGE_MODEL,
+      max_tokens: IMPORT_IMAGE_MAX_TOKENS,
+    });
+  }
+  return parseMenuJsonResponse(raw, {
+    model: IMPORT_IMAGE_MODEL,
+    finishReason: choice?.finish_reason ?? null,
+  });
 }

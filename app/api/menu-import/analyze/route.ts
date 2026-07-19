@@ -28,6 +28,27 @@ import { patchImportJob, pdfProgressMessage } from "@/lib/menu-import/import-job
 const GENERIC_ANALYZE_ERROR =
   "Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.";
 
+type AnalyzeLogContext = {
+  mimeType: string | null;
+  storagePath: string | null;
+  jobId: string | null;
+  sourceType: "image" | "pdf" | null;
+  pageCount: number | null;
+};
+
+function logAnalyze422(reason: string, ctx: AnalyzeLogContext): void {
+  console.error("[menu-import/analyze] 422", {
+    route: "menu-import/analyze",
+    status: 422,
+    reason,
+    mimeType: ctx.mimeType,
+    storagePath: ctx.storagePath,
+    jobId: ctx.jobId,
+    sourceType: ctx.sourceType,
+    pageCount: ctx.pageCount,
+  });
+}
+
 function isPlatformErrorMessage(message: string): boolean {
   const m = message.trim();
   return (
@@ -88,6 +109,10 @@ type Body = {
 
 async function handleAnalyzePost(request: Request): Promise<NextResponse> {
   let jobId: string | null = null;
+  let mimeType: string | null = null;
+  let storagePath: string | null = null;
+  let sourceType: AnalyzeLogContext["sourceType"] = null;
+  let pageCount: number | null = null;
   const cleanup: ImportUploadCleanup = {
     admin: undefined,
     storagePath: null,
@@ -116,8 +141,8 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     }
 
     const restaurantId = body.restaurantId?.trim();
-    const storagePath = body.storagePath?.trim();
-    const mimeType = (body.mimeType || "").trim().toLowerCase();
+    storagePath = body.storagePath?.trim() ?? null;
+    mimeType = (body.mimeType || "").trim().toLowerCase() || null;
 
     if (!restaurantId || !storagePath) {
       return NextResponse.json({ error: "restaurantId ve storagePath zorunlu." }, { status: 400 });
@@ -141,8 +166,9 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       );
     }
 
-    const isPdf = isPdfMime(mimeType);
-    const isImage = isImageMime(mimeType);
+    const isPdf = isPdfMime(mimeType ?? "");
+    const isImage = isImageMime(mimeType ?? "");
+    sourceType = isPdf ? "pdf" : isImage ? "image" : null;
 
     if (!isPdf && !isImage) {
       return respondAfterUploadCleanup(
@@ -186,6 +212,13 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
         isAsyncPdf = pageCount > PDF_MAX_PAGES_SYNC;
       } catch (e) {
         const msg = e instanceof Error ? e.message : PDF_INVALID_MESSAGE;
+        logAnalyze422(msg, {
+          mimeType,
+          storagePath,
+          jobId,
+          sourceType: "pdf",
+          pageCount,
+        });
         return respondAfterUploadCleanup(
           cleanup,
           NextResponse.json({ error: msg }, { status: 422 })
@@ -193,7 +226,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       }
     }
 
-    const pageCount = isPdf ? pdfPageCount : 1;
+    pageCount = isPdf ? pdfPageCount : 1;
 
     if (isAsyncPdf) {
       const { data: jobRow, error: jobInsertErr } = await cleanup.admin
@@ -353,6 +386,15 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     await maybeCleanupUploadedImportFile(cleanup);
 
     const { message, status } = userFacingAnalyzeError(rawMessage);
+    if (status === 422) {
+      logAnalyze422(message, {
+        mimeType,
+        storagePath,
+        jobId,
+        sourceType,
+        pageCount,
+      });
+    }
     return NextResponse.json({ ok: false, error: message }, { status });
   }
 }
