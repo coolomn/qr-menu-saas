@@ -7,15 +7,17 @@ import {
   resolveImportDownloadTarget,
 } from "@/lib/menu-import/paths";
 import { cleanupImportFile } from "@/lib/menu-import/cleanup-import-file";
-import { isImageMime, isPdfMime } from "@/lib/menu-import/mime";
+import { isImageMime, isPdfMime, isExcelMime, isExcelFileName } from "@/lib/menu-import/mime";
 import { optimizeBufferForVision } from "@/lib/menu-import/analyze-buffer";
 import { analyzePdfBuffer } from "@/lib/menu-import/analyze-pdf";
+import { analyzeExcelBuffer } from "@/lib/menu-import/excel";
 import {
   IMPORT_MAX_FILE_BYTES,
   PDF_INVALID_MESSAGE,
   PDF_MAX_PAGES_ASYNC,
   PDF_MAX_PAGES_SYNC,
 } from "@/lib/menu-import/pdf-constants";
+import { EXCEL_TOO_LARGE_MESSAGE } from "@/lib/menu-import/excel/constants";
 import {
   assertPdfMagicBytes,
   assertPdfPageCountWithinLimit,
@@ -32,7 +34,7 @@ type AnalyzeLogContext = {
   mimeType: string | null;
   storagePath: string | null;
   jobId: string | null;
-  sourceType: "image" | "pdf" | null;
+  sourceType: "image" | "pdf" | "excel" | null;
   pageCount: number | null;
 };
 
@@ -168,19 +170,25 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
 
     const isPdf = isPdfMime(mimeType ?? "");
     const isImage = isImageMime(mimeType ?? "");
-    sourceType = isPdf ? "pdf" : isImage ? "image" : null;
+    const isExcel =
+      isExcelMime(mimeType ?? "") || isExcelFileName(storagePath ?? "");
+    sourceType = isPdf ? "pdf" : isExcel ? "excel" : isImage ? "image" : null;
 
-    if (!isPdf && !isImage) {
+    if (!isPdf && !isImage && !isExcel) {
       return respondAfterUploadCleanup(
         cleanup,
         NextResponse.json(
-          { error: "Yalnızca JPEG, PNG, WebP, GIF veya PDF desteklenir." },
+          {
+            error:
+              "Yalnızca JPEG, PNG, WebP, GIF, PDF veya Excel (.xlsx / .xls) desteklenir.",
+          },
           { status: 400 }
         )
       );
     }
 
-    if (!process.env.OPENAI_API_KEY?.trim()) {
+    // Excel kod-öncelikli; OpenAI yalnızca görsel/PDF için zorunlu.
+    if (!isExcel && !process.env.OPENAI_API_KEY?.trim()) {
       return respondAfterUploadCleanup(
         cleanup,
         NextResponse.json(
@@ -198,7 +206,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
 
     const buffer = Buffer.from(await blob.arrayBuffer());
     if (buffer.length > IMPORT_MAX_FILE_BYTES) {
-      throw new Error("Dosya çok büyük (en fazla 12 MB).");
+      throw new Error(isExcel ? EXCEL_TOO_LARGE_MESSAGE : "Dosya çok büyük (en fazla 12 MB).");
     }
 
     let pdfPageCount: number | null = null;
@@ -227,6 +235,76 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     }
 
     pageCount = isPdf ? pdfPageCount : 1;
+
+    if (isExcel) {
+      // DB check constraint: source_type in ('image','pdf') — migration yok; excel için 'image' + excel mime.
+      const startedAt = new Date().toISOString();
+      const { data: jobRow, error: jobInsertErr } = await cleanup.admin
+        .from("menu_import_jobs")
+        .insert({
+          restaurant_id: restaurantId,
+          user_id: user.id,
+          status: "processing",
+          storage_path: storagePath,
+          file_mime: mimeType || null,
+          source_type: "image",
+          page_count: 1,
+          pages_processed: 0,
+          progress_phase: "analyzing",
+          progress_message: "Excel analiz ediliyor…",
+          started_at: startedAt,
+        })
+        .select("id")
+        .single();
+
+      if (jobInsertErr || !jobRow) {
+        console.error(jobInsertErr);
+        throw new Error("İş kaydı oluşturulamadı.");
+      }
+      jobId = jobRow.id;
+
+      try {
+        const fileNameHint = storagePath?.split("/").pop();
+        const { payload: excelPayload, summary } = await analyzeExcelBuffer(buffer, {
+          fileNameHint,
+          enableAi: Boolean(process.env.OPENAI_API_KEY?.trim()),
+        });
+        console.info("[menu-import/analyze] excel done", summary);
+
+        const completedAt = new Date().toISOString();
+        await cleanup.admin
+          .from("menu_import_jobs")
+          .update({
+            status: "completed",
+            parsed_json: excelPayload,
+            error_message: null,
+            pages_processed: 1,
+            progress_phase: "completed",
+            progress_message: null,
+            openai_calls: 0,
+            completed_at: completedAt,
+          })
+          .eq("id", jobId);
+
+        await maybeCleanupUploadedImportFile(cleanup);
+        return NextResponse.json({
+          ok: true,
+          jobId,
+          payload: excelPayload,
+          excel_summary: summary,
+        });
+      } catch (excelErr) {
+        const msg =
+          excelErr instanceof Error ? excelErr.message : "Excel analizi başarısız.";
+        console.error("[menu-import/analyze] excel failed:", {
+          jobId,
+          storagePath,
+          mimeType,
+          error: msg,
+        });
+        throw excelErr;
+      }
+    }
 
     if (isAsyncPdf) {
       const { data: jobRow, error: jobInsertErr } = await cleanup.admin

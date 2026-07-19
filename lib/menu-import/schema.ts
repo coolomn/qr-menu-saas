@@ -76,7 +76,7 @@ export type ImportCommitRequest = z.infer<typeof importCommitRequestSchema>;
 const MAX_TOTAL_PRODUCTS = 400;
 
 export const MENU_IMPORT_EMPTY_RESULT_MESSAGE =
-  "Menüden ürün veya kategori tespit edilemedi. Daha net bir PDF veya menü görseli yükleyin.";
+  "Menüden ürün veya kategori tespit edilemedi. Daha net bir PDF, Excel veya menü görseli yükleyin.";
 
 /** Boş kategorileri atar, ürün üst sınırını uygular. */
 export function enforceProductLimit(payload: ImportMenuPayload): ImportMenuPayload {

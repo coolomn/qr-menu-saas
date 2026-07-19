@@ -58,7 +58,7 @@ function itemToForm(item: MasterRestaurantListItem): FormState {
 export default function MasterRestaurantDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const restaurantId = typeof params.id === "string" ? params.id : "";
+  const restaurantId = typeof params?.id === "string" ? params.id : "";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

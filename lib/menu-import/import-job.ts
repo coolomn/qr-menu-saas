@@ -62,6 +62,13 @@ export type MenuImportAnalyzeResponse = {
   async?: boolean;
   payload?: ImportMenuPayload;
   error?: string;
+  excel_summary?: {
+    sheetCount: number;
+    categoryCount: number;
+    productCount: number;
+    variantCount: number;
+    reviewRequiredCount: number;
+  };
 };
 
 /** POST /api/menu-import/jobs/[id]/continue yanıt şeması */

@@ -223,7 +223,7 @@ function openInstagramIOSAggressive(webUrl: string, username: string) {
 
 export default function CustomerMenu() {
   const params = useParams();
-  const slug = params.slug;
+  const slug = params?.slug;
 
   const [restaurant, setRestaurant] = useState<any>(null);
   const [categories, setCategories] = useState<PublicCategory[]>([]);

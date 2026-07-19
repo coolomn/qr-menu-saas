@@ -60,13 +60,29 @@ function safeFileName(name: string) {
 function resolveUploadMimeType(file: File): string {
   const t = file.type?.trim().toLowerCase();
   if (t) return t;
-  if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".xlsx")) {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+  if (name.endsWith(".xls")) return "application/vnd.ms-excel";
   return "image/jpeg";
 }
 
 function isPdfUploadFile(file: File): boolean {
   return (
     file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
+function isExcelUploadFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  const t = file.type?.trim().toLowerCase() || "";
+  return (
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    t.includes("spreadsheet") ||
+    t === "application/vnd.ms-excel"
   );
 }
 
@@ -175,6 +191,13 @@ export default function AdminMenuImportPage() {
   const [asyncProgress, setAsyncProgress] = useState<AsyncImportProgress | null>(null);
   const [resumableJob, setResumableJob] = useState<MenuImportJobStatusResponse | null>(null);
   const [cancellingJob, setCancellingJob] = useState(false);
+  const [excelSummary, setExcelSummary] = useState<{
+    sheetCount: number;
+    categoryCount: number;
+    productCount: number;
+    variantCount: number;
+    reviewRequiredCount: number;
+  } | null>(null);
 
   const showTargetMenuPicker = activeMenus.length >= 2;
   const targetMenuName =
@@ -443,7 +466,7 @@ export default function AdminMenuImportPage() {
   }, [categoryTargets]);
 
   const applyPreviewFromPayload = useCallback(
-    (payload: ImportMenuPayload) => {
+    (payload: ImportMenuPayload, summary?: typeof excelSummary) => {
       const suggested = buildSuggestedCategoryTargets(payload.categories, existingCategories);
       setCategoryTargets(
         suggested.map((s) =>
@@ -458,6 +481,7 @@ export default function AdminMenuImportPage() {
         )
       );
       setPreview(payload);
+      setExcelSummary(summary ?? null);
       setStep("preview");
     },
     [existingCategories]
@@ -612,7 +636,9 @@ export default function AdminMenuImportPage() {
     setAnalyzeHint(
       file && isPdfUploadFile(file)
         ? "PDF sayfaları analiz ediliyor. Bu işlem biraz sürebilir."
-        : null
+        : file && isExcelUploadFile(file)
+          ? "Excel dosyası okunuyor…"
+          : null
     );
     setBusy(true);
     setResumableJob(null);
@@ -666,7 +692,17 @@ export default function AdminMenuImportPage() {
       if (!json?.payload) {
         throw new Error(extractApiErrorMessage(json, res));
       }
-      applyPreviewFromPayload(json.payload);
+      const summary =
+        json.excel_summary && typeof json.excel_summary === "object"
+          ? (json.excel_summary as {
+              sheetCount: number;
+              categoryCount: number;
+              productCount: number;
+              variantCount: number;
+              reviewRequiredCount: number;
+            })
+          : null;
+      applyPreviewFromPayload(json.payload, summary);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Hata";
       setError(mapAnalyzeErrorMessage(message));
@@ -930,8 +966,8 @@ export default function AdminMenuImportPage() {
         {step === "upload" && (
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-4">
             <p className="text-sm text-gray-500 leading-relaxed">
-              Menü dosyası yükleyin (JPEG, PNG, WebP, GIF veya en fazla 8 sayfalık PDF). Sonuçlar
-              canlı menüye yazılmaz; önce önizleyip onaylarsınız.
+              Menü dosyası yükleyin (JPEG, PNG, WebP, GIF, Excel .xlsx/.xls veya en fazla 8
+              sayfalık PDF). Sonuçlar canlı menüye yazılmaz; önce önizleyip onaylarsınız.
             </p>
             {showTargetMenuPicker && (
               <div className="p-4 md:p-5 bg-violet-50 rounded-2xl border border-violet-100 space-y-3">
@@ -975,7 +1011,7 @@ export default function AdminMenuImportPage() {
               </span>
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,.xlsx,.xls"
                 className="w-full text-sm font-medium text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-blue-50 file:text-blue-700"
                 onChange={(e) => {
                   const picked = e.target.files?.[0] ?? null;
@@ -1022,7 +1058,7 @@ export default function AdminMenuImportPage() {
               disabled={
                 !file ||
                 busy ||
-                missingEnv.length > 0 ||
+                (missingEnv.length > 0 && !(file && isExcelUploadFile(file))) ||
                 (showTargetMenuPicker && !targetMenuCollectionId)
               }
               onClick={runAnalyze}
@@ -1052,6 +1088,7 @@ export default function AdminMenuImportPage() {
                 onClick={() => {
                   setStep("upload");
                   setPreview(null);
+                  setExcelSummary(null);
                   setCategoryTargets([]);
                   setVariantTemplateCategoryIndex(null);
                   setAsyncProgress(null);
@@ -1063,6 +1100,19 @@ export default function AdminMenuImportPage() {
                 Yeni dosya
               </button>
             </div>
+
+            {excelSummary && (
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+                <p className="font-black mb-1">Excel özeti</p>
+                <p className="text-emerald-900/90">
+                  {excelSummary.sheetCount} sayfa · {excelSummary.categoryCount} kategori ·{" "}
+                  {excelSummary.productCount} ürün · {excelSummary.variantCount} varyant
+                  {excelSummary.reviewRequiredCount > 0
+                    ? ` · ${excelSummary.reviewRequiredCount} satır kontrol edilmeli`
+                    : ""}
+                </p>
+              </div>
+            )}
 
             {createTargetsMergedInBatch > 0 && (
               <div className="flex items-start gap-2 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-amber-900 text-sm font-medium">
