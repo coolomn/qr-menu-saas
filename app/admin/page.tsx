@@ -42,7 +42,7 @@ import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-colle
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { uploadProductImage, uploadPublicAsset, tryRemoveProductImageFiles } from "@/lib/admin-menu/product-image-upload";
+import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadPublicAsset, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles } from "@/lib/admin-menu/product-image-upload";
 import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import {
@@ -385,6 +385,7 @@ export default function AdminDashboard() {
     try {
       let finalLogoUrl = settings.logo_url;
       let finalWelcomeBgUrl = settings.welcome_bg_url;
+      const previousWelcomeBgUrl = settings.welcome_bg_url;
 
       if (logoFile) {
         const logoUpload = await uploadPublicAsset(supabase, restaurant.id, "logo", logoFile, {
@@ -397,9 +398,11 @@ export default function AdminDashboard() {
       }
 
       if (welcomeBgFile) {
-        const bgUpload = await uploadPublicAsset(supabase, restaurant.id, "background", welcomeBgFile, {
-          ext: welcomeBgFile.name.split(".").pop(),
-        });
+        const bgUpload = await uploadWelcomeBackgroundImage(
+          supabase,
+          restaurant.id,
+          welcomeBgFile
+        );
         if ("error" in bgUpload) {
           throw new Error(bgUpload.error);
         }
@@ -461,6 +464,13 @@ export default function AdminDashboard() {
       );
       setLogoFile(null);
       setWelcomeBgFile(null);
+      if (
+        welcomeBgFile &&
+        previousWelcomeBgUrl &&
+        previousWelcomeBgUrl !== finalWelcomeBgUrl
+      ) {
+        await tryRemoveBackgroundImageFiles(supabase, restaurant.id, [previousWelcomeBgUrl]);
+      }
     } catch (error: any) {
       alert(error.message || "Hata oluştu.");
     } finally {
@@ -2306,7 +2316,7 @@ export default function AdminDashboard() {
                     </div>
                     <p className="text-[10px] md:text-xs font-bold text-gray-500 mb-4">Müşteri QR okuttuğunda çıkan tam ekran dikey arka plan (Örn: Mekan fotoğrafı).</p>
                     {settings.welcome_bg_url && !welcomeBgFile && (<div className="mb-4 w-24 h-32 rounded-xl overflow-hidden border-2 border-green-200"><img src={settings.welcome_bg_url} alt="Karşılama" className="w-full h-full object-cover" /></div>)}
-                    <input type="file" accept="image/*" onChange={e => setWelcomeBgFile(e.target.files ? e.target.files[0] : null)} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-green-100 file:text-green-800 hover:file:bg-green-200 outline-none" />
+                    <input type="file" accept={PRODUCT_IMAGE_ACCEPT} onChange={e => setWelcomeBgFile(e.target.files ? e.target.files[0] : null)} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-green-100 file:text-green-800 hover:file:bg-green-200 outline-none" />
                   </div>
 
                   <div className="p-4 md:p-6 border-2 border-pink-100 rounded-3xl bg-pink-50/40">
