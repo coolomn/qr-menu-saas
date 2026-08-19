@@ -521,13 +521,10 @@ export async function getProductMenuCollectionIds(
   return (data || []).map((row) => row.menu_collection_id as string);
 }
 
-export async function getAvailableMenuCollectionsForCategory(
-  admin: SupabaseClient,
-  restaurantId: string,
-  categoryId: string
-): Promise<CategoryMenuCollectionsPickerMenu[]> {
-  const activeMenus = await listMenuCollectionsForRestaurantPicker(admin, restaurantId, true);
-  const categoryMenuIds = await getCategoryMenuCollectionIds(admin, categoryId);
+export function resolveAvailableMenuCollectionIds(
+  activeMenus: { id: string }[],
+  categoryMenuIds: string[]
+): string[] {
   const activeIdSet = new Set(activeMenus.map((m) => m.id));
   let allowedIds = categoryMenuIds.filter((id) => activeIdSet.has(id));
 
@@ -535,7 +532,17 @@ export async function getAvailableMenuCollectionsForCategory(
     allowedIds = [activeMenus[0].id];
   }
 
-  const allowedSet = new Set(allowedIds);
+  return allowedIds;
+}
+
+export async function getAvailableMenuCollectionsForCategory(
+  admin: SupabaseClient,
+  restaurantId: string,
+  categoryId: string
+): Promise<CategoryMenuCollectionsPickerMenu[]> {
+  const activeMenus = await listMenuCollectionsForRestaurantPicker(admin, restaurantId, true);
+  const categoryMenuIds = await getCategoryMenuCollectionIds(admin, categoryId);
+  const allowedSet = new Set(resolveAvailableMenuCollectionIds(activeMenus, categoryMenuIds));
   return activeMenus.filter((m) => allowedSet.has(m.id));
 }
 
@@ -556,18 +563,24 @@ export async function validateProductMenuCollectionIdsForCategory(
   }
 
   const available = await getAvailableMenuCollectionsForCategory(admin, restaurantId, categoryId);
-  const allowed = new Set(available.map((m) => m.id));
+  const allowedIds = available.map((m) => m.id);
 
-  for (const id of menuCollectionIds) {
-    if (!allowed.has(id)) {
-      return {
-        ok: false,
-        message: "Seçilen menüler bu kategorinin bağlı olduğu menüler arasında değil.",
-      };
-    }
+  if (!areMenuCollectionsAllowedForCategory(allowedIds, menuCollectionIds)) {
+    return {
+      ok: false,
+      message: "Seçilen menüler bu kategorinin bağlı olduğu menüler arasında değil.",
+    };
   }
 
   return { ok: true };
+}
+
+export function areMenuCollectionsAllowedForCategory(
+  availableMenuIds: readonly string[],
+  menuCollectionIds: readonly string[]
+): boolean {
+  const allowed = new Set(availableMenuIds);
+  return menuCollectionIds.every((id) => allowed.has(id));
 }
 
 export async function replaceProductMenuCollections(
@@ -592,6 +605,43 @@ export async function replaceProductMenuCollections(
   );
 
   if (insertErr) throw insertErr;
+}
+
+export async function insertProductMenuCollectionLinks(
+  admin: SupabaseClient,
+  rows: { product_id: string; menu_collection_id: string }[]
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const { error: insertErr } = await admin.from("product_menu_collections").upsert(
+    rows.map((row) => ({
+      product_id: row.product_id,
+      menu_collection_id: row.menu_collection_id,
+      sort_order: 0,
+    })),
+    { onConflict: "product_id,menu_collection_id", ignoreDuplicates: true }
+  );
+
+  if (insertErr) {
+    if (insertErr.code === "23505") return;
+    throw insertErr;
+  }
+}
+
+export async function deleteProductMenuCollectionLinks(
+  admin: SupabaseClient,
+  productIds: string[],
+  menuCollectionIds: string[]
+): Promise<void> {
+  if (productIds.length === 0 || menuCollectionIds.length === 0) return;
+
+  const { error: deleteErr } = await admin
+    .from("product_menu_collections")
+    .delete()
+    .in("product_id", productIds)
+    .in("menu_collection_id", menuCollectionIds);
+
+  if (deleteErr) throw deleteErr;
 }
 
 export function toAdminMenuCollection(row: DbMenuRow): AdminMenuCollection {

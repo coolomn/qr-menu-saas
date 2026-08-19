@@ -62,3 +62,18 @@ export type PutCategoryMenuCollectionsInput = z.infer<typeof putCategoryMenuColl
 export const putProductMenuCollectionsSchema = putCategoryMenuCollectionsSchema;
 
 export type PutProductMenuCollectionsInput = z.infer<typeof putProductMenuCollectionsSchema>;
+
+export const bulkProductMenuCollectionsSchema = z.object({
+  restaurantId: z.string().uuid("Geçersiz restoran."),
+  productIds: z
+    .array(z.string().uuid("Geçersiz ürün kimliği."))
+    .min(1, "En az bir ürün seçilmeli.")
+    .max(200, "En fazla 200 ürün seçilebilir."),
+  menuCollectionIds: z
+    .array(z.string().uuid("Geçersiz menü kimliği."))
+    .min(1, "En az bir menü seçilmeli.")
+    .max(50, "En fazla 50 menü seçilebilir."),
+  action: z.enum(["add", "remove"]),
+});
+
+export type BulkProductMenuCollectionsInput = z.infer<typeof bulkProductMenuCollectionsSchema>;

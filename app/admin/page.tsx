@@ -5,6 +5,7 @@ import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight } from "lucide-react";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
+import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
 import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
 import { isProductPriceEmpty } from "@/lib/admin-menu/bulk-price-edit";
 import {
@@ -41,6 +42,11 @@ import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/Men
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
+import {
+  applyBulkMenuLinksToMap,
+  getBulkMenuLinkCheckState,
+  mergeProductMenuLinksMap,
+} from "@/lib/admin-menu/bulk-product-menu-collections";
 import { formatPriceForDisplay } from "@/lib/format-price";
 import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadPublicAsset, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles } from "@/lib/admin-menu/product-image-upload";
 import {
@@ -224,6 +230,11 @@ export default function AdminDashboard() {
   const [productViewMode, setProductViewMode] = useState<"cards" | "pricing">("cards");
   const [productDeletingId, setProductDeletingId] = useState<string | null>(null);
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({});
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [bulkMenuSelectedIds, setBulkMenuSelectedIds] = useState<string[]>([]);
+  const [bulkMenuBusy, setBulkMenuBusy] = useState(false);
+  const [bulkMenuError, setBulkMenuError] = useState<string | null>(null);
+  const [bulkMenuSuccess, setBulkMenuSuccess] = useState<string | null>(null);
   
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
@@ -1118,6 +1129,74 @@ export default function AdminDashboard() {
     return { ok: true, ids: json.menu_collection_ids || menuCollectionIds };
   };
 
+  const toggleProductSelected = (productId: string) => {
+    setSelectedProductIds((prev) =>
+      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId]
+    );
+    setBulkMenuSuccess(null);
+    setBulkMenuError(null);
+  };
+
+  const handleBulkProductMenuCollections = async (action: "add" | "remove") => {
+    if (!restaurant?.id || selectedProductIds.length === 0 || bulkMenuSelectedIds.length === 0) {
+      return;
+    }
+    const productIds = [...selectedProductIds];
+    const menuCollectionIds = [...bulkMenuSelectedIds];
+    setBulkMenuBusy(true);
+    setBulkMenuError(null);
+    setBulkMenuSuccess(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setBulkMenuError("Oturum bulunamadı.");
+        return;
+      }
+      const res = await fetch("/api/admin/products/bulk-menu-collections", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          productIds,
+          menuCollectionIds,
+          action,
+        }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        message?: string;
+        linksAdded?: number;
+        linksRemoved?: number;
+        linksByProduct?: Record<string, string[]>;
+      };
+      if (!res.ok) {
+        setBulkMenuError(json.error || "Toplu menü güncellemesi başarısız.");
+        return;
+      }
+      setProductMenuLinksMap((prev) => {
+        const optimistic = applyBulkMenuLinksToMap(prev, productIds, menuCollectionIds, action);
+        if (json.linksByProduct && Object.keys(json.linksByProduct).length > 0) {
+          return mergeProductMenuLinksMap(optimistic, json.linksByProduct);
+        }
+        return optimistic;
+      });
+      if (action === "add" && (json.linksAdded ?? 0) === 0) {
+        setBulkMenuSuccess("Seçili ürünler bu menülerde zaten var.");
+      } else {
+        setBulkMenuSuccess(json.message || "Ürünler güncellendi.");
+      }
+    } catch {
+      setBulkMenuError("Bağlantı hatası. Liste değiştirilmedi.");
+    } finally {
+      setBulkMenuBusy(false);
+    }
+  };
+
   const syncProductMenuLinks = async (
     productId: string,
     menuCollectionIds: string[]
@@ -1740,6 +1819,72 @@ export default function AdminDashboard() {
     productMenuFilter !== "all" ||
     productPriceEmptyOnly;
 
+  const visibleProductIds = useMemo(
+    () => filteredProducts.map((p: { id: string }) => p.id),
+    [filteredProducts]
+  );
+  const visibleProductIdSet = useMemo(() => new Set(visibleProductIds), [visibleProductIds]);
+  const selectedVisibleCount = selectedProductIds.filter((id) => visibleProductIdSet.has(id)).length;
+  const allVisibleSelected =
+    visibleProductIds.length > 0 && selectedVisibleCount === visibleProductIds.length;
+  const showBulkMenuUi =
+    productViewMode === "cards" && getActiveRestaurantMenus().length >= 2;
+  const bulkMenuCheckStates = useMemo(() => {
+    const states: Record<string, ReturnType<typeof getBulkMenuLinkCheckState>> = {};
+    for (const menu of restaurantMenus) {
+      if (!menu.is_active) continue;
+      states[menu.id] = getBulkMenuLinkCheckState(
+        menu.id,
+        selectedProductIds,
+        productMenuLinksMap
+      );
+    }
+    return states;
+  }, [restaurantMenus, selectedProductIds, productMenuLinksMap]);
+
+  const bulkIncompatibleMenuIds = useMemo(() => {
+    const selected = (products ?? []).filter((p: { id: string }) => selectedProductIds.includes(p.id));
+    const active = (restaurantMenus ?? []).filter((m) => m.is_active);
+    const ids: string[] = [];
+    for (const menu of active) {
+      const incompatible = selected.some((p: { category_id: string }) => {
+        const linked = categoryMenuLinksMap[p.category_id] || [];
+        const available = active.filter((m) => linked.includes(m.id));
+        const allowedIds =
+          available.length === 0 && active.length > 0
+            ? [active[0].id]
+            : available.map((m) => m.id);
+        return !allowedIds.includes(menu.id);
+      });
+      if (incompatible) ids.push(menu.id);
+    }
+    return ids;
+  }, [products, selectedProductIds, restaurantMenus, categoryMenuLinksMap]);
+
+  useEffect(() => {
+    setSelectedProductIds((prev) => {
+      const next = prev.filter((id) => visibleProductIdSet.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [visibleProductIdSet]);
+
+  useEffect(() => {
+    setSelectedProductIds([]);
+    setBulkMenuSelectedIds([]);
+    setBulkMenuError(null);
+    setBulkMenuSuccess(null);
+  }, [restaurant?.id]);
+
+  const handleSelectAllVisibleProducts = () => {
+    setBulkMenuSuccess(null);
+    setBulkMenuError(null);
+    if (allVisibleSelected) {
+      setSelectedProductIds([]);
+      return;
+    }
+    setSelectedProductIds(visibleProductIds);
+  };
+
   const handleBulkPricesSaved = ({
     productPrices,
     variantPrices,
@@ -1863,6 +2008,23 @@ export default function AdminDashboard() {
                       {filteredProducts.length} / {products.length} ürün
                       {productFiltersActive ? " (filtrelenmiş)" : ""}
                     </p>
+                    {showBulkMenuUi && visibleProductIds.length > 0 && (
+                      <label className="mt-2 flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          ref={(el) => {
+                            if (el) {
+                              el.indeterminate =
+                                selectedVisibleCount > 0 && !allVisibleSelected;
+                            }
+                          }}
+                          onChange={handleSelectAllVisibleProducts}
+                          className="h-4 w-4 rounded border-gray-300 text-teal-600"
+                        />
+                        Tümünü seç
+                      </label>
+                    )}
                   </div>
                   <button onClick={openNewProductModal} className="w-full md:w-auto justify-center bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"><Plus size={20} /> Yeni Ürün</button>
                 </div>
@@ -2012,6 +2174,28 @@ export default function AdminDashboard() {
                   </div>
                 ) : (
                 <div className="p-3 md:p-4 space-y-5">
+                  {showBulkMenuUi && (
+                    <BulkProductMenuToolbar
+                      selectedCount={selectedVisibleCount}
+                      menus={getActiveRestaurantMenus().map((m) => ({ id: m.id, name: m.name }))}
+                      menuCheckStates={bulkMenuCheckStates}
+                      selectedMenuIds={bulkMenuSelectedIds}
+                      incompatibleMenuIds={bulkIncompatibleMenuIds}
+                      onToggleMenu={(menuId) => {
+                        setBulkMenuSelectedIds((prev) =>
+                          prev.includes(menuId)
+                            ? prev.filter((id) => id !== menuId)
+                            : [...prev, menuId]
+                        );
+                        setBulkMenuSuccess(null);
+                      }}
+                      onAdd={() => void handleBulkProductMenuCollections("add")}
+                      onRemove={() => void handleBulkProductMenuCollections("remove")}
+                      busy={bulkMenuBusy}
+                      error={bulkMenuError}
+                      success={bulkMenuSuccess}
+                    />
+                  )}
                   {groupedFilteredProducts.length === 0 ? (
                     <div className="py-12 text-center text-sm font-medium text-gray-500">
                       {products.length === 0
@@ -2047,10 +2231,23 @@ export default function AdminDashboard() {
                                 className={`p-3 md:p-4 border border-gray-100 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3 hover:border-blue-200 transition-all bg-white ${
                                   !p.is_active ? "opacity-60" : ""
                                 } ${
+                                  selectedProductIds.includes(p.id)
+                                    ? "border-teal-300 bg-teal-50/40"
+                                    : ""
+                                } ${
                                   isDragOver ? "ring-2 ring-blue-400 border-blue-200 bg-blue-50/40" : ""
                                 }`}
                               >
                                 <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  {showBulkMenuUi && (
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedProductIds.includes(p.id)}
+                                      onChange={() => toggleProductSelected(p.id)}
+                                      aria-label={`${p.name} seç`}
+                                      className="h-4 w-4 shrink-0 rounded border-gray-300 text-teal-600"
+                                    />
+                                  )}
                                   {canReorderProduct ? (
                                     <button
                                       type="button"
