@@ -35,6 +35,16 @@ export type PrepareImageOptions = {
   keepAlpha?: boolean;
   /** Thumbnail gibi zaten doğrulanmış blob’larda kaynak MIME/boyut kontrolünü atla. */
   skipSourceValidation?: boolean;
+  /** Çıktı hard limit (byte). Varsayılan: MAX_IMAGE_OUTPUT_BYTES. */
+  maxOutputBytes?: number;
+  /**
+   * İdeal çıktı tavanı. qualitySteps verildiğinde bu değerin altına inince durulur.
+   * Ürün pipeline’ı bu alanı kullanmaz.
+   */
+  targetOutputBytes?: number;
+  /** Welcome: önce kalite merdiveni, sonra maxWidthSteps. */
+  qualitySteps?: number[];
+  maxWidthSteps?: number[];
 };
 
 export function isAllowedImageMime(type: string): boolean {
@@ -99,6 +109,77 @@ function targetSize(
   };
 }
 
+export function welcomeWidthLadder(sourceWidth: number, steps: number[]): number[] {
+  const w = Math.max(1, Math.round(sourceWidth));
+  const out: number[] = [];
+  for (const step of steps) {
+    const capped = Math.min(Math.max(1, Math.round(step)), w);
+    if (!out.includes(capped)) out.push(capped);
+  }
+  return out;
+}
+
+export function pickBudgetedEncodeResult<T extends { bytes: number }>(
+  groupedByPriority: T[][],
+  targetBytes: number,
+  preferredMaxBytes: number
+): T | null {
+  let lastSuccessful: T | null = null;
+  for (const group of groupedByPriority) {
+    let underPreferred: T | null = null;
+    for (const candidate of group) {
+      lastSuccessful = candidate;
+      if (candidate.bytes <= targetBytes) return candidate;
+      if (candidate.bytes <= preferredMaxBytes && !underPreferred) {
+        underPreferred = candidate;
+      }
+    }
+    if (underPreferred) return underPreferred;
+  }
+  return lastSuccessful;
+}
+
+export type BudgetedEncodeSize = { width: number; height: number };
+
+/**
+ * Welcome çıktı bütçesi: 1 MB hedef, 1.5 MB tercih.
+ * Başarılı decode/encode varsa boyut yüzünden reddetmez; son basamak (1080 / q0.60)
+ * üretilmişse onu kabul eder. Ürün pipeline bu fonksiyonu kullanmaz.
+ */
+export async function runBudgetedWidthQualityEncode<T>(args: {
+  sourceWidth: number;
+  sourceHeight: number;
+  widthSteps: number[];
+  qualitySteps: number[];
+  targetBytes: number;
+  hardLimitBytes: number;
+  encode: (size: BudgetedEncodeSize, quality: number) => Promise<{ bytes: number; value: T }>;
+}): Promise<T | null> {
+  const widths = welcomeWidthLadder(args.sourceWidth, args.widthSteps);
+  let lastSuccessful: T | null = null;
+  for (const maxWidth of widths) {
+    const size = fitWithinMaxWidth(args.sourceWidth, args.sourceHeight, maxWidth);
+    let underPreferred: T | null = null;
+    let encodeFailed = false;
+    for (const quality of args.qualitySteps) {
+      try {
+        const result = await args.encode(size, quality);
+        lastSuccessful = result.value;
+        if (result.bytes <= args.targetBytes) return result.value;
+        if (result.bytes <= args.hardLimitBytes && !underPreferred) {
+          underPreferred = result.value;
+        }
+      } catch {
+        encodeFailed = true;
+        break;
+      }
+    }
+    if (underPreferred) return underPreferred;
+    if (encodeFailed) continue;
+  }
+  return lastSuccessful;
+}
+
 function canvasToBlob(
   canvas: HTMLCanvasElement,
   type: string,
@@ -107,6 +188,66 @@ function canvasToBlob(
   return new Promise((resolve) => {
     canvas.toBlob(resolve, type, quality);
   });
+}
+
+async function createImageBitmapBestEffort(
+  source: Blob,
+  resizeWidth?: number
+): Promise<ImageBitmap> {
+  if (typeof resizeWidth === "number") {
+    return createImageBitmap(source, { resizeWidth });
+  }
+  return createImageBitmap(source);
+}
+
+async function decodeWelcomeBitmap(
+  source: Blob,
+  widthSteps: number[]
+): Promise<ImageBitmap> {
+  for (const resizeWidth of widthSteps) {
+    try {
+      return await createImageBitmapBestEffort(source, resizeWidth);
+    } catch {
+      continue;
+    }
+  }
+  try {
+    return await createImageBitmapBestEffort(source);
+  } catch {
+    throw new ImagePrepareError(IMAGE_ERROR_DECODE);
+  }
+}
+
+async function encodeCanvas(
+  bitmap: ImageBitmap,
+  size: { width: number; height: number },
+  quality: number,
+  keepAlpha: boolean | undefined
+): Promise<PreparedImage> {
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if (!keepAlpha) {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, size.width, size.height);
+  }
+  ctx.drawImage(bitmap, 0, 0, size.width, size.height);
+
+  const webp = await canvasToBlob(canvas, "image/webp", quality);
+  if (webp && webp.size > 0) {
+    return { blob: webp, contentType: "image/webp", ext: "webp" };
+  }
+  const jpeg = await canvasToBlob(canvas, "image/jpeg", Math.max(quality, 0.85));
+  if (jpeg && jpeg.size > 0) {
+    return { blob: jpeg, contentType: "image/jpeg", ext: "jpg" };
+  }
+  throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
 }
 
 /**
@@ -121,65 +262,63 @@ export async function prepareImage(
     assertImageSource(source);
   }
 
+  const qualitySteps = options.qualitySteps;
+  const widthSteps = options.maxWidthSteps;
+  const useWelcomeBudget =
+    Boolean(qualitySteps?.length && widthSteps?.length && typeof options.maxWidth === "number");
+
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(source);
-  } catch {
+    bitmap = useWelcomeBudget
+      ? await decodeWelcomeBitmap(source, widthSteps ?? [])
+      : await createImageBitmap(source);
+  } catch (error) {
+    if (error instanceof ImagePrepareError) throw error;
     throw new ImagePrepareError(IMAGE_ERROR_DECODE);
   }
 
   try {
-    let longEdgeLimit =
-      typeof options.maxLongEdge === "number" ? options.maxLongEdge : Math.max(bitmap.width, bitmap.height);
-    let maxWidthLimit = typeof options.maxWidth === "number" ? options.maxWidth : null;
-    let quality = options.quality;
+    const hardLimit = options.maxOutputBytes ?? MAX_IMAGE_OUTPUT_BYTES;
 
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const size = targetSize(bitmap.width, bitmap.height, {
-        ...options,
-        maxLongEdge: options.maxLongEdge != null ? longEdgeLimit : undefined,
-        maxWidth: maxWidthLimit ?? undefined,
+    if (useWelcomeBudget && qualitySteps && widthSteps) {
+      const targetBytes = options.targetOutputBytes ?? hardLimit;
+      const prepared = await runBudgetedWidthQualityEncode({
+        sourceWidth: bitmap.width,
+        sourceHeight: bitmap.height,
+        widthSteps,
+        qualitySteps,
+        targetBytes,
+        hardLimitBytes: hardLimit,
+        encode: async (size, quality) => {
+          const encoded = await encodeCanvas(bitmap, size, quality, options.keepAlpha);
+          return { bytes: encoded.blob.size, value: encoded };
+        },
       });
+      if (prepared) return prepared;
+    } else {
+      let longEdgeLimit =
+        typeof options.maxLongEdge === "number" ? options.maxLongEdge : Math.max(bitmap.width, bitmap.height);
+      let maxWidthLimit = typeof options.maxWidth === "number" ? options.maxWidth : null;
+      let quality = options.quality;
 
-      const canvas = document.createElement("canvas");
-      canvas.width = size.width;
-      canvas.height = size.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
-      }
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      if (!options.keepAlpha) {
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, size.width, size.height);
-      }
-      ctx.drawImage(bitmap, 0, 0, size.width, size.height);
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const size = targetSize(bitmap.width, bitmap.height, {
+          ...options,
+          maxLongEdge: options.maxLongEdge != null ? longEdgeLimit : undefined,
+          maxWidth: maxWidthLimit ?? undefined,
+        });
 
-      const webp = await canvasToBlob(canvas, "image/webp", quality);
-      let encoded: PreparedImage | null = null;
-      if (webp && webp.size > 0) {
-        encoded = { blob: webp, contentType: "image/webp", ext: "webp" };
-      } else {
-        const jpeg = await canvasToBlob(canvas, "image/jpeg", Math.max(quality, 0.85));
-        if (jpeg && jpeg.size > 0) {
-          encoded = { blob: jpeg, contentType: "image/jpeg", ext: "jpg" };
+        const encoded = await encodeCanvas(bitmap, size, quality, options.keepAlpha);
+        if (encoded.blob.size <= hardLimit) {
+          return encoded;
         }
-      }
 
-      if (!encoded) {
-        throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
-      }
-
-      if (encoded.blob.size <= MAX_IMAGE_OUTPUT_BYTES) {
-        return encoded;
-      }
-
-      quality = Math.max(0.5, quality - 0.07);
-      if (maxWidthLimit != null) {
-        maxWidthLimit = Math.max(240, Math.floor(maxWidthLimit * 0.82));
-      } else {
-        longEdgeLimit = Math.max(720, Math.floor(longEdgeLimit * 0.82));
+        quality = Math.max(0.5, quality - 0.07);
+        if (maxWidthLimit != null) {
+          maxWidthLimit = Math.max(240, Math.floor(maxWidthLimit * 0.82));
+        } else {
+          longEdgeLimit = Math.max(720, Math.floor(longEdgeLimit * 0.82));
+        }
       }
     }
   } finally {
