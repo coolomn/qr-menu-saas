@@ -58,7 +58,7 @@ import {
 } from "@/lib/admin-menu/auto-translate";
 import { translateText, translateMenuCategoryFallback } from "@/lib/admin-menu/auto-translate-client";
 import { fillMissingCategoryName } from "@/lib/admin-menu/menu-category-translations";
-import { suggestAllergens, type AllergenSuggestion } from "@/lib/suggest-allergens";
+import { type AllergenSuggestion } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import {
   loadOwnerRestaurantById,
@@ -76,14 +76,23 @@ function AdminInstagramGlyph({ className }: { className?: string }) {
 }
 
 const ALLERGEN_OPTIONS = [
-  { id: 'gluten', label: 'Gluten', icon: '🌾' },
-  { id: 'dairy', label: 'Süt', icon: '🥛' },
-  { id: 'nuts', label: 'Kuruyemiş', icon: '🥜' },
-  { id: 'sesame', label: 'Susam', icon: '🫓' },
-  { id: 'seafood', label: 'Deniz Ürünü', icon: '🦐' },
-  { id: 'egg', label: 'Yumurta', icon: '🥚' },
-  { id: 'vegan', label: 'Vegan', icon: '🌱' },
-  { id: 'spicy', label: 'Acı', icon: '🌶️' }
+  { id: "gluten", label: "Gluten", icon: "🌾" },
+  { id: "dairy", label: "Süt", icon: "🥛" },
+  { id: "egg", label: "Yumurta", icon: "🥚" },
+  { id: "fish", label: "Balık", icon: "🐟" },
+  { id: "crustaceans", label: "Kabuklular", icon: "🦐" },
+  { id: "molluscs", label: "Yumuşakçalar", icon: "🐚" },
+  { id: "peanuts", label: "Yer fıstığı", icon: "🥜" },
+  { id: "nuts", label: "Kuruyemiş", icon: "🌰" },
+  { id: "soy", label: "Soya", icon: "🫘" },
+  { id: "sesame", label: "Susam", icon: "🫓" },
+  { id: "mustard", label: "Hardal", icon: "🟡" },
+  { id: "celery", label: "Kereviz", icon: "🥬" },
+  { id: "lupin", label: "Acı bakla", icon: "🌿" },
+  { id: "sulphites", label: "Sülfitler", icon: "⚗️" },
+  { id: "seafood", label: "Deniz ürünü", icon: "🦐" },
+  { id: "vegan", label: "Vegan", icon: "🌱" },
+  { id: "spicy", label: "Acı", icon: "🌶️" },
 ];
 
 type CategoryProductPreview = {
@@ -250,6 +259,7 @@ export default function AdminDashboard() {
   const [productImageObjectUrl, setProductImageObjectUrl] = useState<string | null>(null);
   const [allergenSuggestMessage, setAllergenSuggestMessage] = useState<string | null>(null);
   const [allergenSuggestions, setAllergenSuggestions] = useState<AllergenSuggestion[]>([]);
+  const [allergenSuggestBusy, setAllergenSuggestBusy] = useState(false);
 
   useEffect(() => {
     newProductRef.current = newProduct;
@@ -670,32 +680,68 @@ export default function AdminDashboard() {
     if (productFileInputRef.current) productFileInputRef.current.value = "";
   };
 
-  const handleSuggestAllergens = () => {
+  const handleSuggestAllergens = async () => {
     const prev = newProductRef.current;
     const categoryName = categories.find((c: { id: string }) => c.id === prev.category_id)?.name || "";
-    const suggestions = suggestAllergens({
-      name: prev.name,
-      description: prev.description,
-      categoryName,
-      name_en: prev.name_en,
-      description_en: prev.description_en,
-      name_ru: prev.name_ru,
-      description_ru: prev.description_ru,
-    });
-    if (suggestions.length === 0) {
+    const menuCollectionName = (productMenuSelectedIds.length > 0 ? productMenuSelectedIds : productMenuLinksMap[editingProductId || ""] || [])
+      .map((id) => restaurantMenus.find((m) => m.id === id)?.name)
+      .filter((n): n is string => Boolean(n))
+      .join(", ");
+    setAllergenSuggestBusy(true);
+    setAllergenSuggestMessage(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setAllergenSuggestions([]);
+        setAllergenSuggestMessage("Oturum bulunamadı.");
+        return;
+      }
+      const res = await fetch("/api/admin/products/suggest-allergens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          name: prev.name,
+          description: prev.description,
+          categoryName,
+          name_en: prev.name_en,
+          description_en: prev.description_en,
+          name_ru: prev.name_ru,
+          description_ru: prev.description_ru,
+          menuCollectionName,
+        }),
+      });
+      const json = (await res.json()) as { suggestions?: AllergenSuggestion[]; error?: string };
+      if (!res.ok) {
+        setAllergenSuggestions([]);
+        setAllergenSuggestMessage(json.error || "Alerjen önerisi alınamadı.");
+        return;
+      }
+      const suggestions = json.suggestions || [];
+      if (suggestions.length === 0) {
+        setAllergenSuggestions([]);
+        setAllergenSuggestMessage("Güvenilir bir alerjen önerisi yok. Elle seçebilirsiniz.");
+        return;
+      }
+      const already = new Set(prev.allergens || []);
+      const pending = suggestions.filter((item) => !already.has(item.id));
+      if (pending.length === 0) {
+        setAllergenSuggestions([]);
+        setAllergenSuggestMessage("Önerilenler zaten işaretli; yeni bir eşleşme yok.");
+        return;
+      }
+      setAllergenSuggestions(pending);
+      setAllergenSuggestMessage("Öneriler hazır. Kontrol edip ekleyin; otomatik işaretlenmez.");
+    } catch {
       setAllergenSuggestions([]);
-      setAllergenSuggestMessage("Metinde eşleşen alerjen anahtar kelimesi bulunamadı. Elle seçebilirsiniz.");
-      return;
+      setAllergenSuggestMessage("Alerjen önerisi alınamadı. Elle seçebilirsiniz.");
+    } finally {
+      setAllergenSuggestBusy(false);
     }
-    const already = new Set(prev.allergens || []);
-    const pending = suggestions.filter((item) => !already.has(item.id));
-    if (pending.length === 0) {
-      setAllergenSuggestions([]);
-      setAllergenSuggestMessage("Önerilenler zaten işaretli; yeni bir eşleşme yok.");
-      return;
-    }
-    setAllergenSuggestions(pending);
-    setAllergenSuggestMessage("Öneriler hazır. Kontrol edip ekleyin; otomatik işaretlenmez.");
   };
 
   const handleApplyAllergenSuggestions = () => {
@@ -2960,15 +3006,16 @@ export default function AdminDashboard() {
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-wide">Alerjenler</span>
                         <button
                           type="button"
-                          onClick={handleSuggestAllergens}
-                          className="self-start sm:self-auto inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase text-blue-700 hover:bg-blue-100"
+                          onClick={() => void handleSuggestAllergens()}
+                          disabled={allergenSuggestBusy}
+                          className="self-start sm:self-auto inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                         >
                           <Sparkles size={14} aria-hidden />
-                          Alerjen öner
+                          {allergenSuggestBusy ? "Öneriliyor…" : "Alerjen öner"}
                         </button>
                       </div>
                       <p className="text-[9px] font-medium text-gray-500 leading-snug">
-                        Öneri otomatik işaretlenmez. Ad, açıklama ve kategori birlikte taranır; açıklama boş olsa da ad yeterlidir.
+                        Öneriler otomatik analizdir. Menü ve reçeteyi mutlaka doğrulayın. Otomatik işaretlenmez.
                         <span className="block mt-1 text-gray-400">
                           Açık eşleşme ve ürün tipinden tahmin ayrı gösterilir. glutensiz / laktozsuz / vegan gibi ifadeler ilgili alerjeni düşürür.
                         </span>
@@ -2988,6 +3035,7 @@ export default function AdminDashboard() {
                               return (
                                 <span
                                   key={item.id}
+                                  title={item.reason || undefined}
                                   className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold ${
                                     inferred
                                       ? "border border-dashed border-amber-400 bg-white text-amber-800"
