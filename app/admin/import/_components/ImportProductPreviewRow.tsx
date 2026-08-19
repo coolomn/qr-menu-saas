@@ -2,14 +2,20 @@
 
 import { Plus, Trash2 } from "lucide-react";
 import type { ImportProduct, ImportVariant } from "@/lib/menu-import/schema";
+import type { ProductMatchResult, ProductMergeAction } from "@/lib/menu-import/product-match";
 import {
   MAX_IMPORT_VARIANTS,
   createEmptyImportVariant,
   hasImportProductVariants,
+  resolveImportProductPrice,
 } from "@/lib/menu-import/variant-templates";
 
 type ImportProductPreviewRowProps = {
   product: ImportProduct;
+  rowId: string;
+  match: ProductMatchResult;
+  mergeAction: ProductMergeAction;
+  onChangeMergeAction: (action: ProductMergeAction) => void;
   onChangeName: (value: string) => void;
   onChangeDescription: (value: string) => void;
   onChangePrice: (value: string) => void;
@@ -17,8 +23,34 @@ type ImportProductPreviewRowProps = {
   onRemove: () => void;
 };
 
+function MatchBadge({ kind }: { kind: ProductMatchResult["kind"] }) {
+  if (kind === "matched") {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wide">
+        Mevcut ürünle eşleşti
+      </span>
+    );
+  }
+  if (kind === "conflict") {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-black uppercase tracking-wide">
+        Çakışma var
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 text-[10px] font-black uppercase tracking-wide">
+      Yeni ürün
+    </span>
+  );
+}
+
 export function ImportProductPreviewRow({
   product,
+  rowId,
+  match,
+  mergeAction,
+  onChangeMergeAction,
   onChangeName,
   onChangeDescription,
   onChangePrice,
@@ -27,6 +59,15 @@ export function ImportProductPreviewRow({
 }: ImportProductPreviewRowProps) {
   const hasVariants = hasImportProductVariants(product);
   const variants = product.variants ?? [];
+  const importPrice = resolveImportProductPrice(product);
+  const hasPriceConflict = match.conflicts.includes("price");
+  const hasDescriptionConflict = match.conflicts.includes("description");
+  const hasVariantConflict = match.conflicts.includes("variants");
+  const radioName = `merge-${rowId}`;
+  const effectiveAction =
+    mergeAction === "update_from_import" && !hasPriceConflict
+      ? "keep_existing"
+      : mergeAction;
 
   const updateVariant = (index: number, field: "label" | "price", value: string) => {
     const next = variants.map((variant, i) =>
@@ -54,12 +95,15 @@ export function ImportProductPreviewRow({
 
   return (
     <li className="p-4 md:p-5 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        {hasVariants && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-violet-100 text-violet-800 text-[10px] font-black uppercase tracking-wide">
-            {variants.length} seçenek
-          </span>
-        )}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <MatchBadge kind={match.kind} />
+          {hasVariants && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-violet-100 text-violet-800 text-[10px] font-black uppercase tracking-wide">
+              {variants.length} seçenek
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1 ml-auto">
           {!hasVariants && (
             <button
@@ -80,6 +124,73 @@ export function ImportProductPreviewRow({
           </button>
         </div>
       </div>
+
+      {match.kind === "conflict" && match.existing && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
+          {hasPriceConflict && (
+            <p className="text-xs font-bold text-amber-950">
+              Mevcut ürün bulundu, fiyat farklı
+              <span className="font-medium text-amber-900">
+                {" "}
+                (mevcut: {match.existing.price || "—"} · import: {importPrice || "—"})
+              </span>
+            </p>
+          )}
+          {hasDescriptionConflict && (
+            <p className="text-xs font-medium text-amber-950">
+              Açıklama mevcut üründen farklı. Mevcut açıklama korunacak (otomatik üzerine yazılmaz).
+            </p>
+          )}
+          {hasVariantConflict && (
+            <p className="text-xs font-medium text-amber-950">
+              Varyantlar mevcut üründen farklı. Mevcut varyantlar korunacak.
+            </p>
+          )}
+          <fieldset className="space-y-1.5 pt-1">
+            <legend className="text-[10px] font-black uppercase tracking-wide text-amber-800">
+              Ne yapılsın?
+            </legend>
+            <label className="flex items-center gap-2 text-xs font-medium text-amber-950">
+              <input
+                type="radio"
+                name={radioName}
+                checked={effectiveAction === "keep_existing"}
+                onChange={() => onChangeMergeAction("keep_existing")}
+                className="h-3.5 w-3.5"
+              />
+              Mevcut fiyatı koru
+            </label>
+            {hasPriceConflict && (
+              <label className="flex items-center gap-2 text-xs font-medium text-amber-950">
+                <input
+                  type="radio"
+                  name={radioName}
+                  checked={effectiveAction === "update_from_import"}
+                  onChange={() => onChangeMergeAction("update_from_import")}
+                  className="h-3.5 w-3.5"
+                />
+                Import fiyatıyla güncelle
+              </label>
+            )}
+            <label className="flex items-center gap-2 text-xs font-medium text-amber-950">
+              <input
+                type="radio"
+                name={radioName}
+                checked={effectiveAction === "create_separate"}
+                onChange={() => onChangeMergeAction("create_separate")}
+                className="h-3.5 w-3.5"
+              />
+              Ayrı ürün oluştur
+            </label>
+          </fieldset>
+        </div>
+      )}
+
+      {match.kind === "matched" && match.existing && (
+        <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+          Bu ürün restoranda zaten var. Yeni kayıt oluşturulmayacak; hedef menüye bağlanacak.
+        </p>
+      )}
 
       <input
         className="w-full border-2 border-gray-100 rounded-xl px-3 py-2 font-bold text-sm outline-none focus:border-blue-500"

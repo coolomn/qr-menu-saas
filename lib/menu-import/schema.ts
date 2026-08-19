@@ -63,14 +63,22 @@ export const importCategoryTargetSchema = z.object({
     .nullable(),
 });
 
+export const importProductResolutionSchema = z.object({
+  import_index: z.number().int().min(0).max(79),
+  product_index: z.number().int().min(0).max(199),
+  action: z.enum(["keep_existing", "update_from_import", "create_separate"]),
+});
+
 export const importCommitRequestSchema = z.object({
   restaurantId: z.string().uuid(),
   target_menu_collection_id: z.string().uuid().optional(),
   payload: importMenuPayloadSchema,
   category_targets: z.array(importCategoryTargetSchema).optional(),
+  product_resolutions: z.array(importProductResolutionSchema).optional(),
 });
 
 export type ImportCategoryTarget = z.infer<typeof importCategoryTargetSchema>;
+export type ImportProductResolution = z.infer<typeof importProductResolutionSchema>;
 export type ImportCommitRequest = z.infer<typeof importCommitRequestSchema>;
 
 const MAX_TOTAL_PRODUCTS = 400;

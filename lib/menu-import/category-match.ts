@@ -28,9 +28,15 @@ export function createCategoryMergeKey(name: string, main_group: string): string
   return `${normalizeCategoryName(name)}\0${resolveMainGroupForImport(main_group)}`;
 }
 
+export type MergedCommitProduct = {
+  product: ImportProduct;
+  source_import_index: number;
+  source_product_index: number;
+};
+
 export type MergedCommitCategoryUnit = {
   target: ResolvedCategoryTarget;
-  products: ImportProduct[];
+  products: MergedCommitProduct[];
   source_indices: number[];
   /** İlk dolu kategori name_en (create merge'de korunur). */
   category_name_en?: string | null;
@@ -67,7 +73,13 @@ export function mergeCreateCategoryTargetsInBatch(
     const target = targetsByIndex.get(i);
     if (!target) continue;
 
-    const catProducts = categories[i]?.products ?? [];
+    const catProducts: MergedCommitProduct[] = (categories[i]?.products ?? []).map(
+      (product, productIndex) => ({
+        product,
+        source_import_index: i,
+        source_product_index: productIndex,
+      })
+    );
 
     const categoryNameEn = categories[i]?.name_en ?? null;
     const categoryNameRu = categories[i]?.name_ru ?? null;

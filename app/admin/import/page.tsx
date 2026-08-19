@@ -16,7 +16,7 @@ import {
   Layers,
   X,
 } from "lucide-react";
-import type { ImportCategoryTarget, ImportMenuPayload, ImportVariant } from "@/lib/menu-import/schema";
+import type { ImportCategoryTarget, ImportMenuPayload, ImportProductResolution, ImportVariant } from "@/lib/menu-import/schema";
 import type {
   MenuImportActiveJobResponse,
   MenuImportAnalyzeResponse,
@@ -35,6 +35,13 @@ import {
   countCreateTargetsMergedInBatch,
   resolveMainGroupForImport,
 } from "@/lib/menu-import/category-match";
+import {
+  buildProductCatalogIndex,
+  classifyImportProductMatch,
+  findCatalogProductByName,
+  type ExistingCatalogProduct,
+  type ProductMergeAction,
+} from "@/lib/menu-import/product-match";
 import {
   ImportCategoryTargetCard,
   categoryTargetFromAi,
@@ -184,6 +191,10 @@ export default function AdminMenuImportPage() {
   const [activeMenus, setActiveMenus] = useState<ImportTargetMenu[]>([]);
   const [targetMenuCollectionId, setTargetMenuCollectionId] = useState<string | null>(null);
   const [existingCategories, setExistingCategories] = useState<ExistingImportCategory[]>([]);
+  const [existingProducts, setExistingProducts] = useState<ExistingCatalogProduct[]>([]);
+  const [productResolutions, setProductResolutions] = useState<Record<string, ProductMergeAction>>(
+    {}
+  );
   const [categoryTargets, setCategoryTargets] = useState<CategoryTargetUiState[]>([]);
   const [variantTemplateCategoryIndex, setVariantTemplateCategoryIndex] = useState<number | null>(
     null
@@ -258,14 +269,44 @@ export default function AdminMenuImportPage() {
 
       const { data: productRows } = await supabase
         .from("products")
-        .select("category_id")
+        .select("id, name, description, price, category_id")
         .eq("restaurant_id", selected.id);
 
+      const catalogProducts: ExistingCatalogProduct[] = (productRows || []).map((row) => ({
+        id: row.id as string,
+        name: row.name as string,
+        description: (row.description as string | null) ?? null,
+        price: (row.price as string | null) ?? null,
+        category_id: row.category_id as string,
+        variant_labels: [],
+      }));
+
       const productCountByCategory = new Map<string, number>();
-      for (const row of productRows || []) {
-        const cid = row.category_id as string;
-        productCountByCategory.set(cid, (productCountByCategory.get(cid) ?? 0) + 1);
+      for (const row of catalogProducts) {
+        productCountByCategory.set(row.category_id, (productCountByCategory.get(row.category_id) ?? 0) + 1);
       }
+
+      const catalogIds = catalogProducts.map((p) => p.id);
+      if (catalogIds.length > 0) {
+        const { data: variantRows } = await supabase
+          .from("product_variants")
+          .select("product_id, label, is_active")
+          .in("product_id", catalogIds)
+          .eq("is_active", true);
+        const labelsByProduct = new Map<string, string[]>();
+        for (const row of variantRows || []) {
+          const pid = row.product_id as string;
+          const label = typeof row.label === "string" ? row.label : "";
+          if (!pid || !label.trim()) continue;
+          const list = labelsByProduct.get(pid) ?? [];
+          list.push(label);
+          labelsByProduct.set(pid, list);
+        }
+        for (const product of catalogProducts) {
+          product.variant_labels = labelsByProduct.get(product.id) ?? [];
+        }
+      }
+      setExistingProducts(catalogProducts);
 
       setExistingCategories(
         (catRows || []).map((c) => ({
@@ -391,6 +432,22 @@ export default function AdminMenuImportPage() {
       };
       return next;
     });
+    setProductResolutions((prev) => {
+      const next: Record<string, ProductMergeAction> = {};
+      for (const [key, action] of Object.entries(prev)) {
+        const [ciRaw, piRaw] = key.split(":");
+        const rowCi = Number(ciRaw);
+        const rowPi = Number(piRaw);
+        if (rowCi !== ci) {
+          next[key] = action;
+          continue;
+        }
+        if (rowPi === pi) continue;
+        if (rowPi > pi) next[`${ci}:${rowPi - 1}`] = action;
+        else next[key] = action;
+      }
+      return next;
+    });
   }, []);
 
   const removeCategory = useCallback((ci: number) => {
@@ -408,6 +465,17 @@ export default function AdminMenuImportPage() {
           t.import_index > ci ? { ...t, import_index: t.import_index - 1 } : t
         )
     );
+    setProductResolutions((prev) => {
+      const next: Record<string, ProductMergeAction> = {};
+      for (const [key, action] of Object.entries(prev)) {
+        const [ciRaw, piRaw] = key.split(":");
+        const rowCi = Number(ciRaw);
+        if (rowCi === ci) continue;
+        if (rowCi > ci) next[`${rowCi - 1}:${piRaw}`] = action;
+        else next[key] = action;
+      }
+      return next;
+    });
   }, []);
 
   const validateCategoryTargetsForCommit = (): string | null => {
@@ -465,6 +533,52 @@ export default function AdminMenuImportPage() {
     );
   }, [categoryTargets]);
 
+  const productCatalogIndex = useMemo(
+    () => buildProductCatalogIndex(existingProducts),
+    [existingProducts]
+  );
+
+  const resolutionKey = (ci: number, pi: number) => `${ci}:${pi}`;
+
+  const getProductMatch = (ci: number, pi: number) => {
+    const product = preview?.categories[ci]?.products[pi];
+    if (!product) {
+      return { kind: "new" as const, existing: null, conflicts: [] };
+    }
+    return classifyImportProductMatch(
+      product,
+      findCatalogProductByName(product.name, productCatalogIndex)
+    );
+  };
+
+  const getMergeAction = (ci: number, pi: number): ProductMergeAction => {
+    return productResolutions[resolutionKey(ci, pi)] ?? "keep_existing";
+  };
+
+  const setMergeAction = (ci: number, pi: number, action: ProductMergeAction) => {
+    setProductResolutions((prev) => ({ ...prev, [resolutionKey(ci, pi)]: action }));
+  };
+
+  const buildProductResolutionsPayload = (): ImportProductResolution[] => {
+    if (!preview) return [];
+    const out: ImportProductResolution[] = [];
+    preview.categories.forEach((cat, ci) => {
+      cat.products.forEach((product, pi) => {
+        const match = classifyImportProductMatch(
+          product,
+          findCatalogProductByName(product.name, productCatalogIndex)
+        );
+        if (match.kind !== "conflict") return;
+        out.push({
+          import_index: ci,
+          product_index: pi,
+          action: getMergeAction(ci, pi),
+        });
+      });
+    });
+    return out;
+  };
+
   const applyPreviewFromPayload = useCallback(
     (payload: ImportMenuPayload, summary?: typeof excelSummary) => {
       const suggested = buildSuggestedCategoryTargets(payload.categories, existingCategories);
@@ -482,6 +596,7 @@ export default function AdminMenuImportPage() {
       );
       setPreview(payload);
       setExcelSummary(summary ?? null);
+      setProductResolutions({});
       setStep("preview");
     },
     [existingCategories]
@@ -754,6 +869,7 @@ export default function AdminMenuImportPage() {
           payload: preview,
           target_menu_collection_id: targetMenuCollectionId ?? undefined,
           category_targets: buildCategoryTargetsPayload(),
+          product_resolutions: buildProductResolutionsPayload(),
         }),
       });
       const { data: json, parseError } = await readApiJsonResponse<{
@@ -763,6 +879,8 @@ export default function AdminMenuImportPage() {
         categoriesReused?: number;
         categoriesMergedInBatch?: number;
         productsCreated?: number;
+        productsMerged?: number;
+        productsUpdated?: number;
         variantsCreated?: number;
         variantProductsCreated?: number;
         target_menu_name?: string;
@@ -785,6 +903,12 @@ export default function AdminMenuImportPage() {
       }
       if (typeof json.categoriesMergedInBatch === "number" && json.categoriesMergedInBatch > 0) {
         successMessage += `\n${json.categoriesMergedInBatch} aynı isimli kategori birleştirildi.`;
+      }
+      if (typeof json.productsMerged === "number" && json.productsMerged > 0) {
+        successMessage += `\n${json.productsMerged} mevcut ürün menüye bağlandı (yeni kayıt oluşturulmadı).`;
+      }
+      if (typeof json.productsUpdated === "number" && json.productsUpdated > 0) {
+        successMessage += `\n${json.productsUpdated} ürün fiyatı import ile güncellendi.`;
       }
       if (typeof json.variantsCreated === "number" && json.variantsCreated > 0) {
         successMessage += `\n${json.variantsCreated} varyant eklendi`;
@@ -1090,6 +1214,7 @@ export default function AdminMenuImportPage() {
                   setPreview(null);
                   setExcelSummary(null);
                   setCategoryTargets([]);
+                  setProductResolutions({});
                   setVariantTemplateCategoryIndex(null);
                   setAsyncProgress(null);
                   setResumableJob(null);
@@ -1178,6 +1303,10 @@ export default function AdminMenuImportPage() {
                     <ImportProductPreviewRow
                       key={pi}
                       product={p}
+                      rowId={`${ci}-${pi}`}
+                      match={getProductMatch(ci, pi)}
+                      mergeAction={getMergeAction(ci, pi)}
+                      onChangeMergeAction={(action) => setMergeAction(ci, pi, action)}
                       onChangeName={(value) => updateProduct(ci, pi, "name", value)}
                       onChangeDescription={(value) => updateProduct(ci, pi, "description", value)}
                       onChangePrice={(value) => updateProduct(ci, pi, "price", value)}
