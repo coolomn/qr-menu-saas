@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { productThumbnailSize } from "./prepare-product-image-client";
+import { productThumbnailSize } from "./images/prepare-presets";
 import {
   publicProductStoragePathFromUrl,
   resolvePublicProductCardImageSrc,
