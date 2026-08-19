@@ -97,6 +97,7 @@ async function insertProduct(
     is_active: true,
     allergens: [] as string[],
     image_url: "",
+    thumbnail_url: "",
     name_en: product.name_en?.trim() || null,
     name_ru: product.name_ru?.trim() || null,
     description_en: product.description_en ?? "",

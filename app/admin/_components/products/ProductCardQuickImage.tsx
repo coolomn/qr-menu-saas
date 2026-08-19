@@ -5,6 +5,7 @@ import { Loader2, RefreshCw, Trash2, UtensilsCrossed } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import {
   PRODUCT_IMAGE_ACCEPT,
+  tryRemoveProductImageFiles,
   uploadProductImage,
 } from "@/lib/admin-menu/product-image-upload";
 
@@ -13,14 +14,16 @@ const supabase = getBrowserSupabase();
 type ProductCardQuickImageProps = {
   productId: string;
   imageUrl: string | null | undefined;
+  thumbnailUrl?: string | null;
   restaurantId: string;
   disabled?: boolean;
-  onImageUpdated: (productId: string, imageUrl: string) => void;
+  onImageUpdated: (productId: string, imageUrl: string, thumbnailUrl: string) => void;
 };
 
 export function ProductCardQuickImage({
   productId,
   imageUrl,
+  thumbnailUrl,
   restaurantId,
   disabled = false,
   onImageUpdated,
@@ -55,13 +58,18 @@ export function ProductCardQuickImage({
       }
       const { error } = await supabase
         .from("products")
-        .update({ image_url: upload.url })
+        .update({ image_url: upload.url, thumbnail_url: upload.thumbnailUrl })
         .eq("id", productId);
       if (error) {
+        await tryRemoveProductImageFiles(supabase, restaurantId, [
+          upload.url,
+          upload.thumbnailUrl,
+        ]);
         alert(error.message || "Görsel kaydedilemedi.");
         return;
       }
-      onImageUpdated(productId, upload.url);
+      await tryRemoveProductImageFiles(supabase, restaurantId, [imageUrl, thumbnailUrl]);
+      onImageUpdated(productId, upload.url, upload.thumbnailUrl);
     } finally {
       setUploading(false);
       if (fileInputRef.current) {
@@ -103,13 +111,14 @@ export function ProductCardQuickImage({
     try {
       const { error } = await supabase
         .from("products")
-        .update({ image_url: "" })
+        .update({ image_url: "", thumbnail_url: "" })
         .eq("id", productId);
       if (error) {
         alert(error.message || "Görsel kaldırılamadı.");
         return;
       }
-      onImageUpdated(productId, "");
+      await tryRemoveProductImageFiles(supabase, restaurantId, [imageUrl, thumbnailUrl]);
+      onImageUpdated(productId, "", "");
     } finally {
       setUploading(false);
     }

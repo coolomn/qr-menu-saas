@@ -83,3 +83,64 @@ export async function prepareProductImageForUpload(file: File): Promise<{ blob: 
     "Görsel 5 MB sınırının altına getirilemedi. Daha düşük çözünürlüklü veya daha sade bir fotoğraf deneyin."
   );
 }
+
+/** Kart thumbnail hedef genişliği (yükseklik orantılı; büyütme yok). */
+export const PRODUCT_THUMBNAIL_MAX_WIDTH = 400;
+
+/** canvas.toBlob image/webp kalitesi (0–1). */
+export const PRODUCT_THUMBNAIL_WEBP_QUALITY = 0.82;
+
+export function productThumbnailSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  maxWidth = PRODUCT_THUMBNAIL_MAX_WIDTH
+): { width: number; height: number } {
+  const w = Math.max(1, Math.round(sourceWidth));
+  const h = Math.max(1, Math.round(sourceHeight));
+  if (w <= maxWidth) return { width: w, height: h };
+  const scale = maxWidth / w;
+  return { width: maxWidth, height: Math.max(1, Math.round(h * scale)) };
+}
+
+/** Kart için ~400px geniş WebP (destek yoksa JPEG). Crop yok. */
+export async function createProductThumbnailBlob(
+  source: Blob
+): Promise<{ blob: Blob; contentType: string; ext: string }> {
+  const bitmap = await createImageBitmap(source);
+  try {
+    const { width, height } = productThumbnailSize(bitmap.width, bitmap.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("Küçük görsel oluşturulamadı.");
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    const webp = await canvasBlob(canvas, "image/webp", PRODUCT_THUMBNAIL_WEBP_QUALITY);
+    if (webp && webp.size > 0) {
+      return { blob: webp, contentType: "image/webp", ext: "webp" };
+    }
+
+    const jpeg = await canvasBlob(canvas, "image/jpeg", 0.85);
+    if (!jpeg || jpeg.size === 0) {
+      throw new Error("Küçük görsel oluşturulamadı.");
+    }
+    return { blob: jpeg, contentType: "image/jpeg", ext: "jpg" };
+  } finally {
+    bitmap.close();
+  }
+}
+
+function canvasBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality: number
+): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob(resolve, type, quality);
+  });
+}

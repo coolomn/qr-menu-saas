@@ -14,6 +14,7 @@ import {
 } from "@/lib/public-menu/themes/resolve";
 import { ProductImageLightbox } from "@/app/menu/[slug]/_components/ProductImageLightbox";
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
+import { resolvePublicProductCardImageSrc } from "@/lib/public-menu/product-image-urls";
 
 type PublicProductCardProps = {
   product: PublicProduct;
@@ -52,7 +53,7 @@ export function PublicProductCard({
   const productRecord = product as unknown as Record<string, unknown>;
   const productName = getText(productRecord, "name");
   const description = getText(productRecord, "description");
-  const imageUrl = product.image_url?.trim();
+  const cardImageUrl = resolvePublicProductCardImageSrc(product);
 
   return (
     <>
@@ -62,12 +63,14 @@ export function PublicProductCard({
         onClick={() => setDetailOpen(true)}
         aria-label={productName ? `${productName} — detayları gör` : "Ürün detaylarını gör"}
       >
-        {imageUrl && (
+        {cardImageUrl && (
           <div className={`${c.productImageWrap} pointer-events-none`}>
             <img
-              src={imageUrl}
+              src={cardImageUrl}
               alt=""
               className="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
               draggable={false}
             />
           </div>

@@ -95,6 +95,7 @@ export type PublicProduct = {
   description_ru?: string | null;
   price?: string | null;
   image_url?: string | null;
+  thumbnail_url?: string | null;
   allergens?: string[] | null;
   menu_collection_ids?: string[];
   sort_order?: number | null;
@@ -134,6 +135,7 @@ export function normalizePublicProduct(raw: unknown): PublicProduct | null {
     description_ru: (row.description_ru as string | null | undefined) ?? null,
     price: (row.price as string | null | undefined) ?? null,
     image_url: (row.image_url as string | null | undefined) ?? null,
+    thumbnail_url: (row.thumbnail_url as string | null | undefined) ?? null,
     allergens: Array.isArray(row.allergens) ? (row.allergens as string[]) : null,
     menu_collection_ids: Array.isArray(row.menu_collection_ids)
       ? (row.menu_collection_ids as string[])

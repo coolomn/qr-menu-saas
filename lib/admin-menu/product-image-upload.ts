@@ -1,7 +1,11 @@
 "use client";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { prepareProductImageForUpload } from "@/lib/prepare-product-image-client";
+import {
+  createProductThumbnailBlob,
+  prepareProductImageForUpload,
+} from "@/lib/prepare-product-image-client";
+import { publicProductStoragePathFromUrl } from "@/lib/public-menu/product-image-urls";
 
 export const MENU_PUBLIC_BUCKET = "menu-public";
 
@@ -9,9 +13,18 @@ export const PRODUCT_IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
 
 export type PublicAssetKind = "logo" | "background" | "slider" | "products";
 
+export type ProductImageUploadResult = {
+  url: string;
+  thumbnailUrl: string;
+};
+
 function sanitizeFileExtension(raw: string | undefined, fallback = "jpg"): string {
   const ext = (raw || fallback).toLowerCase().replace(/[^a-z0-9]/g, "");
   return ext || fallback;
+}
+
+function newAssetUniqueId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export function buildPublicAssetPath(
@@ -19,8 +32,35 @@ export function buildPublicAssetPath(
   kind: PublicAssetKind,
   ext: string
 ): string {
-  const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-  return `restaurants/${restaurantId}/${kind}/${unique}.${sanitizeFileExtension(ext)}`;
+  return `restaurants/${restaurantId}/${kind}/${newAssetUniqueId()}.${sanitizeFileExtension(ext)}`;
+}
+
+function publicUrlForPath(supabase: SupabaseClient, path: string): string {
+  return supabase.storage.from(MENU_PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+async function removeStoragePath(supabase: SupabaseClient, path: string): Promise<void> {
+  const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).remove([path]);
+  if (error) {
+    console.warn("[product-image] storage remove skipped:", path, error.message);
+  }
+}
+
+/** Best-effort: yalnızca bu restoranın products/ dosyalarını siler (mevcut import cleanup dışında ürün görselleri için). */
+export async function tryRemoveProductImageFiles(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  urls: Array<string | null | undefined>
+): Promise<void> {
+  const paths: string[] = [];
+  for (const url of urls) {
+    if (!url?.trim()) continue;
+    const path = publicProductStoragePathFromUrl(url, restaurantId);
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  for (const path of paths) {
+    await removeStoragePath(supabase, path);
+  }
 }
 
 export async function uploadPublicAsset(
@@ -41,25 +81,55 @@ export async function uploadPublicAsset(
   if (error) {
     return { error: error.message || "Görsel yüklenemedi." };
   }
-  const url = supabase.storage.from(MENU_PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl;
-  return { url };
+  return { url: publicUrlForPath(supabase, path) };
 }
 
 export async function uploadProductImage(
   supabase: SupabaseClient,
   restaurantId: string,
   file: File
-): Promise<{ url: string } | { error: string }> {
+): Promise<ProductImageUploadResult | { error: string }> {
   try {
     const prep = await prepareProductImageForUpload(file);
-    const ext =
+    const originalExt =
       prep.blob === file && file.name.includes(".")
         ? sanitizeFileExtension(file.name.split(".").pop())
         : "jpg";
-    return uploadPublicAsset(supabase, restaurantId, "products", prep.blob, {
-      ext,
-      contentType: prep.contentType,
-    });
+    const unique = newAssetUniqueId();
+    const originalPath = `restaurants/${restaurantId}/products/${unique}.${originalExt}`;
+
+    const { error: originalError } = await supabase.storage
+      .from(MENU_PUBLIC_BUCKET)
+      .upload(originalPath, prep.blob, {
+        contentType: prep.contentType,
+        upsert: false,
+      });
+    if (originalError) {
+      return { error: originalError.message || "Görsel yüklenemedi." };
+    }
+
+    const url = publicUrlForPath(supabase, originalPath);
+    let thumbnailUrl = "";
+
+    try {
+      const thumb = await createProductThumbnailBlob(prep.blob);
+      const thumbPath = `restaurants/${restaurantId}/products/${unique}-thumb.${thumb.ext}`;
+      const { error: thumbError } = await supabase.storage
+        .from(MENU_PUBLIC_BUCKET)
+        .upload(thumbPath, thumb.blob, {
+          contentType: thumb.contentType,
+          upsert: false,
+        });
+      if (thumbError) {
+        console.warn("[product-image] thumbnail upload failed:", thumbError.message);
+      } else {
+        thumbnailUrl = publicUrlForPath(supabase, thumbPath);
+      }
+    } catch (thumbErr) {
+      console.warn("[product-image] thumbnail create failed:", thumbErr);
+    }
+
+    return { url, thumbnailUrl };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Görsel yüklenemedi." };
   }

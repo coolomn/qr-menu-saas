@@ -42,7 +42,7 @@ import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-colle
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { uploadProductImage, uploadPublicAsset } from "@/lib/admin-menu/product-image-upload";
+import { uploadProductImage, uploadPublicAsset, tryRemoveProductImageFiles } from "@/lib/admin-menu/product-image-upload";
 import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import {
@@ -218,7 +218,7 @@ export default function AdminDashboard() {
   const [newProduct, setNewProduct] = useState({ 
     name: "", name_en: "", name_ru: "", 
     description: "", description_en: "", description_ru: "", 
-    price: "", category_id: "", file: null as File | null, image_url: "",
+    price: "", category_id: "", file: null as File | null, image_url: "", thumbnail_url: "",
     allergens: [] as string[],
     pricing_mode: "single" as PricingMode,
     variants: [] as EditableProductVariant[],
@@ -499,10 +499,14 @@ export default function AdminDashboard() {
     setProducts(products.map((p: any) => p.id === productId ? { ...p, is_active: !currentStatus } : p));
   };
 
-  const handleProductImageUpdated = (productId: string, imageUrl: string) => {
+  const handleProductImageUpdated = (
+    productId: string,
+    imageUrl: string,
+    thumbnailUrl: string
+  ) => {
     setProducts((prev) =>
-      prev.map((p: { id: string; image_url?: string }) =>
-        p.id === productId ? { ...p, image_url: imageUrl } : p
+      prev.map((p: { id: string; image_url?: string; thumbnail_url?: string }) =>
+        p.id === productId ? { ...p, image_url: imageUrl, thumbnail_url: thumbnailUrl } : p
       )
     );
   };
@@ -628,7 +632,7 @@ export default function AdminDashboard() {
   };
 
   const clearProductImage = () => {
-    setNewProduct((prev: any) => ({ ...prev, file: null, image_url: "" }));
+    setNewProduct((prev: any) => ({ ...prev, file: null, image_url: "", thumbnail_url: "" }));
     if (productFileInputRef.current) productFileInputRef.current.value = "";
   };
 
@@ -668,7 +672,7 @@ export default function AdminDashboard() {
     setNewProduct({
       name: product.name || "", name_en: product.name_en || "", name_ru: product.name_ru || "",
       description: product.description || "", description_en: product.description_en || "", description_ru: product.description_ru || "",
-      price: product.price || "", category_id: product.category_id || "", file: null, image_url: product.image_url || "",
+      price: product.price || "", category_id: product.category_id || "", file: null, image_url: product.image_url || "", thumbnail_url: product.thumbnail_url || "",
       allergens: product.allergens || [],
       pricing_mode: hasVariants ? "variants" : "single",
       variants: hasVariants
@@ -698,6 +702,7 @@ export default function AdminDashboard() {
       category_id: "",
       file: null,
       image_url: "",
+      thumbnail_url: "",
       allergens: [],
       pricing_mode: "single",
       variants: [],
@@ -763,7 +768,13 @@ export default function AdminDashboard() {
         : newProduct.price.trim();
 
     setUploading(true);
+    const editingRow = editingProductId
+      ? products.find((p: { id: string }) => p.id === editingProductId)
+      : null;
+    const previousImageUrl = (editingRow?.image_url as string | undefined) || "";
+    const previousThumbnailUrl = (editingRow?.thumbnail_url as string | undefined) || "";
     let imageUrl = newProduct.image_url;
+    let thumbnailUrl = newProduct.thumbnail_url || "";
     try {
       if (newProduct.file) {
         const productUpload = await uploadProductImage(supabase, restaurant.id, newProduct.file);
@@ -772,13 +783,14 @@ export default function AdminDashboard() {
           return;
         }
         imageUrl = productUpload.url;
+        thumbnailUrl = productUpload.thumbnailUrl;
       }
 
       const payload = {
         restaurant_id: restaurant.id,
         category_id: newProduct.category_id, name: newProduct.name, name_en: newProduct.name_en, name_ru: newProduct.name_ru,
         description: newProduct.description, description_en: newProduct.description_en, description_ru: newProduct.description_ru,
-        price: resolvedPrice, image_url: imageUrl, allergens: newProduct.allergens
+        price: resolvedPrice, image_url: imageUrl, thumbnail_url: thumbnailUrl, allergens: newProduct.allergens
       };
 
       let savedProductId = editingProductId;
@@ -840,6 +852,16 @@ export default function AdminDashboard() {
             }
             return sortProductsByOrder([...prev, updated]);
           });
+        }
+
+        if (
+          previousImageUrl !== imageUrl ||
+          (previousThumbnailUrl || "") !== (thumbnailUrl || "")
+        ) {
+          await tryRemoveProductImageFiles(supabase, restaurant.id, [
+            previousImageUrl,
+            previousThumbnailUrl,
+          ]);
         }
 
         const synced = await syncProductMenuLinks(savedProductId, menuIdsToSave);
@@ -1939,6 +1961,7 @@ export default function AdminDashboard() {
                                     <ProductCardQuickImage
                                       productId={p.id}
                                       imageUrl={p.image_url}
+                                      thumbnailUrl={p.thumbnail_url}
                                       restaurantId={restaurant.id}
                                       disabled={productDeletingId === p.id}
                                       onImageUpdated={handleProductImageUpdated}

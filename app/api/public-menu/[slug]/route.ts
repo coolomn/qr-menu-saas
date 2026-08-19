@@ -74,6 +74,7 @@ type ProductRow = {
   description_ru: string | null;
   price: string | null;
   image_url: string | null;
+  thumbnail_url?: string | null;
   allergens: string[] | null;
   sort_order?: number | null;
   created_at?: string | null;
@@ -154,6 +155,13 @@ const PRODUCT_COLUMNS_BASE = [
 ].join(",");
 
 const PRODUCT_COLUMNS = [
+  PRODUCT_COLUMNS_BASE,
+  "sort_order",
+  "created_at",
+  "thumbnail_url",
+].join(",");
+
+const PRODUCT_COLUMNS_WITHOUT_THUMBNAIL = [
   PRODUCT_COLUMNS_BASE,
   "sort_order",
   "created_at",
@@ -298,6 +306,18 @@ export async function GET(
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
+
+    if (productsError && isMissingColumn(productsError)) {
+      const retryWithSort = await supabase
+        .from("products")
+        .select(PRODUCT_COLUMNS_WITHOUT_THUMBNAIL)
+        .in("category_id", categoryIds)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      productRows = retryWithSort.data;
+      productsError = retryWithSort.error;
+    }
 
     if (productsError && isMissingColumn(productsError)) {
       const retry = await supabase
