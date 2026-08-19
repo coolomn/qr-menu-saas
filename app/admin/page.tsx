@@ -289,6 +289,23 @@ export default function AdminDashboard() {
   }, [newProduct.file, isProductModalOpen]);
 
   useEffect(() => {
+    const anyModalOpen =
+      isProductModalOpen ||
+      isCategoryModalOpen ||
+      isResetMenuModalOpen ||
+      isMobileMenuOpen ||
+      Boolean(categoryDeleteCtx);
+    if (!anyModalOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.classList.add("admin-modal-open");
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.classList.remove("admin-modal-open");
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isProductModalOpen, isCategoryModalOpen, isResetMenuModalOpen, isMobileMenuOpen, categoryDeleteCtx]);
+
+  useEffect(() => {
     const fetchData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push("/admin/login"); return; }
@@ -2757,7 +2774,7 @@ export default function AdminDashboard() {
       </div>
 
       {isResetMenuModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] px-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-red-100 overflow-hidden">
             <div className="p-6 border-b border-red-100 bg-red-50/80 flex justify-between items-start gap-3">
               <div>
@@ -2817,15 +2834,18 @@ export default function AdminDashboard() {
       )}
 
       {isProductModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4">
-            <div className="bg-white rounded-[2rem] w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[95vh] md:max-h-[90vh]">
-                <div className="p-4 md:p-8 border-b flex justify-between items-center"><h3 className="font-black text-xl md:text-2xl text-gray-900 tracking-tighter">{editingProductId ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h3><button type="button" onClick={closeProductModal} className="text-gray-300 hover:text-gray-900 bg-gray-100 p-1 md:p-2 rounded-full"><X size={24} /></button></div>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm overflow-hidden pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] md:items-center md:p-4">
+            <div className="bg-white w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col min-h-0 rounded-t-[1.75rem] md:rounded-[2rem] max-h-[calc(100dvh-env(safe-area-inset-top,0px)-0.75rem)] md:max-h-[90dvh]">
+                <div className="shrink-0 sticky top-0 z-10 bg-white border-b flex justify-between items-center gap-3 px-4 py-3 md:p-8">
+                  <h3 className="font-black text-xl md:text-2xl text-gray-900 tracking-tighter min-w-0 truncate">{editingProductId ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h3>
+                  <button type="button" onClick={closeProductModal} className="text-gray-500 hover:text-gray-900 bg-gray-100 rounded-full shrink-0 inline-flex items-center justify-center min-h-11 min-w-11" aria-label="Kapat"><X size={22} /></button>
+                </div>
                 
-                {/* GÜNCELLENEN FORM BURASI: İNGİLİZCE VE RUSÇA KUTULARI EKLENDİ */}
-                <form onSubmit={handleProductSubmit} className="p-4 md:p-8 space-y-4 md:space-y-6 overflow-y-auto text-gray-900 pb-20 md:pb-8">
+                <form onSubmit={handleProductSubmit} className="flex flex-col flex-1 min-h-0 text-gray-900">
+                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-3 md:p-8 space-y-3 md:space-y-6">
                     <select
                       required
-                      className="w-full border-2 border-gray-50 bg-gray-50 p-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base"
+                      className="w-full max-w-full min-h-11 border-2 border-gray-50 bg-gray-50 px-3 py-3 md:p-4 rounded-2xl font-bold outline-none focus:border-blue-500 text-gray-900 text-sm md:text-base"
                       value={newProduct.category_id}
                       onChange={(e) => {
                         const categoryId = e.target.value;
@@ -2844,14 +2864,14 @@ export default function AdminDashboard() {
                       ))}
                     </select>
 
-                    <div className="p-4 md:p-5 border-2 border-amber-100 rounded-2xl bg-amber-50/40 space-y-4">
+                    <div className="p-3 md:p-5 border-2 border-amber-100 rounded-2xl bg-amber-50/40 space-y-3 md:space-y-4">
                       <div>
                         <span className="text-[10px] font-black text-amber-900 uppercase tracking-widest">
                           Fiyatlandırma
                         </span>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
                           <label
-                            className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                            className={`flex items-center gap-2.5 min-h-11 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
                               newProduct.pricing_mode === "single"
                                 ? "border-amber-400 bg-white shadow-sm"
                                 : "border-amber-100 bg-white/70 hover:border-amber-200"
@@ -2868,7 +2888,7 @@ export default function AdminDashboard() {
                             <span className="text-sm font-bold text-gray-800">Tek fiyat</span>
                           </label>
                           <label
-                            className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                            className={`flex items-center gap-2.5 min-h-11 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
                               newProduct.pricing_mode === "variants"
                                 ? "border-amber-400 bg-white shadow-sm"
                                 : "border-amber-100 bg-white/70 hover:border-amber-200"
@@ -2891,7 +2911,7 @@ export default function AdminDashboard() {
                         <input
                           type="text"
                           placeholder="Fiyat (Örn: 250 ₺)"
-                          className="w-full border-2 border-gray-50 bg-white p-3 md:p-4 rounded-2xl font-black outline-none focus:border-amber-500 text-gray-900 text-sm md:text-base"
+                          className="w-full max-w-full min-w-0 border-2 border-gray-50 bg-white p-3 md:p-4 rounded-2xl font-black outline-none focus:border-amber-500 text-gray-900 text-sm md:text-base min-h-11"
                           value={newProduct.price}
                           onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
                         />
@@ -2905,7 +2925,7 @@ export default function AdminDashboard() {
                               <input
                                 type="text"
                                 placeholder="Etiket (ör. 20 CL, Küçük)"
-                                className="w-full border-2 border-gray-50 bg-white p-3 rounded-xl font-bold text-gray-900 text-sm outline-none focus:border-amber-500"
+                                className="w-full max-w-full min-w-0 min-h-11 border-2 border-gray-50 bg-white p-3 rounded-xl font-bold text-gray-900 text-sm outline-none focus:border-amber-500"
                                 value={variant.label}
                                 onChange={(e) =>
                                   updateProductVariantRow(index, "label", e.target.value)
@@ -2914,7 +2934,7 @@ export default function AdminDashboard() {
                               <input
                                 type="text"
                                 placeholder="Fiyat (ör. 350)"
-                                className="w-full border-2 border-gray-50 bg-white p-3 rounded-xl font-black text-gray-900 text-sm outline-none focus:border-amber-500"
+                                className="w-full max-w-full min-w-0 min-h-11 border-2 border-gray-50 bg-white p-3 rounded-xl font-black text-gray-900 text-sm outline-none focus:border-amber-500"
                                 value={variant.price}
                                 onChange={(e) =>
                                   updateProductVariantRow(index, "price", e.target.value)
@@ -2923,7 +2943,7 @@ export default function AdminDashboard() {
                               <button
                                 type="button"
                                 onClick={() => removeProductVariantRow(index)}
-                                className="p-2.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors justify-self-end sm:justify-self-auto"
+                                className="inline-flex items-center justify-center min-h-11 min-w-11 p-2.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors justify-self-end sm:justify-self-auto"
                                 title="Varyantı sil"
                                 aria-label="Varyantı sil"
                               >
@@ -2936,7 +2956,7 @@ export default function AdminDashboard() {
                               type="button"
                               onClick={addProductVariantRow}
                               disabled={newProduct.variants.length >= MAX_PRODUCT_VARIANTS}
-                              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-amber-200 bg-white text-amber-800 text-xs font-black uppercase tracking-wide hover:bg-amber-50 disabled:opacity-50"
+                              className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2.5 rounded-xl border border-amber-200 bg-white text-amber-800 text-xs font-black uppercase tracking-wide hover:bg-amber-50 disabled:opacity-50"
                             >
                               <Plus size={14} aria-hidden />
                               Varyant ekle
@@ -2972,17 +2992,17 @@ export default function AdminDashboard() {
                       )
                     )}
 
-                    <div className="p-4 md:p-6 bg-blue-50 rounded-2xl md:rounded-[2rem] border border-blue-100 space-y-3 md:space-y-4">
+                    <div className="p-3 md:p-6 bg-blue-50 rounded-2xl md:rounded-[2rem] border border-blue-100 space-y-3 md:space-y-4">
                         <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe Bilgiler</span>
-                        <input required placeholder="Ürün Adı" className="w-full bg-white p-3 md:p-4 rounded-xl font-black text-gray-900 outline-none shadow-sm text-sm md:text-base" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
-                        <textarea placeholder="Açıklama..." className="w-full bg-white p-3 md:p-4 rounded-xl font-medium text-gray-600 text-xs md:text-sm outline-none shadow-sm" rows={2} value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
+                        <input required placeholder="Ürün Adı" className="w-full max-w-full min-w-0 min-h-11 bg-white p-3 md:p-4 rounded-xl font-black text-gray-900 outline-none shadow-sm text-sm md:text-base" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
+                        <textarea placeholder="Açıklama..." className="w-full max-w-full min-w-0 box-border resize-y bg-white p-3 md:p-4 rounded-xl font-medium text-gray-600 text-xs md:text-sm outline-none shadow-sm" rows={2} value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-2">
-                      <button type="button" onClick={() => void handleAutoTranslateProduct("en")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
+                      <button type="button" onClick={() => void handleAutoTranslateProduct("en")} disabled={!!translatingTarget} className="min-h-11 text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
                         <Sparkles size={12}/> {translatingTarget === "en" ? translationStatusLabel("en") : translationActionLabel("en")}
                       </button>
-                      <button type="button" onClick={() => void handleAutoTranslateProduct("ru")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
+                      <button type="button" onClick={() => void handleAutoTranslateProduct("ru")} disabled={!!translatingTarget} className="min-h-11 text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
                         <Sparkles size={12}/> {translatingTarget === "ru" ? translationStatusLabel("ru") : translationActionLabel("ru")}
                       </button>
                     </div>
@@ -2991,24 +3011,24 @@ export default function AdminDashboard() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-400 uppercase ml-2">🇬🇧 English</label>
-                            <input placeholder="Name" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_en} onChange={e => setNewProduct({...newProduct, name_en: e.target.value})} />
-                            <textarea placeholder="Description" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_en} onChange={e => setNewProduct({...newProduct, description_en: e.target.value})} />
+                            <input placeholder="Name" className="w-full max-w-full min-w-0 min-h-11 border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_en} onChange={e => setNewProduct({...newProduct, name_en: e.target.value})} />
+                            <textarea placeholder="Description" className="w-full max-w-full min-w-0 box-border resize-y border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_en} onChange={e => setNewProduct({...newProduct, description_en: e.target.value})} />
                         </div>
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-400 uppercase ml-2">🇷🇺 Russian</label>
-                            <input placeholder="Название" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_ru} onChange={e => setNewProduct({...newProduct, name_ru: e.target.value})} />
-                            <textarea placeholder="Описание" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_ru} onChange={e => setNewProduct({...newProduct, description_ru: e.target.value})} />
+                            <input placeholder="Название" className="w-full max-w-full min-w-0 min-h-11 border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_ru} onChange={e => setNewProduct({...newProduct, name_ru: e.target.value})} />
+                            <textarea placeholder="Описание" className="w-full max-w-full min-w-0 box-border resize-y border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_ru} onChange={e => setNewProduct({...newProduct, description_ru: e.target.value})} />
                         </div>
                     </div>
 
-                    <div className="p-4 md:p-5 border-2 border-gray-50 rounded-2xl space-y-3">
+                    <div className="p-3 md:p-5 border-2 border-gray-50 rounded-2xl space-y-3">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-wide">Alerjenler</span>
                         <button
                           type="button"
                           onClick={() => void handleSuggestAllergens()}
                           disabled={allergenSuggestBusy}
-                          className="self-start sm:self-auto inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                          className="self-start sm:self-auto inline-flex items-center justify-center min-h-11 gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                         >
                           <Sparkles size={14} aria-hidden />
                           {allergenSuggestBusy ? "Öneriliyor…" : "Alerjen öner"}
@@ -3051,7 +3071,7 @@ export default function AdminDashboard() {
                           <button
                             type="button"
                             onClick={handleApplyAllergenSuggestions}
-                            className="inline-flex items-center rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-blue-700"
+                            className="inline-flex items-center justify-center min-h-11 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-blue-700"
                           >
                             Önerileri ekle
                           </button>
@@ -3063,7 +3083,7 @@ export default function AdminDashboard() {
                             key={alg.id}
                             type="button"
                             onClick={() => toggleAllergen(alg.id)}
-                            className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 transition-all ${newProduct.allergens?.includes(alg.id) ? "bg-blue-600 text-white shadow-md" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+                            className={`min-h-11 px-2.5 md:px-3 py-2 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 transition-all ${newProduct.allergens?.includes(alg.id) ? "bg-blue-600 text-white shadow-md" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
                           >
                             <span>{alg.icon}</span> {alg.label}
                           </button>
@@ -3099,7 +3119,7 @@ export default function AdminDashboard() {
                             <button
                               type="button"
                               onClick={clearProductImage}
-                              className="self-start inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-[10px] font-black uppercase text-red-600 hover:bg-red-50"
+                              className="self-start inline-flex items-center justify-center min-h-11 gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-[10px] font-black uppercase text-red-600 hover:bg-red-50"
                             >
                               <Trash2 size={14} aria-hidden />
                               Görseli kaldır
@@ -3113,18 +3133,21 @@ export default function AdminDashboard() {
                         ref={productFileInputRef}
                         type="file"
                         accept="image/*"
-                        className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"
+                        className="w-full max-w-full min-w-0 text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 file:min-h-11 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"
                         onChange={e => setNewProduct({ ...newProduct, file: e.target.files?.[0] ?? null })}
                       />
                     </div>
-                    <button disabled={uploading} type="submit" className="w-full bg-blue-600 text-white py-4 md:py-5 rounded-2xl md:rounded-[1.5rem] font-black text-base md:text-lg shadow-xl hover:bg-blue-700 transition-all uppercase mt-4">{uploading ? "İŞLENİYOR..." : editingProductId ? "KAYDET" : "EKLE"}</button>
+                </div>
+                <div className="shrink-0 border-t border-gray-100 bg-white px-3 pt-3 md:px-8 md:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-6">
+                    <button disabled={uploading} type="submit" className="w-full min-h-11 bg-blue-600 text-white py-3.5 md:py-5 rounded-2xl md:rounded-[1.5rem] font-black text-base md:text-lg shadow-xl hover:bg-blue-700 transition-all uppercase">{uploading ? "İŞLENİYOR..." : editingProductId ? "KAYDET" : "EKLE"}</button>
+                </div>
                 </form>
             </div>
         </div>
       )}
 
       {categoryDeleteCtx && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] px-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex justify-between items-start gap-3">
               <div>
@@ -3209,11 +3232,11 @@ export default function AdminDashboard() {
       )}
 
       {isCategoryModalOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 md:p-8 shadow-2xl">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] px-4">
+            <div className="bg-white rounded-3xl w-full max-w-lg max-h-[calc(100dvh-2rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] md:max-h-[90dvh] overflow-y-auto overscroll-contain p-6 md:p-8 shadow-2xl">
                 <div className="flex justify-between items-start gap-3 mb-6">
                   <h3 className="font-black text-lg md:text-xl text-gray-900 pr-2">{editingCategoryId ? "Kategoriyi düzenle" : "Yeni kategori"}</h3>
-                  <button type="button" onClick={closeCategoryModal} className="text-gray-400 hover:text-gray-900 bg-gray-100 p-2 rounded-full shrink-0" aria-label="Kapat">
+                  <button type="button" onClick={closeCategoryModal} className="text-gray-400 hover:text-gray-900 bg-gray-100 rounded-full shrink-0 inline-flex items-center justify-center min-h-11 min-w-11" aria-label="Kapat">
                     <X size={22} />
                   </button>
                 </div>

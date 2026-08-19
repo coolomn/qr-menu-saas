@@ -25,6 +25,11 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+body.admin-modal-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 @keyframes menu-icon-pop {
   0%,
   100% {

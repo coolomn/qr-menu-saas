@@ -25,7 +25,7 @@ export function ProductMenuCollectionFields({
 
   if (menus.length === 0) {
     return (
-      <div className="p-4 md:p-5 bg-amber-50 rounded-2xl border border-amber-100">
+      <div className="p-3 md:p-5 bg-amber-50 rounded-2xl border border-amber-100">
         <p className="text-xs font-bold text-amber-900 leading-relaxed">
           Bu kategori için seçilebilir menü yok. Önce kategoriye menü bağlayın veya Menüler sekmesinden
           aktif menü oluşturun.
@@ -35,7 +35,7 @@ export function ProductMenuCollectionFields({
   }
 
   return (
-    <div className="p-4 md:p-5 bg-teal-50 rounded-2xl border border-teal-100 space-y-3">
+    <div className="p-3 md:p-5 bg-teal-50 rounded-2xl border border-teal-100 space-y-2.5 md:space-y-3">
       <div>
         <p className="text-[10px] font-black text-teal-700 uppercase tracking-widest">
           Menü görünürlüğü
@@ -58,7 +58,7 @@ export function ProductMenuCollectionFields({
           return (
             <label
               key={menu.id}
-              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+              className={`flex items-center gap-3 min-h-11 p-3 rounded-xl border cursor-pointer transition-colors ${
                 checked
                   ? "bg-white border-teal-300 shadow-sm"
                   : "bg-teal-50/50 border-teal-100 hover:bg-white"

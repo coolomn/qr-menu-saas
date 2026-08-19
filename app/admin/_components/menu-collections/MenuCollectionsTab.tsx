@@ -375,7 +375,7 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
       />
 
       {deleteConfirmItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] px-4">
           <div
             className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-gray-100 overflow-hidden"
             role="dialog"

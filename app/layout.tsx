@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,12 @@ const geistMono = Geist_Mono({
 const siteTitle = "TapMenu - Dijital menü";
 const siteDescription =
   "QR menü ile restoran menünüzü dijitalleştirin. Anında güncelleme, mobil uyumlu tasarım ve kolay yönetim paneli.";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://tapmenu.com.tr"),

@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
-const defaultDevOrigins = ["127.0.0.1", "localhost", "192.168.1.5", "192.168.1.103"];
+const defaultDevOrigins = [
+  "127.0.0.1",
+  "localhost",
+  "192.168.1.5",
+  "192.168.1.103",
+  "192.168.1.191",
+];
 
 const extraDevOrigins = (process.env.LOCAL_DEV_ORIGINS ?? "")
   .split(",")
