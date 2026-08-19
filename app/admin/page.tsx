@@ -52,7 +52,7 @@ import {
 } from "@/lib/admin-menu/auto-translate";
 import { translateText, translateMenuCategoryFallback } from "@/lib/admin-menu/auto-translate-client";
 import { fillMissingCategoryName } from "@/lib/admin-menu/menu-category-translations";
-import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
+import { suggestAllergens, type AllergenSuggestion } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import {
   loadOwnerRestaurantById,
@@ -73,6 +73,7 @@ const ALLERGEN_OPTIONS = [
   { id: 'gluten', label: 'Gluten', icon: '🌾' },
   { id: 'dairy', label: 'Süt', icon: '🥛' },
   { id: 'nuts', label: 'Kuruyemiş', icon: '🥜' },
+  { id: 'sesame', label: 'Susam', icon: '🫓' },
   { id: 'seafood', label: 'Deniz Ürünü', icon: '🦐' },
   { id: 'egg', label: 'Yumurta', icon: '🥚' },
   { id: 'vegan', label: 'Vegan', icon: '🌱' },
@@ -237,6 +238,7 @@ export default function AdminDashboard() {
   const newProductRef = useRef(newProduct);
   const [productImageObjectUrl, setProductImageObjectUrl] = useState<string | null>(null);
   const [allergenSuggestMessage, setAllergenSuggestMessage] = useState<string | null>(null);
+  const [allergenSuggestions, setAllergenSuggestions] = useState<AllergenSuggestion[]>([]);
 
   useEffect(() => {
     newProductRef.current = newProduct;
@@ -244,9 +246,11 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     setAllergenSuggestMessage(null);
+    setAllergenSuggestions([]);
   }, [
     newProduct.name,
     newProduct.description,
+    newProduct.category_id,
     newProduct.name_en,
     newProduct.description_en,
     newProduct.name_ru,
@@ -657,34 +661,48 @@ export default function AdminDashboard() {
 
   const handleSuggestAllergens = () => {
     const prev = newProductRef.current;
-    const ids = suggestAllergenIdsFromText([
-      prev.name,
-      prev.description,
-      prev.name_en,
-      prev.description_en,
-      prev.name_ru,
-      prev.description_ru,
-    ]);
-    if (ids.length === 0) {
+    const categoryName = categories.find((c: { id: string }) => c.id === prev.category_id)?.name || "";
+    const suggestions = suggestAllergens({
+      name: prev.name,
+      description: prev.description,
+      categoryName,
+      name_en: prev.name_en,
+      description_en: prev.description_en,
+      name_ru: prev.name_ru,
+      description_ru: prev.description_ru,
+    });
+    if (suggestions.length === 0) {
+      setAllergenSuggestions([]);
       setAllergenSuggestMessage("Metinde eşleşen alerjen anahtar kelimesi bulunamadı. Elle seçebilirsiniz.");
       return;
     }
     const already = new Set(prev.allergens || []);
-    const newIds = ids.filter((id: string) => !already.has(id));
-    if (newIds.length === 0) {
+    const pending = suggestions.filter((item) => !already.has(item.id));
+    if (pending.length === 0) {
+      setAllergenSuggestions([]);
       setAllergenSuggestMessage("Önerilenler zaten işaretli; yeni bir eşleşme yok.");
       return;
     }
+    setAllergenSuggestions(pending);
+    setAllergenSuggestMessage("Öneriler hazır. Kontrol edip ekleyin; otomatik işaretlenmez.");
+  };
+
+  const handleApplyAllergenSuggestions = () => {
+    const prev = newProductRef.current;
+    const pendingIds = allergenSuggestions.map((item) => item.id);
+    if (pendingIds.length === 0) return;
     setNewProduct({
       ...prev,
-      allergens: [...new Set([...(prev.allergens || []), ...ids])],
+      allergens: [...new Set([...(prev.allergens || []), ...pendingIds])],
     });
-    const labels = newIds.map((id: string) => ALLERGEN_OPTIONS.find((a) => a.id === id)?.label || id);
+    const labels = pendingIds.map((id: string) => ALLERGEN_OPTIONS.find((a) => a.id === id)?.label || id);
+    setAllergenSuggestions([]);
     setAllergenSuggestMessage(`Eklendi: ${labels.join(", ")}`);
   };
 
   const openEditModal = (product: any) => {
     setAllergenSuggestMessage(null);
+    setAllergenSuggestions([]);
     setEditingProductId(product.id);
     const existingVariants = sortProductVariantsByOrder(productVariantsMap[product.id] || []);
     const hasVariants = existingVariants.length > 0;
@@ -710,6 +728,7 @@ export default function AdminDashboard() {
   const openNewProductModal = () => {
     setEditingProductId(null);
     setAllergenSuggestMessage(null);
+    setAllergenSuggestions([]);
     setNewProduct({
       name: "",
       name_en: "",
@@ -734,6 +753,7 @@ export default function AdminDashboard() {
     setIsProductModalOpen(false);
     setEditingProductId(null);
     setAllergenSuggestMessage(null);
+    setAllergenSuggestions([]);
     resetProductMenuPickerState();
   };
 
@@ -2751,15 +2771,46 @@ export default function AdminDashboard() {
                         </button>
                       </div>
                       <p className="text-[9px] font-medium text-gray-500 leading-snug">
-                        Otomatik öneridir; menü ve sorumluluğu kontrol edin. Mevcut seçimlerinize eklenir (üzerine yazılmaz).
+                        Öneri otomatik işaretlenmez. Ad, açıklama ve kategori birlikte taranır; açıklama boş olsa da ad yeterlidir.
                         <span className="block mt-1 text-gray-400">
-                          Taranır: Türkçe ürün adı ve açıklama, İngilizce ve Rusça ad / açıklama alanları.
+                          Açık eşleşme ve ürün tipinden tahmin ayrı gösterilir. glutensiz / laktozsuz / vegan gibi ifadeler ilgili alerjeni düşürür.
                         </span>
                       </p>
                       {allergenSuggestMessage && (
                         <p className="text-[10px] font-bold text-blue-800 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 leading-snug" role="status">
                           {allergenSuggestMessage}
                         </p>
+                      )}
+                      {allergenSuggestions.length > 0 && (
+                        <div className="space-y-2 rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                          <p className="text-[10px] font-black text-amber-800 uppercase tracking-wide">Öneriler (onay bekliyor)</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {allergenSuggestions.map((item) => {
+                              const opt = ALLERGEN_OPTIONS.find((a) => a.id === item.id);
+                              const inferred = item.confidence === "inferred";
+                              return (
+                                <span
+                                  key={item.id}
+                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold ${
+                                    inferred
+                                      ? "border border-dashed border-amber-400 bg-white text-amber-800"
+                                      : "border border-blue-200 bg-blue-50 text-blue-800"
+                                  }`}
+                                >
+                                  <span>{opt?.icon}</span> {opt?.label || item.id}
+                                  <span className="font-medium opacity-70">{inferred ? "tahmin" : "açık"}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleApplyAllergenSuggestions}
+                            className="inline-flex items-center rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-blue-700"
+                          >
+                            Önerileri ekle
+                          </button>
+                        </div>
                       )}
                       <div className="flex flex-wrap gap-1.5 md:gap-2">
                         {ALLERGEN_OPTIONS.map((alg: any) => (
