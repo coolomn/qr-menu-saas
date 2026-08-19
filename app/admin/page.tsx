@@ -43,6 +43,15 @@ import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collec
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
 import { formatPriceForDisplay } from "@/lib/format-price";
 import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadPublicAsset, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles } from "@/lib/admin-menu/product-image-upload";
+import {
+  fillMissingLocalizedValue,
+  fillMissingProductTranslations,
+  translationActionLabel,
+  translationStatusLabel,
+  type TargetLanguage,
+} from "@/lib/admin-menu/auto-translate";
+import { translateText, translateMenuCategoryFallback } from "@/lib/admin-menu/auto-translate-client";
+import { fillMissingCategoryName } from "@/lib/admin-menu/menu-category-translations";
 import { suggestAllergenIdsFromText } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import {
@@ -160,7 +169,7 @@ export default function AdminDashboard() {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [translating, setTranslating] = useState(false);
+  const [translatingTarget, setTranslatingTarget] = useState<TargetLanguage | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
 
   const [isResetMenuModalOpen, setIsResetMenuModalOpen] = useState(false);
@@ -1471,45 +1480,113 @@ export default function AdminDashboard() {
     if (data) setCategories(categories.map((x: any) => (x.id === c.id ? data : x)));
   };
 
-  const translateLine = async (q: string, lang: "en" | "ru") => {
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=tr|${lang}`
-    );
-    const data = await res.json();
-    return data.responseData?.translatedText as string | undefined;
-  };
-
-  const handleAutoTranslateCategoryMainGroup = async () => {
-    const q = newCategory.main_group.trim();
-    if (!q) return;
-    setTranslating(true);
+  const handleAutoTranslateProduct = async (targetLanguage: TargetLanguage) => {
+    setTranslatingTarget(targetLanguage);
     try {
-      const updated = { ...newCategory };
-      const en = await translateLine(q, "en");
-      const ru = await translateLine(q, "ru");
-      if (en) updated.main_group_en = en;
-      if (ru) updated.main_group_ru = ru;
-      setNewCategory(updated);
+      const patch = await fillMissingProductTranslations(
+        newProduct,
+        targetLanguage,
+        translateText
+      );
+      if (Object.keys(patch).length === 0) return;
+      setNewProduct((prev) => ({ ...prev, ...patch }));
     } finally {
-      setTranslating(false);
+      setTranslatingTarget(null);
     }
   };
 
-  const handleAutoTranslateCategory = async () => {
-    if (!newCategory.name.trim()) return;
-    setTranslating(true);
+  const handleAutoTranslateCategoryFields = async (targetLanguage: TargetLanguage) => {
+    setTranslatingTarget(targetLanguage);
     try {
-      const updated = { ...newCategory };
-      for (const target of [{ t: "en" as const, f: "name_en" as const }, { t: "ru" as const, f: "name_ru" as const }]) {
-        const res = await fetch(
-          `https://api.mymemory.translated.net/get?q=${encodeURIComponent(newCategory.name)}&langpair=tr|${target.t}`
-        );
-        const data = await res.json();
-        if (data.responseData?.translatedText) updated[target.f] = data.responseData.translatedText;
-      }
-      setNewCategory(updated);
+      const namePatch = await fillMissingCategoryName(
+        newCategory,
+        targetLanguage,
+        translateMenuCategoryFallback
+      );
+      const mainGroupValue = await fillMissingLocalizedValue(
+        newCategory.main_group,
+        newCategory.main_group_en,
+        newCategory.main_group_ru,
+        targetLanguage,
+        translateText
+      );
+      setNewCategory((prev) => {
+        const next = { ...prev };
+        if (namePatch.name_en) next.name_en = namePatch.name_en;
+        if (namePatch.name_ru) next.name_ru = namePatch.name_ru;
+        if (mainGroupValue) {
+          if (targetLanguage === "en") next.main_group_en = mainGroupValue;
+          else next.main_group_ru = mainGroupValue;
+        }
+        return next;
+      });
     } finally {
-      setTranslating(false);
+      setTranslatingTarget(null);
+    }
+  };
+
+  const handleBulkTranslateMissingCategories = async (targetLanguage: TargetLanguage) => {
+    if (!restaurant?.id) return;
+    setTranslatingTarget(targetLanguage);
+    try {
+      for (const category of categories) {
+        const patch = await fillMissingCategoryName(
+          category,
+          targetLanguage,
+          translateMenuCategoryFallback
+        );
+        if (Object.keys(patch).length === 0) continue;
+        const { error } = await supabase
+          .from("categories")
+          .update(patch)
+          .eq("id", category.id)
+          .eq("restaurant_id", restaurant.id);
+        if (error) {
+          alert(error.message || "Çeviri kaydedilemedi.");
+          return;
+        }
+        setCategories((prev) =>
+          prev.map((row: { id: string }) => (row.id === category.id ? { ...row, ...patch } : row))
+        );
+        if (editingCategoryId === category.id) {
+          setNewCategory((prev) => ({ ...prev, ...patch }));
+        }
+      }
+    } finally {
+      setTranslatingTarget(null);
+    }
+  };
+
+  const handleBulkTranslateMissingProducts = async (targetLanguage: TargetLanguage) => {
+    if (!restaurant?.id) return;
+    setTranslatingTarget(targetLanguage);
+    try {
+      const list = filteredProducts;
+      for (const product of list) {
+        const patch = await fillMissingProductTranslations(
+          product,
+          targetLanguage,
+          translateText
+        );
+        if (Object.keys(patch).length === 0) continue;
+        const { error } = await supabase
+          .from("products")
+          .update(patch)
+          .eq("id", product.id)
+          .eq("restaurant_id", restaurant.id);
+        if (error) {
+          alert(error.message || "Çeviri kaydedilemedi.");
+          return;
+        }
+        setProducts((prev) =>
+          prev.map((row: { id: string }) => (row.id === product.id ? { ...row, ...patch } : row))
+        );
+        if (editingProductId === product.id) {
+          setNewProduct((prev) => ({ ...prev, ...patch }));
+        }
+      }
+    } finally {
+      setTranslatingTarget(null);
     }
   };
 
@@ -1547,26 +1624,6 @@ export default function AdminDashboard() {
     } finally {
       setResetMenuBusy(false);
     }
-  };
-
-  const handleAutoTranslate = async () => {
-    if (!newProduct.name) return;
-    setTranslating(true);
-    try {
-      const targets = [{t:'en', n:'name_en', d:'description_en'}, {t:'ru', n:'name_ru', d:'description_ru'}];
-      const updated: any = { ...newProduct };
-      for (const target of targets) {
-        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(newProduct.name)}&langpair=tr|${target.t}`);
-        const data = await res.json();
-        if (data.responseData) updated[target.n] = data.responseData.translatedText;
-        if (newProduct.description) {
-          const resD = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(newProduct.description)}&langpair=tr|${target.t}`);
-          const dataD = await resD.json();
-          if (dataD.responseData) updated[target.d] = dataD.responseData.translatedText;
-        }
-      }
-      setNewProduct(updated);
-    } finally { setTranslating(false); }
   };
 
   const downloadQRCode = () => { window.open(`https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(`https://tapmenu.com.tr/menu/${restaurant.slug}${tableNumber ? `?masa=${tableNumber}` : ""}`)}`, '_blank'); };
@@ -1869,7 +1926,7 @@ export default function AdminDashboard() {
                       </label>
                     )}
                   </div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={productPriceEmptyOnly}
@@ -1878,6 +1935,33 @@ export default function AdminDashboard() {
                     />
                     Sadece fiyatı boş olanlar
                   </label>
+                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleBulkTranslateMissingProducts("en")}
+                      disabled={!!translatingTarget}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      <Sparkles size={14} aria-hidden />
+                      {translatingTarget === "en"
+                        ? translationStatusLabel("en")
+                        : translationActionLabel("en")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleBulkTranslateMissingProducts("ru")}
+                      disabled={!!translatingTarget}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      <Sparkles size={14} aria-hidden />
+                      {translatingTarget === "ru"
+                        ? translationStatusLabel("ru")
+                        : translationActionLabel("ru")}
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-medium text-gray-500 leading-snug">
+                    Görünen ürünlerde yalnızca boş çeviri alanları doldurulur. Dolu İngilizce/Rusça ve tüm Türkçe alanlar korunur.
+                  </p>
                 </div>
 
                 {productViewMode === "cards" && !productFiltersActive && groupedFilteredProducts.length > 0 && (
@@ -2094,6 +2178,33 @@ export default function AdminDashboard() {
                     <Plus size={18} /> Yeni Kategori
                   </button>
                 </div>
+                <div className="flex flex-col sm:flex-row gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleBulkTranslateMissingCategories("en")}
+                    disabled={!!translatingTarget}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    <Sparkles size={14} aria-hidden />
+                    {translatingTarget === "en"
+                      ? translationStatusLabel("en")
+                      : translationActionLabel("en")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleBulkTranslateMissingCategories("ru")}
+                    disabled={!!translatingTarget}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    <Sparkles size={14} aria-hidden />
+                    {translatingTarget === "ru"
+                      ? translationStatusLabel("ru")
+                      : translationActionLabel("ru")}
+                  </button>
+                </div>
+                <p className="text-[10px] font-medium text-gray-500 mb-3 leading-snug">
+                  Yalnızca boş kategori adı çevirileri doldurulur (menü başlığı sözlüğü). Dolu EN/RU ve Türkçe adlar korunur.
+                </p>
                 <p className="text-[10px] text-gray-500 font-medium mb-4 leading-relaxed">
                   Sırayı sol tutacak simgeden sürükleyip başka bir kartın üzerine bırakın. Müşteri menüsündeki kategori şeridi bu sırayı kullanır.
                 </p>
@@ -2599,15 +2710,18 @@ export default function AdminDashboard() {
                     )}
 
                     <div className="p-4 md:p-6 bg-blue-50 rounded-2xl md:rounded-[2rem] border border-blue-100 space-y-3 md:space-y-4">
-                        {/* ÇEVİR BUTONU BURAYA GERİ GELDİ */}
-                        <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe Bilgiler</span>
-                            <button type="button" onClick={handleAutoTranslate} disabled={translating} className="text-[9px] md:text-[10px] font-black bg-white text-blue-600 px-3 md:px-4 py-1.5 md:py-2 rounded-full shadow-sm flex items-center gap-1 md:gap-2">
-                                <Sparkles size={12}/> {translating ? "..." : "ÇEVİR"}
-                            </button>
-                        </div>
+                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe Bilgiler</span>
                         <input required placeholder="Ürün Adı" className="w-full bg-white p-3 md:p-4 rounded-xl font-black text-gray-900 outline-none shadow-sm text-sm md:text-base" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
                         <textarea placeholder="Açıklama..." className="w-full bg-white p-3 md:p-4 rounded-xl font-medium text-gray-600 text-xs md:text-sm outline-none shadow-sm" rows={2} value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button type="button" onClick={() => void handleAutoTranslateProduct("en")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
+                        <Sparkles size={12}/> {translatingTarget === "en" ? translationStatusLabel("en") : translationActionLabel("en")}
+                      </button>
+                      <button type="button" onClick={() => void handleAutoTranslateProduct("ru")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
+                        <Sparkles size={12}/> {translatingTarget === "ru" ? translationStatusLabel("ru") : translationActionLabel("ru")}
+                      </button>
                     </div>
 
                     {/* İNGİLİZCE VE RUSÇA KUTULARI BURAYA GERİ GELDİ */}
@@ -2817,12 +2931,7 @@ export default function AdminDashboard() {
                   </datalist>
 
                   <div className="p-4 md:p-5 bg-stone-100 rounded-2xl border border-stone-200 space-y-3">
-                    <div className="flex justify-between items-center gap-2">
-                      <span className="text-[10px] font-black text-stone-700 uppercase tracking-widest">🇹🇷 Ana grup</span>
-                      <button type="button" onClick={handleAutoTranslateCategoryMainGroup} disabled={translating} className="text-[9px] md:text-[10px] font-black bg-white text-stone-700 px-3 md:px-4 py-1.5 md:py-2 rounded-full shadow-sm flex items-center gap-1 md:gap-2 shrink-0">
-                        <Sparkles size={12}/> {translating ? "..." : "ÇEVİR"}
-                      </button>
-                    </div>
+                    <span className="text-[10px] font-black text-stone-700 uppercase tracking-widest">🇹🇷 Ana grup</span>
                     <input
                       list="main-groups-list"
                       required
@@ -2844,13 +2953,17 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="p-4 md:p-5 bg-blue-50 rounded-2xl border border-blue-100 space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe ad</span>
-                      <button type="button" onClick={handleAutoTranslateCategory} disabled={translating} className="text-[9px] md:text-[10px] font-black bg-white text-blue-600 px-3 md:px-4 py-1.5 md:py-2 rounded-full shadow-sm flex items-center gap-1 md:gap-2">
-                        <Sparkles size={12}/> {translating ? "..." : "ÇEVİR"}
-                      </button>
-                    </div>
+                    <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe ad</span>
                     <input required placeholder="Alt Kategori (Örn: Kahvaltı, Burger)" className="w-full bg-white p-3 md:p-4 rounded-xl font-black outline-none shadow-sm text-sm md:text-base" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button type="button" onClick={() => void handleAutoTranslateCategoryFields("en")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
+                      <Sparkles size={12}/> {translatingTarget === "en" ? translationStatusLabel("en") : translationActionLabel("en")}
+                    </button>
+                    <button type="button" onClick={() => void handleAutoTranslateCategoryFields("ru")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
+                      <Sparkles size={12}/> {translatingTarget === "ru" ? translationStatusLabel("ru") : translationActionLabel("ru")}
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
