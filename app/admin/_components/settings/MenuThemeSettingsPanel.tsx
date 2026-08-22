@@ -3,7 +3,7 @@
 import { LayoutTemplate, Type } from "lucide-react";
 import type { FontStyleId } from "@/lib/public-menu/themes/font-ids";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
-import { MENU_FONT_VARIABLE_CLASSES } from "@/lib/public-menu/themes/fonts";
+import { MENU_FONT_VARIABLE_CLASSES } from "@/lib/public-menu/themes/fonts-admin";
 import { AppearanceStylePicker } from "./AppearanceStylePicker";
 import { FontStylePicker } from "./FontStylePicker";
 import { MenuPresentationPreview } from "./MenuPresentationPreview";

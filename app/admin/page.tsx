@@ -48,7 +48,7 @@ import {
   mergeProductMenuLinksMap,
 } from "@/lib/admin-menu/bulk-product-menu-collections";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { PRODUCT_IMAGE_ACCEPT, uploadLogoImage, uploadProductImage, uploadSliderImage, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles, tryRemoveLogoImageFiles, tryRemoveSliderImageFiles } from "@/lib/admin-menu/product-image-upload";
+import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadSliderImage, tryRemoveProductImageFiles } from "@/lib/admin-menu/product-image-upload";
 import {
   fillMissingLocalizedValue,
   fillMissingProductTranslations,
@@ -64,6 +64,11 @@ import {
   loadOwnerRestaurantById,
   loadSelectedOwnerRestaurant,
 } from "@/lib/admin-auth/owner-restaurants";
+import {
+  formatRestaurantSettingsSaveError,
+  runRestaurantSettingsAssetCleanup,
+  saveRestaurantSettings,
+} from "@/lib/admin-menu/save-restaurant-settings";
 
 const supabase = getBrowserSupabase();
 
@@ -179,6 +184,7 @@ export default function AdminDashboard() {
   
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [welcomeBgFile, setWelcomeBgFile] = useState<File | null>(null);
+  const saveSettingsInFlightRef = useRef(false);
   
   const [tableNumber, setTableNumber] = useState("");
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -429,117 +435,55 @@ export default function AdminDashboard() {
   }, [router]);
 
   const handleSaveSettings = async () => {
+    if (saveSettingsInFlightRef.current) return;
     if (!restaurant) {
-      alert("Hata: Restoran bulunamadı!"); return;
+      alert("Hata: Restoran bulunamadı!");
+      return;
     }
+
+    saveSettingsInFlightRef.current = true;
     setIsSaving(true);
     try {
-      let finalLogoUrl = settings.logo_url;
-      let finalWelcomeBgUrl = settings.welcome_bg_url;
-      const previousLogoUrl = settings.logo_url;
-      const previousWelcomeBgUrl = settings.welcome_bg_url;
-      const previousSliderImages = [...(restaurant?.slider_images ?? settings.slider_images ?? [])];
-
-      if (logoFile) {
-        const logoUpload = await uploadLogoImage(supabase, restaurant.id, logoFile);
-        if ("error" in logoUpload) {
-          throw new Error(logoUpload.error);
-        }
-        finalLogoUrl = logoUpload.url;
-      }
-
-      if (welcomeBgFile) {
-        const bgUpload = await uploadWelcomeBackgroundImage(
-          supabase,
-          restaurant.id,
-          welcomeBgFile
-        );
-        if ("error" in bgUpload) {
-          throw new Error(bgUpload.error);
-        }
-        finalWelcomeBgUrl = bgUpload.url;
-      }
-
-      const ig = settings.instagram.trim();
-      const payload = {
-        primary_color: settings.primary_color,
-        logo_url: finalLogoUrl,
-        slider_images: settings.slider_images,
-        welcome_bg_url: finalWelcomeBgUrl,
-        instagram: ig || null,
-        logo_display_mode: settings.logo_display_mode,
-        theme_id: settings.theme_id,
-        font_style_id: settings.font_style_id,
-      };
-
-      const { data: updatedRow, error: dbError } = await supabase
-        .from("restaurants")
-        .update(payload)
-        .eq("id", restaurant.id)
-        .select(
-          "id, instagram, primary_color, logo_url, welcome_bg_url, slider_images, logo_display_mode, theme_id, font_style_id"
-        )
-        .single();
-
-      if (dbError) {
-        const hint = [dbError.message, (dbError as { details?: string }).details]
-          .filter(Boolean)
-          .join(" — ");
-        throw new Error(hint || "Veritabanı hatası.");
-      }
-
-      const savedIg =
-        updatedRow?.instagram != null && String(updatedRow.instagram).trim() !== ""
-          ? String(updatedRow.instagram).trim()
-          : "";
-      if (ig && savedIg !== ig) {
-        throw new Error(
-          "Instagram kaydedilemedi: veritabanında `restaurants.instagram` sütunu yok veya API tarafından yok sayılıyor. Supabase SQL Editor’de şunu çalıştırın: alter table public.restaurants add column if not exists instagram text;"
-        );
-      }
-
-      alert("Görünüm ayarları kaydedildi!");
-      setSettings({
-        ...settings,
-        logo_url: finalLogoUrl,
-        welcome_bg_url: finalWelcomeBgUrl,
-        instagram: savedIg,
-        logo_display_mode: normalizeLogoDisplayMode(updatedRow?.logo_display_mode),
-        theme_id: normalizeThemeId(updatedRow?.theme_id ?? settings.theme_id),
-        font_style_id: normalizeFontStyleId(
-          updatedRow?.font_style_id ?? settings.font_style_id
-        ),
+      const result = await saveRestaurantSettings({
+        supabase,
+        restaurantId: restaurant.id,
+        settings,
+        logoFile,
+        welcomeBgFile,
+        previousLogoUrl: settings.logo_url,
+        previousWelcomeBgUrl: settings.welcome_bg_url,
+        previousSliderImages: [
+          ...(restaurant.slider_images ?? settings.slider_images ?? []),
+        ],
       });
-      setRestaurant((r: any) =>
-        r ? { ...r, ...updatedRow, instagram: savedIg || null } : r
+
+      setSettings(result.savedSettings);
+      setRestaurant((current: typeof restaurant) =>
+        current
+          ? {
+              ...current,
+              ...result.savedSettings,
+              instagram: result.savedSettings.instagram || null,
+            }
+          : current
       );
       setLogoFile(null);
       setWelcomeBgFile(null);
-      if (
-        logoFile &&
-        previousLogoUrl &&
-        previousLogoUrl !== finalLogoUrl
-      ) {
-        await tryRemoveLogoImageFiles(supabase, restaurant.id, [previousLogoUrl]);
-      }
-      if (
-        welcomeBgFile &&
-        previousWelcomeBgUrl &&
-        previousWelcomeBgUrl !== finalWelcomeBgUrl
-      ) {
-        await tryRemoveBackgroundImageFiles(supabase, restaurant.id, [previousWelcomeBgUrl]);
-      }
+      alert("Görünüm ayarları kaydedildi!");
 
-      const finalSliderImages = settings.slider_images;
-      const removedSliderUrls = previousSliderImages.filter(
-        (url) => !finalSliderImages.includes(url)
-      );
-      if (removedSliderUrls.length > 0) {
-        await tryRemoveSliderImageFiles(supabase, restaurant.id, removedSliderUrls);
-      }
-    } catch (error: any) {
-      alert(error.message || "Hata oluştu.");
+      void runRestaurantSettingsAssetCleanup(
+        supabase,
+        restaurant.id,
+        result.cleanup
+      ).catch((cleanupError) => {
+        if (process.env.NODE_ENV === "development") {
+          console.debug("SAVE asset cleanup failed:", cleanupError);
+        }
+      });
+    } catch (error) {
+      alert(formatRestaurantSettingsSaveError(error));
     } finally {
+      saveSettingsInFlightRef.current = false;
       setIsSaving(false);
     }
   };

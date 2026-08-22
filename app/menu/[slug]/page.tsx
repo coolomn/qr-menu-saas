@@ -5,6 +5,10 @@ import { useParams } from "next/navigation";
 import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
 import { MenuPickScreen } from "@/app/menu/[slug]/_components/menu-pick-screen";
 import {
+  MenuFontLoader,
+  prefetchMenuFontShell,
+} from "@/app/menu/[slug]/_components/menu-font-loader";
+import {
   categoryBelongsToMenuCollection,
   productBelongsToMenuCollection,
 } from "@/lib/public-menu/display";
@@ -366,6 +370,7 @@ export default function CustomerMenu() {
         setRestaurant(result.data.restaurant || null);
         setMenuCollections(collections);
         setMenuPicker(picker);
+        prefetchMenuFontShell(result.data.restaurant?.font_style_id);
 
         if (shouldPrefetchPublicMenuContent({ useCollectionFlow, menuPicker: picker })) {
           void loadMenuContent();
@@ -572,6 +577,10 @@ export default function CustomerMenu() {
 
   const instagramCtx = instagramOpenContext(restaurant.instagram);
 
+  const wrapWithMenuFonts = (node: React.ReactNode) => (
+    <MenuFontLoader fontStyleId={restaurant.font_style_id}>{node}</MenuFontLoader>
+  );
+
   if (view === "welcome" && useCollectionFlow && showMenuPicker) {
     const instagramFollowLabel =
       language === "en"
@@ -580,7 +589,7 @@ export default function CustomerMenu() {
           ? "Подпишитесь"
           : "Takip edin";
 
-    return (
+    return wrapWithMenuFonts(
       <div className="relative min-h-[100dvh]">
         <MenuPickScreen
           restaurantName={restaurant.name}
@@ -621,7 +630,7 @@ export default function CustomerMenu() {
   }
 
   if (view === "welcome" && !useCollectionFlow) {
-    return (
+    return wrapWithMenuFonts(
       <div
         className="relative min-h-screen flex flex-col items-center justify-between bg-cover bg-center bg-no-repeat font-sans"
         style={{
@@ -745,7 +754,7 @@ export default function CustomerMenu() {
     return <MenuLoadingScreen />;
   }
 
-  return (
+  return wrapWithMenuFonts(
     <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
       <header className={tc.header}>
         <div className={tc.headerInner}>
