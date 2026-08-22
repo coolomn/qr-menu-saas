@@ -23,10 +23,6 @@ import type { FontStyleId } from "@/lib/public-menu/themes/font-ids";
 import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
 
-export const PUBLIC_MENU_NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, max-age=0",
-} as const;
-
 export type RestaurantRow = {
   id: string;
   slug: string;

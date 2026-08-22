@@ -1,9 +1,12 @@
+import {
+  publicMenuApiPath,
+  publicMenuBootstrapApiPath,
+} from "@/lib/public-menu/cache-headers";
 import type { PublicMenuBootstrapPayload, PublicMenuContentPayload } from "@/lib/public-menu/load-public-menu";
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 
-export const PUBLIC_MENU_FETCH_OPTIONS: RequestInit = {
-  cache: "no-store",
-};
+/** Default fetch: browser honors max-age=0 on responses; CDN caches via s-maxage. */
+export const PUBLIC_MENU_FETCH_OPTIONS: RequestInit = {};
 
 export type PublicMenuBootstrapResponse = PublicMenuBootstrapPayload;
 
@@ -16,10 +19,7 @@ export async function getPublicMenuBootstrap(slug: string): Promise<{
   data?: PublicMenuBootstrapResponse;
   error?: string;
 }> {
-  const response = await fetch(
-    `/api/public-menu/${encodeURIComponent(slug)}/bootstrap`,
-    PUBLIC_MENU_FETCH_OPTIONS
-  );
+  const response = await fetch(publicMenuBootstrapApiPath(slug), PUBLIC_MENU_FETCH_OPTIONS);
 
   if (response.status === 403) {
     return { status: 403, error: "unavailable" };
@@ -38,10 +38,7 @@ export async function getPublicMenuContent(slug: string): Promise<{
   data?: PublicMenuContentResponse;
   error?: string;
 }> {
-  const response = await fetch(
-    `/api/public-menu/${encodeURIComponent(slug)}`,
-    PUBLIC_MENU_FETCH_OPTIONS
-  );
+  const response = await fetch(publicMenuApiPath(slug), PUBLIC_MENU_FETCH_OPTIONS);
 
   if (response.status === 403) {
     return { status: 403, error: "unavailable" };

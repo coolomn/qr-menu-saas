@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test lib/menu-import/excel/excel.test.ts lib/menu-import/excel/workbook.test.ts lib/menu-import/product-match.test.ts lib/prepare-product-image.test.ts lib/images/prepare-image.test.ts lib/images/crop-image.test.ts lib/images/slider-image.test.ts lib/images/logo-image.test.ts lib/public-menu/slider-loading.test.ts lib/public-menu/public-menu-loading.test.ts lib/admin-menu/auto-translate.test.ts lib/admin-menu/menu-category-translations.test.ts lib/suggest-allergens.test.ts lib/admin-menu/bulk-product-menu-collections.test.ts lib/admin-menu/menu-collection-card-visual.test.ts"
+    "test": "node --import tsx --test lib/menu-import/excel/excel.test.ts lib/menu-import/excel/workbook.test.ts lib/menu-import/product-match.test.ts lib/prepare-product-image.test.ts lib/images/prepare-image.test.ts lib/images/crop-image.test.ts lib/images/slider-image.test.ts lib/images/logo-image.test.ts lib/public-menu/slider-loading.test.ts lib/public-menu/public-menu-loading.test.ts lib/public-menu/public-menu-cache.test.ts lib/admin-menu/auto-translate.test.ts lib/admin-menu/menu-category-translations.test.ts lib/suggest-allergens.test.ts lib/admin-menu/bulk-product-menu-collections.test.ts lib/admin-menu/menu-collection-card-visual.test.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.0",
