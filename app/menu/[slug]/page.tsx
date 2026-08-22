@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
 import { MenuPickScreen } from "@/app/menu/[slug]/_components/menu-pick-screen";
+import { PublicMenuBackgroundImage } from "@/app/menu/[slug]/_components/public-menu-background-image";
 import {
   MenuFontLoader,
   prefetchMenuFontShell,
@@ -631,13 +632,9 @@ export default function CustomerMenu() {
 
   if (view === "welcome" && !useCollectionFlow) {
     return wrapWithMenuFonts(
-      <div
-        className="relative min-h-screen flex flex-col items-center justify-between bg-cover bg-center bg-no-repeat font-sans"
-        style={{
-          backgroundImage: `url(${restaurant.welcome_bg_url || "https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1934&auto=format&fit=crop"})`,
-        }}
-      >
-        <div className="absolute inset-0 bg-black/30 pointer-events-none" />
+      <div className="relative flex min-h-[100dvh] flex-col items-center justify-between bg-stone-900 font-sans">
+        <PublicMenuBackgroundImage src={restaurant.welcome_bg_url} />
+        <div className="pointer-events-none absolute inset-0 z-[1] bg-black/30" />
 
         <div className="relative z-10 w-full p-6 flex justify-end">
           <div className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3">

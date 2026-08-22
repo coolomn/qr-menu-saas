@@ -10,6 +10,7 @@ import {
 import type { PublicMenuCollection } from "@/lib/public-menu/menu-collections";
 import type { LogoDisplayMode } from "@/lib/public-menu/logo-display";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
+import { PublicMenuBackgroundImage } from "@/app/menu/[slug]/_components/public-menu-background-image";
 
 type InstagramContext = {
   webUrl: string;
@@ -51,16 +52,10 @@ export function MenuPickScreen({
   onInstagramClick,
   instagramLabel,
 }: MenuPickScreenProps) {
-  const bg =
-    welcomeBgUrl ||
-    "https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1934&auto=format&fit=crop";
-
   return (
-    <div
-      className="relative min-h-[100dvh] flex flex-col font-sans animate-in fade-in duration-500"
-      style={{ backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" }}
-    >
-      <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/35 to-black/55 pointer-events-none" />
+    <div className="relative min-h-[100dvh] flex flex-col bg-stone-900 font-sans animate-in fade-in duration-500">
+      <PublicMenuBackgroundImage src={welcomeBgUrl} />
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/45 via-black/35 to-black/55" />
 
       <div className="relative z-10 w-full p-5 sm:p-6 flex justify-end">
         <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg flex gap-3 border border-white/40">
