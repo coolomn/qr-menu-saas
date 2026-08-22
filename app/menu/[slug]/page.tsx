@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { ChevronLeft, Menu as MenuIcon, UtensilsCrossed, X } from "lucide-react";
 import { MenuPickScreen } from "@/app/menu/[slug]/_components/menu-pick-screen";
@@ -18,6 +18,16 @@ import {
   normalizePublicProducts,
   type PublicProduct,
 } from "@/lib/public-menu/product-variants";
+import {
+  applyMenuNavigationIntent,
+  getPublicMenuBootstrap,
+  getPublicMenuContent,
+  type MenuNavigationIntent,
+  menuCollectionsFromBootstrap,
+  menuPickerFromBootstrap,
+  shouldPrefetchPublicMenuContent,
+} from "@/lib/public-menu/public-menu-client";
+import type { PublicCategoryPayload } from "@/lib/public-menu/load-public-menu";
 import { resolveMenuPresentation } from "@/lib/public-menu/themes/resolve";
 
 /** DB’de çeviri yokken EN/RU için bilinen Türkçe ana grup / kategori adları (genişletilebilir). */
@@ -54,17 +64,37 @@ const MENU_LABEL_FALLBACK: Record<string, { en: string; ru: string }> = {
   "ÇOCUK MENÜSÜ": { en: "Kids menu", ru: "Детское меню" },
 };
 
-type PublicCategory = {
-  id: string;
-  name: string;
-  name_en?: string | null;
-  name_ru?: string | null;
-  main_group?: string | null;
-  main_group_en?: string | null;
-  main_group_ru?: string | null;
-  sort_order?: number | null;
-  menu_collection_ids?: string[];
-};
+type PublicCategory = PublicCategoryPayload;
+
+function MenuContentErrorBanner({
+  language,
+  onRetry,
+}: {
+  language: string;
+  onRetry: () => void;
+}) {
+  const message =
+    language === "en"
+      ? "Menu could not be loaded. Please try again."
+      : language === "ru"
+        ? "Не удалось загрузить меню. Попробуйте снова."
+        : "Menü yüklenemedi. Tekrar deneyin.";
+  const retryLabel =
+    language === "en" ? "Retry" : language === "ru" ? "Повторить" : "Tekrar dene";
+
+  return (
+    <div className="rounded-2xl border border-red-200/80 bg-red-50/95 px-4 py-3 text-center shadow-sm">
+      <p className="text-sm font-bold text-red-800">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 text-sm font-black uppercase tracking-wide text-red-700 underline underline-offset-4"
+      >
+        {retryLabel}
+      </button>
+    </div>
+  );
+}
 
 function normalizeMenuLabelKey(s: string) {
   return s.toLocaleUpperCase("tr-TR").replace(/\s+/g, " ").trim();
@@ -231,8 +261,15 @@ export default function CustomerMenu() {
   const [products, setProducts] = useState<PublicProduct[]>([]);
   const [menuCollections, setMenuCollections] = useState<PublicMenuCollection[]>([]);
   const [menuPicker, setMenuPicker] = useState<PublicMenuPicker | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [bootstrapLoading, setBootstrapLoading] = useState(true);
+  const [menuDataLoading, setMenuDataLoading] = useState(false);
+  const [menuDataLoaded, setMenuDataLoaded] = useState(false);
+  const [menuDataError, setMenuDataError] = useState<string | null>(null);
   const [menuUnavailable, setMenuUnavailable] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<MenuNavigationIntent>(null);
+
+  const menuDataLoadedRef = useRef(false);
+  const menuDataLoadingRef = useRef(false);
 
   const [language, setLanguage] = useState("tr");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -246,87 +283,132 @@ export default function CustomerMenu() {
   const useCollectionFlow = MULTI_MENU_PROTOTYPE_ENABLED;
   const showMenuPicker = useCollectionFlow && Boolean(menuPicker?.enabled);
 
-  useEffect(() => {
-    const fetchMenu = async () => {
-      const slugValue = Array.isArray(slug) ? slug[0] : slug;
-      if (!slugValue) {
-        setLoading(false);
-        return;
+  const loadMenuContent = useCallback(async (): Promise<boolean> => {
+    const slugValue = Array.isArray(slug) ? slug[0] : slug;
+    if (!slugValue) return false;
+    if (menuDataLoadedRef.current || menuDataLoadingRef.current) {
+      return menuDataLoadedRef.current;
+    }
+
+    menuDataLoadingRef.current = true;
+    setMenuDataLoading(true);
+    setMenuDataError(null);
+
+    try {
+      const result = await getPublicMenuContent(slugValue);
+      if (result.status === 403) {
+        setMenuUnavailable(true);
+        return false;
+      }
+      if (!result.data) {
+        setMenuDataError("Menü yüklenemedi. Tekrar deneyin.");
+        return false;
       }
 
+      setCategories(result.data.categories);
+      setProducts(normalizePublicProducts(result.data.products));
+      menuDataLoadedRef.current = true;
+      setMenuDataLoaded(true);
+      return true;
+    } catch (error) {
+      console.error(error);
+      setMenuDataError("Menü yüklenemedi. Tekrar deneyin.");
+      return false;
+    } finally {
+      menuDataLoadingRef.current = false;
+      setMenuDataLoading(false);
+    }
+  }, [slug]);
+
+  useEffect(() => {
+    const slugValue = Array.isArray(slug) ? slug[0] : slug;
+    if (!slugValue) {
+      setBootstrapLoading(false);
+      return;
+    }
+
+    menuDataLoadedRef.current = false;
+    menuDataLoadingRef.current = false;
+    setMenuDataLoaded(false);
+    setMenuDataLoading(false);
+    setMenuDataError(null);
+    setPendingNavigation(null);
+    setCategories([]);
+    setProducts([]);
+    setView("welcome");
+    setSelectedMenuCollectionId(null);
+    setMenuMainGroup(null);
+    setActiveCategory(null);
+
+    const loadBootstrap = async () => {
       try {
         setMenuUnavailable(false);
-        const response = await fetch(`/api/public-menu/${encodeURIComponent(slugValue)}`, {
-          cache: "no-store",
-        });
+        const result = await getPublicMenuBootstrap(slugValue);
 
-        if (response.status === 403) {
+        if (result.status === 403) {
           setMenuUnavailable(true);
           setRestaurant(null);
-          setCategories([]);
-          setProducts([]);
           setMenuCollections([]);
           setMenuPicker(null);
           return;
         }
 
-        if (!response.ok) {
-          setMenuUnavailable(false);
+        if (!result.data) {
           setRestaurant(null);
-          setCategories([]);
-          setProducts([]);
           setMenuCollections([]);
           setMenuPicker(null);
           return;
         }
 
-        const data = (await response.json()) as {
-          restaurant: any;
-          categories: PublicCategory[];
-          products: unknown;
-          menu_collections?: PublicMenuCollection[];
-          menu_picker?: PublicMenuPicker;
-        };
+        const picker = menuPickerFromBootstrap(result.data.menu_picker);
+        const collections = menuCollectionsFromBootstrap(result.data.menu_collections);
 
-        const picker: PublicMenuPicker = data.menu_picker ?? {
-          enabled: false,
-          default_menu_collection_id: null,
-        };
-        const collections = data.menu_collections ?? [];
-
-        setMenuUnavailable(false);
-        setRestaurant(data.restaurant || null);
-        setCategories(data.categories || []);
-        setProducts(normalizePublicProducts(data.products));
+        setRestaurant(result.data.restaurant || null);
         setMenuCollections(collections);
         setMenuPicker(picker);
 
-        if (useCollectionFlow) {
-          if (picker.enabled) {
-            setView("welcome");
-            setSelectedMenuCollectionId(null);
-          } else {
-            setView("menu");
-            setSelectedMenuCollectionId(picker.default_menu_collection_id);
-          }
-        } else {
+        if (shouldPrefetchPublicMenuContent({ useCollectionFlow, menuPicker: picker })) {
+          void loadMenuContent();
+        }
+
+        if (useCollectionFlow && picker.enabled) {
+          setView("welcome");
+          setSelectedMenuCollectionId(null);
+        } else if (!useCollectionFlow) {
           setView("welcome");
           setSelectedMenuCollectionId(null);
         }
       } catch (error) {
         console.error(error);
-        setMenuUnavailable(false);
         setRestaurant(null);
-        setCategories([]);
-        setProducts([]);
         setMenuCollections([]);
         setMenuPicker(null);
       } finally {
-        setLoading(false);
+        setBootstrapLoading(false);
       }
     };
-    fetchMenu();
-  }, [slug, useCollectionFlow]);
+
+    void loadBootstrap();
+  }, [slug, useCollectionFlow, loadMenuContent]);
+
+  useEffect(() => {
+    if (!menuDataLoaded || !menuPicker) return;
+    if (useCollectionFlow && !menuPicker.enabled) {
+      setSelectedMenuCollectionId(menuPicker.default_menu_collection_id);
+      setView("menu");
+    }
+  }, [menuDataLoaded, menuPicker, useCollectionFlow]);
+
+  useEffect(() => {
+    if (!menuDataLoaded || !pendingNavigation) return;
+    applyMenuNavigationIntent(pendingNavigation, {
+      setSelectedMenuCollectionId,
+      setMenuMainGroup,
+      setActiveCategory,
+      setView,
+    });
+    setPendingNavigation(null);
+  }, [menuDataLoaded, pendingNavigation]);
 
   const categoryGroupKey = (cat: { main_group?: string | null }) => cat.main_group || "DİĞER";
 
@@ -402,9 +484,25 @@ export default function CustomerMenu() {
   }, [view, selectedMenuCollectionId]);
 
   const openMenuCollection = (menuCollectionId: string) => {
-    setSelectedMenuCollectionId(menuCollectionId);
-    setMenuMainGroup(null);
-    setView("menu");
+    setPendingNavigation({ kind: "menu", menuCollectionId });
+    void loadMenuContent();
+  };
+
+  const retryMenuContent = () => {
+    if (menuDataLoadingRef.current) return;
+    menuDataLoadedRef.current = false;
+    setMenuDataLoaded(false);
+    void loadMenuContent();
+  };
+
+  const navigateLegacyCategory = (groupName: string, categoryId: string) => {
+    setPendingNavigation({
+      kind: "menu",
+      menuCollectionId: selectedMenuCollectionId,
+      mainGroup: groupName,
+      categoryId,
+    });
+    void loadMenuContent();
   };
 
   const backToMenuPick = () => {
@@ -413,7 +511,13 @@ export default function CustomerMenu() {
     setSelectedMenuCollectionId(null);
   };
 
-  if (loading) return <MenuLoadingScreen />;
+  const waitingForInitialMenuData =
+    useCollectionFlow &&
+    Boolean(menuPicker && !menuPicker.enabled) &&
+    !menuDataLoaded &&
+    !menuDataError;
+
+  if (bootstrapLoading || waitingForInitialMenuData) return <MenuLoadingScreen />;
   if (menuUnavailable) return <MenuUnavailableScreen />;
   if (!restaurant) {
     return (
@@ -477,24 +581,42 @@ export default function CustomerMenu() {
           : "Takip edin";
 
     return (
-      <MenuPickScreen
-        restaurantName={restaurant.name}
-        logoUrl={restaurant.logo_url}
-        logoDisplayMode={restaurant.logo_display_mode}
-        welcomeBgUrl={restaurant.welcome_bg_url}
-        language={language}
-        onLanguageChange={setLanguage}
-        menuCollections={menuCollections}
-        onSelectCollection={openMenuCollection}
-        instagramCtx={instagramCtx}
-        instagramLabel={instagramFollowLabel}
-        onInstagramClick={(e) => {
-          const u = instagramCtx?.appUsername;
-          if (!u || !isIOSMobileClient()) return;
-          e.preventDefault();
-          openInstagramIOSAggressive(instagramCtx!.webUrl, u);
-        }}
-      />
+      <div className="relative min-h-[100dvh]">
+        <MenuPickScreen
+          restaurantName={restaurant.name}
+          logoUrl={restaurant.logo_url}
+          logoDisplayMode={restaurant.logo_display_mode}
+          welcomeBgUrl={restaurant.welcome_bg_url}
+          language={language}
+          onLanguageChange={setLanguage}
+          menuCollections={menuCollections}
+          onSelectCollection={openMenuCollection}
+          instagramCtx={instagramCtx}
+          instagramLabel={instagramFollowLabel}
+          onInstagramClick={(e) => {
+            const u = instagramCtx?.appUsername;
+            if (!u || !isIOSMobileClient()) return;
+            e.preventDefault();
+            openInstagramIOSAggressive(instagramCtx!.webUrl, u);
+          }}
+        />
+        {menuDataLoading && pendingNavigation ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20 flex justify-center px-6">
+            <p className="rounded-full bg-black/60 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white">
+              {language === "en"
+                ? "Loading menu..."
+                : language === "ru"
+                  ? "Загрузка меню..."
+                  : "Menü yükleniyor..."}
+            </p>
+          </div>
+        ) : null}
+        {menuDataError ? (
+          <div className="absolute inset-x-0 bottom-6 z-20 px-6">
+            <MenuContentErrorBanner language={language} onRetry={retryMenuContent} />
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -542,8 +664,23 @@ export default function CustomerMenu() {
         </div>
 
         <div className="relative z-10 w-full max-w-md mx-auto px-6 pb-12 space-y-3">
-          {(Object.entries(groupedCategories) as [string, PublicCategory[]][]).map(
-            ([groupName, cats]) => {
+          {!menuDataLoaded && !menuDataError ? (
+            <div className="rounded-2xl bg-[#E5DFD3]/90 px-6 py-5 text-center shadow-lg">
+              <p className="text-sm font-black uppercase tracking-widest text-[#1F3B2B]">
+                {language === "en"
+                  ? "Loading menu..."
+                  : language === "ru"
+                    ? "Загрузка меню..."
+                    : "Menü yükleniyor..."}
+              </p>
+            </div>
+          ) : null}
+          {menuDataError ? (
+            <MenuContentErrorBanner language={language} onRetry={retryMenuContent} />
+          ) : null}
+          {menuDataLoaded
+            ? (Object.entries(groupedCategories) as [string, PublicCategory[]][]).map(
+                ([groupName, cats]) => {
               const isExpanded = expandedGroup === groupName;
               return (
                 <div key={groupName} className="flex flex-col gap-1.5">
@@ -560,11 +697,7 @@ export default function CustomerMenu() {
                       {cats.map((cat) => (
                         <button
                           key={cat.id}
-                          onClick={() => {
-                            setActiveCategory(cat.id);
-                            setMenuMainGroup(groupName);
-                            setView("menu");
-                          }}
+                          onClick={() => navigateLegacyCategory(groupName, cat.id)}
                           className="w-full bg-[#E5DFD3] text-[#1F3B2B] py-4 rounded-lg font-bold text-base tracking-widest uppercase shadow-md active:scale-[0.98] transition-transform opacity-95"
                         >
                           {getText(cat, "name")}
@@ -575,7 +708,8 @@ export default function CustomerMenu() {
                 </div>
               );
             }
-          )}
+              )
+            : null}
           {instagramCtx && (
             <footer className="pt-8 mt-2 border-t border-white/25 text-center">
               <p className="mb-3 text-[11px] sm:text-xs font-black uppercase tracking-[0.22em] text-white/95 drop-shadow-sm">
@@ -605,6 +739,10 @@ export default function CustomerMenu() {
         </div>
       </div>
     );
+  }
+
+  if (view === "menu" && !menuDataLoaded) {
+    return <MenuLoadingScreen />;
   }
 
   return (

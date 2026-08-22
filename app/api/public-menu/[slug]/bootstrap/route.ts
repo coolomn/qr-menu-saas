@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_MENU_UNAVAILABLE_MESSAGE } from "@/lib/public-menu/subscription-gate";
 import {
-  buildPublicMenuFull,
+  buildPublicMenuBootstrap,
   isRestaurantAccessBlocked,
   loadPublicMenuRestaurantBySlug,
   PUBLIC_MENU_NO_STORE_HEADERS,
@@ -44,7 +44,7 @@ export async function GET(
   }
 
   try {
-    const payload = await buildPublicMenuFull(svc.client, loaded.restaurant);
+    const payload = await buildPublicMenuBootstrap(svc.client, loaded.restaurant);
     return NextResponse.json(payload, { headers: PUBLIC_MENU_NO_STORE_HEADERS });
   } catch (error) {
     console.error(error);
