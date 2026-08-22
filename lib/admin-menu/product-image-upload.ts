@@ -4,16 +4,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildMenuCollectionCardImageObjectPath,
   buildProductImageObjectPaths,
+  buildSliderImageObjectPath,
   buildWelcomeBackgroundObjectPath,
   prepareMenuCollectionCardImage,
   prepareProductFullImage,
   prepareProductThumbnail,
+  prepareSliderImage,
   prepareWelcomeBackgroundImage,
 } from "@/lib/images/prepare-presets";
 import {
   publicBackgroundStoragePathFromUrl,
   publicMenuCollectionCardStoragePathFromUrl,
   publicProductStoragePathFromUrl,
+  publicSliderStoragePathFromUrl,
 } from "@/lib/public-menu/product-image-urls";
 
 export const MENU_PUBLIC_BUCKET = "menu-public";
@@ -79,7 +82,7 @@ export async function tryRemoveProductImageFiles(
   }
 }
 
-/** Best-effort: yalnızca bu restoranın background/ dosyalarını siler. */
+/** Best-effort: yalnızca this restoranın background/ dosyalarını siler. */
 export async function tryRemoveBackgroundImageFiles(
   supabase: SupabaseClient,
   restaurantId: string,
@@ -89,6 +92,23 @@ export async function tryRemoveBackgroundImageFiles(
   for (const url of urls) {
     if (!url?.trim()) continue;
     const path = publicBackgroundStoragePathFromUrl(url, restaurantId);
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  for (const path of paths) {
+    await removeStoragePath(supabase, path);
+  }
+}
+
+/** Best-effort: yalnızca bu restoranın slider/ dosyalarını siler. */
+export async function tryRemoveSliderImageFiles(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  urls: Array<string | null | undefined>
+): Promise<void> {
+  const paths: string[] = [];
+  for (const url of urls) {
+    if (!url?.trim()) continue;
+    const path = publicSliderStoragePathFromUrl(url, restaurantId);
     if (path && !paths.includes(path)) paths.push(path);
   }
   for (const path of paths) {
@@ -230,6 +250,28 @@ export async function uploadWelcomeBackgroundImage(
       newAssetUniqueId(),
       prepared.ext
     );
+    const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, prepared.blob, {
+      contentType: prepared.contentType,
+      cacheControl: PRODUCT_IMAGE_CACHE_CONTROL,
+      upsert: false,
+    });
+    if (error) {
+      return { error: error.message || "Görsel yüklenemedi." };
+    }
+    return { url: publicUrlForPath(supabase, path) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Görsel yüklenemedi." };
+  }
+}
+
+export async function uploadSliderImage(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  file: File
+): Promise<{ url: string } | { error: string }> {
+  try {
+    const prepared = await prepareSliderImage(file);
+    const path = buildSliderImageObjectPath(restaurantId, newAssetUniqueId(), prepared.ext);
     const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, prepared.blob, {
       contentType: prepared.contentType,
       cacheControl: PRODUCT_IMAGE_CACHE_CONTROL,

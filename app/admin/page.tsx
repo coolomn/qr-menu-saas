@@ -48,7 +48,7 @@ import {
   mergeProductMenuLinksMap,
 } from "@/lib/admin-menu/bulk-product-menu-collections";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadPublicAsset, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles } from "@/lib/admin-menu/product-image-upload";
+import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadPublicAsset, uploadSliderImage, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles, tryRemoveSliderImageFiles } from "@/lib/admin-menu/product-image-upload";
 import {
   fillMissingLocalizedValue,
   fillMissingProductTranslations,
@@ -437,6 +437,7 @@ export default function AdminDashboard() {
       let finalLogoUrl = settings.logo_url;
       let finalWelcomeBgUrl = settings.welcome_bg_url;
       const previousWelcomeBgUrl = settings.welcome_bg_url;
+      const previousSliderImages = [...(restaurant?.slider_images ?? settings.slider_images ?? [])];
 
       if (logoFile) {
         const logoUpload = await uploadPublicAsset(supabase, restaurant.id, "logo", logoFile, {
@@ -522,6 +523,14 @@ export default function AdminDashboard() {
       ) {
         await tryRemoveBackgroundImageFiles(supabase, restaurant.id, [previousWelcomeBgUrl]);
       }
+
+      const finalSliderImages = settings.slider_images;
+      const removedSliderUrls = previousSliderImages.filter(
+        (url) => !finalSliderImages.includes(url)
+      );
+      if (removedSliderUrls.length > 0) {
+        await tryRemoveSliderImageFiles(supabase, restaurant.id, removedSliderUrls);
+      }
     } catch (error: any) {
       alert(error.message || "Hata oluştu.");
     } finally {
@@ -531,16 +540,14 @@ export default function AdminDashboard() {
 
   const handleSliderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
     if (!restaurant?.id) {
       alert("Restoran bulunamadı.");
       return;
     }
-    if (file.size > 2 * 1024 * 1024) { alert("Maksimum 2MB!"); return; }
     setUploadingSlider(true);
-    const sliderUpload = await uploadPublicAsset(supabase, restaurant.id, "slider", file, {
-      ext: file.name.split(".").pop(),
-    });
+    const sliderUpload = await uploadSliderImage(supabase, restaurant.id, file);
     if ("url" in sliderUpload) {
       setSettings((prev) => ({ ...prev, slider_images: [...prev.slider_images, sliderUpload.url] }));
     } else {
@@ -2727,9 +2734,9 @@ export default function AdminDashboard() {
 
                   <div className="p-4 md:p-6 border-2 border-gray-100 rounded-3xl bg-gray-50/50">
                     <div className="flex items-center gap-2 mb-2"><ImageIcon size={18} className="text-blue-500" /><label className="text-xs md:text-sm font-black text-gray-900 uppercase">Menü İçi Vitrin Görselleri</label></div>
-                    <p className="text-[10px] md:text-xs font-bold text-gray-400 mb-4">En fazla 3 adet, yatay (16:9).</p>
+                    <p className="text-[10px] md:text-xs font-bold text-gray-400 mb-4">En fazla 3 adet, yatay (16:9). JPG, PNG veya WebP; en fazla 20 MB. Yüklemeden önce otomatik WebP optimize edilir.</p>
                     {settings.slider_images.length > 0 && (<div className="flex gap-3 mb-4 overflow-x-auto pb-2 no-scrollbar">{settings.slider_images.map((img: string, idx: number) => (<div key={idx} className="relative w-24 h-16 md:w-32 md:h-20 bg-gray-200 rounded-xl overflow-hidden flex-shrink-0 shadow-sm border border-gray-200"><img src={img} alt="Slider" className="w-full h-full object-cover" /><button onClick={() => removeSliderImage(idx)} className="absolute top-1 right-1 bg-red-500 text-white p-1 md:p-1.5 rounded-lg hover:bg-red-600 shadow-md"><X size={12} strokeWidth={4} /></button></div>))}</div>)}
-                    {settings.slider_images.length < 3 && (<div className="relative mt-2"><input type="file" accept="image/*" onChange={handleSliderUpload} disabled={uploadingSlider} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 md:file:mr-4 file:py-2 md:file:py-3 file:px-4 md:file:px-6 file:rounded-xl file:border-0 file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer disabled:opacity-50" />{uploadingSlider && <div className="absolute top-3 right-4 text-xs font-black text-blue-600 animate-pulse">Yükleniyor...</div>}</div>)}
+                    {settings.slider_images.length < 3 && (<div className="relative mt-2"><input type="file" accept={PRODUCT_IMAGE_ACCEPT} onChange={handleSliderUpload} disabled={uploadingSlider} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-2 md:file:mr-4 file:py-2 md:file:py-3 file:px-4 md:file:px-6 file:rounded-xl file:border-0 file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer disabled:opacity-50" />{uploadingSlider && <div className="absolute top-3 right-4 text-xs font-black text-blue-600 animate-pulse">Yükleniyor...</div>}</div>)}
                   </div>
                   <div><label className="block text-[10px] md:text-xs font-black text-gray-400 mb-2 md:mb-3 uppercase tracking-widest">Marka Rengi</label><div className="flex gap-3 md:gap-4 p-3 md:p-4 bg-gray-50 rounded-2xl border-2 border-gray-50"><input type="color" className="w-12 h-12 md:w-16 md:h-16 rounded-xl cursor-pointer border-0 p-0 bg-transparent" value={settings.primary_color} onChange={e => setSettings({...settings, primary_color: e.target.value})} /><input type="text" className="flex-1 bg-transparent font-mono font-black text-lg md:text-xl text-gray-900 outline-none w-full" value={settings.primary_color} onChange={e => setSettings({...settings, primary_color: e.target.value})} /></div></div>
 

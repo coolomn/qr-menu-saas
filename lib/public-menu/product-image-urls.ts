@@ -56,6 +56,14 @@ export function publicBackgroundStoragePathFromUrl(
   return publicMenuAssetStoragePathFromUrl(url, restaurantId, "background");
 }
 
+/** Public URL → menu-public object path, only restaurants/{id}/slider/*. */
+export function publicSliderStoragePathFromUrl(
+  url: string,
+  restaurantId: string
+): string | null {
+  return publicMenuAssetStoragePathFromUrl(url, restaurantId, "slider");
+}
+
 /** Public URL → menu-public object path, only restaurants/{id}/menu-collections/*. */
 export function publicMenuCollectionCardStoragePathFromUrl(
   url: string,

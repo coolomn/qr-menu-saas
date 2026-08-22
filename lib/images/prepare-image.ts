@@ -26,6 +26,64 @@ export type PreparedImage = {
   ext: "webp" | "jpg";
 };
 
+export type SniffedImageFormat = "webp" | "jpeg" | "png";
+
+/** Magic-byte sniff; canvas.toBlob bazen yanlış MIME ile blob döndürür. */
+export async function sniffBlobImageFormat(blob: Blob): Promise<SniffedImageFormat | null> {
+  if (blob.size < 12) return null;
+  const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
+    return "png";
+  }
+  if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return "jpeg";
+  }
+  if (
+    header[0] === 0x52 &&
+    header[1] === 0x49 &&
+    header[2] === 0x46 &&
+    header[3] === 0x46 &&
+    header[8] === 0x57 &&
+    header[9] === 0x45 &&
+    header[10] === 0x42 &&
+    header[11] === 0x50
+  ) {
+    return "webp";
+  }
+  return null;
+}
+
+export function preparedImageForFormat(blob: Blob, format: "webp" | "jpeg"): PreparedImage {
+  const contentType = format === "webp" ? "image/webp" : "image/jpeg";
+  const ext = format === "webp" ? "webp" : "jpg";
+  const normalizedBlob = blob.type === contentType ? blob : new Blob([blob], { type: contentType });
+  return { blob: normalizedBlob, contentType, ext };
+}
+
+/** Blob içeriği ile contentType/ext uyumunu garanti eder; upload öncesi kullanılır. */
+export async function ensurePreparedImageMimeConsistency(
+  prepared: PreparedImage
+): Promise<PreparedImage> {
+  const sniffed = await sniffBlobImageFormat(prepared.blob);
+  if (sniffed === "webp") return preparedImageForFormat(prepared.blob, "webp");
+  if (sniffed === "jpeg") return preparedImageForFormat(prepared.blob, "jpeg");
+  if (sniffed === "png") {
+    throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
+  }
+
+  const format = prepared.contentType === "image/webp" ? "webp" : "jpeg";
+  const blobType = prepared.blob.type.trim().toLowerCase();
+  if (
+    !blobType ||
+    blobType === prepared.contentType ||
+    (prepared.contentType === "image/jpeg" && blobType === "image/jpg")
+  ) {
+    return preparedImageForFormat(prepared.blob, format);
+  }
+
+  throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
+}
+
 export type PrepareImageOptions = {
   /** Uzun kenar üst sınırı; oran korunur, büyütme yok. */
   maxLongEdge?: number;
@@ -241,11 +299,17 @@ async function encodeCanvas(
 
   const webp = await canvasToBlob(canvas, "image/webp", quality);
   if (webp && webp.size > 0) {
-    return { blob: webp, contentType: "image/webp", ext: "webp" };
+    const sniffed = await sniffBlobImageFormat(webp);
+    if (sniffed === "webp") {
+      return preparedImageForFormat(webp, "webp");
+    }
   }
   const jpeg = await canvasToBlob(canvas, "image/jpeg", Math.max(quality, 0.85));
   if (jpeg && jpeg.size > 0) {
-    return { blob: jpeg, contentType: "image/jpeg", ext: "jpg" };
+    const sniffed = await sniffBlobImageFormat(jpeg);
+    if (sniffed === "jpeg") {
+      return preparedImageForFormat(jpeg, "jpeg");
+    }
   }
   throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
 }

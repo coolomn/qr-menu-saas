@@ -1,4 +1,8 @@
-import { prepareImage, type PreparedImage } from "@/lib/images/prepare-image";
+import {
+  ensurePreparedImageMimeConsistency,
+  prepareImage,
+  type PreparedImage,
+} from "@/lib/images/prepare-image";
 
 export const PRODUCT_FULL_MAX_LONG_EDGE = 1600;
 export const PRODUCT_THUMBNAIL_MAX_WIDTH = 400;
@@ -12,6 +16,14 @@ export const WELCOME_BACKGROUND_QUALITY_STEPS = [0.82, 0.78, 0.74, 0.7, 0.65, 0.
 export const WELCOME_BACKGROUND_WIDTH_STEPS = [1920, 1600, 1440, 1280, 1080] as const;
 export const WELCOME_BACKGROUND_TARGET_BYTES = 1024 * 1024;
 export const WELCOME_BACKGROUND_MAX_OUTPUT_BYTES = Math.round(1.5 * 1024 * 1024);
+
+export const SLIDER_MAX_WIDTH = 1920;
+export const SLIDER_QUALITY = 0.82;
+export const SLIDER_QUALITY_STEPS = [0.82, 0.78, 0.74, 0.7, 0.65] as const;
+export const SLIDER_WIDTH_STEPS = [1920, 1600, 1440, 1280] as const;
+/** Hedef ~750 KB; tercih edilen üst sınır 1 MB. Boyut hedefine inmese de reddetmez. */
+export const SLIDER_TARGET_BYTES = Math.round(750 * 1024);
+export const SLIDER_MAX_OUTPUT_BYTES = 1024 * 1024;
 
 export function productFullImageSize(
   sourceWidth: number,
@@ -59,6 +71,22 @@ export function buildWelcomeBackgroundObjectPath(
   ext: string
 ): string {
   return `restaurants/${restaurantId}/background/${unique}.${ext}`;
+}
+
+export function buildSliderImageObjectPath(
+  restaurantId: string,
+  unique: string,
+  ext: string
+): string {
+  return `restaurants/${restaurantId}/slider/${unique}.${ext}`;
+}
+
+export function sliderImageSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  maxWidth = SLIDER_MAX_WIDTH
+): { width: number; height: number } {
+  return welcomeBackgroundImageSize(sourceWidth, sourceHeight, maxWidth);
 }
 
 export function buildProductImageObjectPaths(
@@ -127,6 +155,20 @@ export async function prepareWelcomeBackgroundImage(file: File): Promise<Prepare
     qualitySteps: [...WELCOME_BACKGROUND_QUALITY_STEPS],
     maxWidthSteps: [...WELCOME_BACKGROUND_WIDTH_STEPS],
   });
+}
+
+/** Menü vitrin slider: max 1920 px WebP, ~750 KB hedef / 1 MB tercih. Boyut yüzünden reddetmez. */
+export async function prepareSliderImage(file: File): Promise<PreparedImage> {
+  const prepared = await prepareImage(file, {
+    maxWidth: SLIDER_MAX_WIDTH,
+    quality: SLIDER_QUALITY,
+    keepAlpha: false,
+    targetOutputBytes: SLIDER_TARGET_BYTES,
+    maxOutputBytes: SLIDER_MAX_OUTPUT_BYTES,
+    qualitySteps: [...SLIDER_QUALITY_STEPS],
+    maxWidthSteps: [...SLIDER_WIDTH_STEPS],
+  });
+  return ensurePreparedImageMimeConsistency(prepared);
 }
 
 /** Menü seçim kartı: ~400 px uzun kenar WebP, oran korunur, crop yok. */
