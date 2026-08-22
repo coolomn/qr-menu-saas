@@ -11,6 +11,7 @@ import {
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 import { MULTI_MENU_PROTOTYPE_ENABLED } from "@/lib/menu-prototype/config";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
+import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slider";
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
 import {
@@ -235,7 +236,6 @@ export default function CustomerMenu() {
 
   const [language, setLanguage] = useState("tr");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [currentSlide, setCurrentSlide] = useState(0);
 
   const [view, setView] = useState<"welcome" | "menu">("welcome");
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
@@ -327,15 +327,6 @@ export default function CustomerMenu() {
     };
     fetchMenu();
   }, [slug, useCollectionFlow]);
-
-  useEffect(() => {
-    if (view !== "menu" || !restaurant?.slider_images || restaurant.slider_images.length <= 1) return;
-    const timer = setInterval(
-      () => setCurrentSlide((prev) => (prev === restaurant.slider_images.length - 1 ? 0 : prev + 1)),
-      3000
-    );
-    return () => clearInterval(timer);
-  }, [restaurant?.slider_images, view]);
 
   const categoryGroupKey = (cat: { main_group?: string | null }) => cat.main_group || "DİĞER";
 
@@ -655,29 +646,13 @@ export default function CustomerMenu() {
           </div>
         </div>
 
-        {restaurant.slider_images && restaurant.slider_images.length > 0 && (
-          <div className={tc.sliderSection}>
-            <div className={tc.sliderInner}>
-              <div className={tc.sliderFrame}>
-                {restaurant.slider_images.map((img: string, idx: number) => {
-                  const isActive = currentSlide === idx;
-                  return (
-                    <div
-                      key={idx}
-                      className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${isActive ? "opacity-100 z-10" : "opacity-0 z-0"}`}
-                    >
-                      <img
-                        src={img}
-                        alt={`Menü Görseli ${idx + 1}`}
-                        className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${isActive ? "scale-110" : "scale-100"}`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
+        <PublicMenuSlider
+          images={restaurant.slider_images ?? []}
+          enabled={view === "menu"}
+          sliderSectionClass={tc.sliderSection}
+          sliderInnerClass={tc.sliderInner}
+          sliderFrameClass={tc.sliderFrame}
+        />
 
         {menuCategories.length > 0 && (
           <div className={tc.categoryTabs}>
