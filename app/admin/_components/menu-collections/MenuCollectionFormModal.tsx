@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ImageIcon, Loader2, Trash2, X } from "lucide-react";
 import type {
   AdminMenuCollectionListItem,
@@ -8,6 +8,11 @@ import type {
 } from "@/lib/admin-menu/types";
 import { PRODUCT_IMAGE_ACCEPT } from "@/lib/admin-menu/product-image-upload";
 import { getMenuCollectionEmoji } from "@/lib/public-menu/display";
+import {
+  croppedBlobToFile,
+  validateImageSourceFile,
+} from "@/lib/images/crop-image";
+import { ImageCropModal } from "@/app/admin/_components/images/ImageCropModal";
 
 export type MenuCollectionFormValues = {
   name: string;
@@ -91,6 +96,24 @@ export function MenuCollectionFormModal({
   onSubmit,
 }: MenuCollectionFormModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropSession, setCropSession] = useState<{
+    imageSrc: string;
+    sourceFileName: string;
+  } | null>(null);
+  const [imagePickError, setImagePickError] = useState<string | null>(null);
+
+  const closeCropSession = useCallback(() => {
+    setCropSession((current) => {
+      if (current?.imageSrc) URL.revokeObjectURL(current.imageSrc);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (open) return;
+    closeCropSession();
+    setImagePickError(null);
+  }, [open, closeCropSession]);
 
   useEffect(() => {
     if (!open) return;
@@ -127,11 +150,37 @@ export function MenuCollectionFormModal({
       set({ card_visual_type: type });
       return;
     }
+    closeCropSession();
+    setImagePickError(null);
     set({
       card_visual_type: type,
       card_image_file: null,
       remove_card_image: type === "none" ? true : values.remove_card_image,
     });
+  };
+
+  const handleImageFileSelected = (file: File) => {
+    const validationError = validateImageSourceFile(file);
+    if (validationError) {
+      setImagePickError(validationError);
+      return;
+    }
+    closeCropSession();
+    setImagePickError(null);
+    setCropSession({
+      imageSrc: URL.createObjectURL(file),
+      sourceFileName: file.name,
+    });
+  };
+
+  const handleCropConfirm = (blob: Blob) => {
+    const croppedFile = croppedBlobToFile(blob, cropSession?.sourceFileName ?? "menu-card");
+    set({
+      card_image_file: croppedFile,
+      remove_card_image: false,
+    });
+    closeCropSession();
+    setImagePickError(null);
   };
 
   return (
@@ -290,6 +339,11 @@ export function MenuCollectionFormModal({
 
               {values.card_visual_type === "image" && (
                 <div className="space-y-3">
+                  {imagePickError && (
+                    <p className="text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                      {imagePickError}
+                    </p>
+                  )}
                   {previewSrc ? (
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-violet-100 bg-white p-3">
                       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-gray-100 bg-gray-50">
@@ -330,8 +384,8 @@ export function MenuCollectionFormModal({
                   ) : (
                     <div className="rounded-xl border border-dashed border-violet-200 bg-white p-4 space-y-2">
                       <p className="text-xs font-medium text-gray-500">
-                        JPG, PNG veya WebP. En fazla 20 MB. Kart için otomatik ~400px WebP
-                        oluşturulur.
+                        JPG, PNG veya WebP. En fazla 20 MB. Seçtikten sonra kare kırpma ekranı
+                        açılır; kayıtta ~400px WebP oluşturulur.
                       </p>
                       <button
                         type="button"
@@ -353,10 +407,7 @@ export function MenuCollectionFormModal({
                       const file = e.target.files?.[0] ?? null;
                       e.target.value = "";
                       if (!file) return;
-                      set({
-                        card_image_file: file,
-                        remove_card_image: false,
-                      });
+                      handleImageFileSelected(file);
                     }}
                   />
                 </div>
@@ -392,6 +443,15 @@ export function MenuCollectionFormModal({
           </div>
         </form>
       </div>
+
+      <ImageCropModal
+        open={Boolean(cropSession)}
+        imageSrc={cropSession?.imageSrc ?? null}
+        busy={busy}
+        title="Menü kartı görselini kırp"
+        onCancel={closeCropSession}
+        onConfirm={handleCropConfirm}
+      />
     </div>
   );
 }
