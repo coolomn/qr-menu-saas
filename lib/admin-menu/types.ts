@@ -1,3 +1,14 @@
+export type MenuCollectionCardVisualType = "icon" | "image" | "none";
+
+export const MENU_COLLECTION_CARD_VISUAL_TYPES = ["icon", "image", "none"] as const;
+
+export function normalizeMenuCollectionCardVisualType(
+  value: unknown
+): MenuCollectionCardVisualType {
+  if (value === "image" || value === "none" || value === "icon") return value;
+  return "icon";
+}
+
 export type AdminMenuCollection = {
   id: string;
   restaurant_id: string;
@@ -9,6 +20,8 @@ export type AdminMenuCollection = {
   end_time: string | null;
   is_active: boolean;
   sort_order: number;
+  card_visual_type: MenuCollectionCardVisualType;
+  card_image_url: string | null;
   created_at?: string;
   updated_at?: string;
 };

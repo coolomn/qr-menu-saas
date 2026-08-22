@@ -40,7 +40,9 @@ export function getMenuPickSubtitle(language: string): string {
 }
 
 /** Kart ikonu — DB’de emoji yok; isimden basit sezgi. */
-export function getMenuCollectionEmoji(collection: PublicMenuCollection): string {
+export function getMenuCollectionEmoji(collection: {
+  name: string;
+}): string {
   const text = collection.name.toLocaleLowerCase("tr-TR");
   if (/içecek|icecek|drink|bar\b|şarap|sarap|bira/.test(text)) return "🍷";
   if (/öğle|ogle|lunch|brunch|kahvalt/.test(text)) return "☀️";
@@ -48,6 +50,31 @@ export function getMenuCollectionEmoji(collection: PublicMenuCollection): string
   if (/cafe|café|kahve|coffee/.test(text)) return "☕";
   if (/tatlı|tatli|dessert/.test(text)) return "🍰";
   return "🍽️";
+}
+
+/**
+ * Public picker card visual.
+ * - none → no left visual
+ * - image with URL → photo
+ * - image without URL → fall back to heuristic icon (safe UX)
+ * - icon / missing → heuristic icon
+ */
+export type MenuCollectionCardVisual =
+  | { mode: "none" }
+  | { mode: "icon"; emoji: string }
+  | { mode: "image"; imageUrl: string };
+
+export function resolveMenuCollectionCardVisual(
+  collection: Pick<PublicMenuCollection, "name" | "card_visual_type" | "card_image_url">
+): MenuCollectionCardVisual {
+  const type = collection.card_visual_type || "icon";
+  if (type === "none") return { mode: "none" };
+  if (type === "image") {
+    const url = collection.card_image_url?.trim();
+    if (url) return { mode: "image", imageUrl: url };
+    return { mode: "icon", emoji: getMenuCollectionEmoji(collection) };
+  }
+  return { mode: "icon", emoji: getMenuCollectionEmoji(collection) };
 }
 
 export function categoryBelongsToMenuCollection(

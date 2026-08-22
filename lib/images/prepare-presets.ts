@@ -3,6 +3,9 @@ import { prepareImage, type PreparedImage } from "@/lib/images/prepare-image";
 export const PRODUCT_FULL_MAX_LONG_EDGE = 1600;
 export const PRODUCT_THUMBNAIL_MAX_WIDTH = 400;
 export const PRODUCT_IMAGE_QUALITY = 0.82;
+/** Menu picker card thumbnail: max long edge ~400, aspect preserved (CSS object-cover on card). */
+export const MENU_COLLECTION_CARD_MAX_LONG_EDGE = 400;
+export const MENU_COLLECTION_CARD_IMAGE_QUALITY = 0.84;
 export const WELCOME_BACKGROUND_MAX_WIDTH = 1920;
 export const WELCOME_BACKGROUND_QUALITY = 0.82;
 export const WELCOME_BACKGROUND_QUALITY_STEPS = [0.82, 0.78, 0.74, 0.7, 0.65, 0.6] as const;
@@ -70,6 +73,30 @@ export function buildProductImageObjectPaths(
   };
 }
 
+export function menuCollectionCardImageSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  maxLongEdge = MENU_COLLECTION_CARD_MAX_LONG_EDGE
+): { width: number; height: number } {
+  const w = Math.max(1, Math.round(sourceWidth));
+  const h = Math.max(1, Math.round(sourceHeight));
+  const longEdge = Math.max(w, h);
+  if (longEdge <= maxLongEdge) return { width: w, height: h };
+  const scale = maxLongEdge / longEdge;
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+}
+
+export function buildMenuCollectionCardImageObjectPath(
+  restaurantId: string,
+  unique: string,
+  ext: string
+): string {
+  return `restaurants/${restaurantId}/menu-collections/${unique}.${ext}`;
+}
+
 /** Lightbox / image_url: ~1600 px uzun kenar WebP. Orijinal File dönülmez. */
 export async function prepareProductFullImage(file: File): Promise<PreparedImage> {
   return prepareImage(file, {
@@ -99,5 +126,14 @@ export async function prepareWelcomeBackgroundImage(file: File): Promise<Prepare
     maxOutputBytes: WELCOME_BACKGROUND_MAX_OUTPUT_BYTES,
     qualitySteps: [...WELCOME_BACKGROUND_QUALITY_STEPS],
     maxWidthSteps: [...WELCOME_BACKGROUND_WIDTH_STEPS],
+  });
+}
+
+/** Menü seçim kartı: ~400 px uzun kenar WebP, oran korunur, crop yok. */
+export async function prepareMenuCollectionCardImage(file: File): Promise<PreparedImage> {
+  return prepareImage(file, {
+    maxLongEdge: MENU_COLLECTION_CARD_MAX_LONG_EDGE,
+    quality: MENU_COLLECTION_CARD_IMAGE_QUALITY,
+    keepAlpha: false,
   });
 }

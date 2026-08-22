@@ -2,14 +2,17 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  buildMenuCollectionCardImageObjectPath,
   buildProductImageObjectPaths,
   buildWelcomeBackgroundObjectPath,
+  prepareMenuCollectionCardImage,
   prepareProductFullImage,
   prepareProductThumbnail,
   prepareWelcomeBackgroundImage,
 } from "@/lib/images/prepare-presets";
 import {
   publicBackgroundStoragePathFromUrl,
+  publicMenuCollectionCardStoragePathFromUrl,
   publicProductStoragePathFromUrl,
 } from "@/lib/public-menu/product-image-urls";
 
@@ -19,7 +22,12 @@ export const PRODUCT_IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
 
 export const PRODUCT_IMAGE_CACHE_CONTROL = "31536000";
 
-export type PublicAssetKind = "logo" | "background" | "slider" | "products";
+export type PublicAssetKind =
+  | "logo"
+  | "background"
+  | "slider"
+  | "products"
+  | "menu-collections";
 
 export type ProductImageUploadResult = {
   url: string;
@@ -85,6 +93,49 @@ export async function tryRemoveBackgroundImageFiles(
   }
   for (const path of paths) {
     await removeStoragePath(supabase, path);
+  }
+}
+
+/** Best-effort: yalnızca bu restoranın menu-collections/ dosyalarını siler. */
+export async function tryRemoveMenuCollectionCardImageFiles(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  urls: Array<string | null | undefined>
+): Promise<void> {
+  const paths: string[] = [];
+  for (const url of urls) {
+    if (!url?.trim()) continue;
+    const path = publicMenuCollectionCardStoragePathFromUrl(url, restaurantId);
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  for (const path of paths) {
+    await removeStoragePath(supabase, path);
+  }
+}
+
+export async function uploadMenuCollectionCardImage(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  file: File
+): Promise<{ url: string } | { error: string }> {
+  try {
+    const prepared = await prepareMenuCollectionCardImage(file);
+    const path = buildMenuCollectionCardImageObjectPath(
+      restaurantId,
+      newAssetUniqueId(),
+      prepared.ext
+    );
+    const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, prepared.blob, {
+      contentType: prepared.contentType,
+      cacheControl: PRODUCT_IMAGE_CACHE_CONTROL,
+      upsert: false,
+    });
+    if (error) {
+      return { error: error.message || "Görsel yüklenemedi." };
+    }
+    return { url: publicUrlForPath(supabase, path) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Görsel yüklenemedi." };
   }
 }
 

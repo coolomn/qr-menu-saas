@@ -5,6 +5,10 @@ import { Edit3, LayoutGrid, Loader2, Plus, Power, PowerOff, Trash2, X } from "lu
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import type { AdminMenuCollectionListItem } from "@/lib/admin-menu/types";
 import {
+  uploadMenuCollectionCardImage,
+  tryRemoveMenuCollectionCardImageFiles,
+} from "@/lib/admin-menu/product-image-upload";
+import {
   emptyMenuCollectionForm,
   formValuesFromItem,
   MenuCollectionFormModal,
@@ -116,11 +120,37 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
   const handleSubmit = async () => {
     setFormError(null);
     setFormBusy(true);
+    const previousImageUrl = formValues.card_image_url;
     try {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Oturum bulunamadı.");
+
+      let cardVisualType = formValues.card_visual_type;
+      let cardImageUrl: string | null = formValues.remove_card_image
+        ? null
+        : formValues.card_image_url;
+
+      if (cardVisualType === "image" && formValues.card_image_file) {
+        const uploaded = await uploadMenuCollectionCardImage(
+          supabase,
+          restaurantId,
+          formValues.card_image_file
+        );
+        if ("error" in uploaded) {
+          throw new Error(uploaded.error);
+        }
+        cardImageUrl = uploaded.url;
+      }
+
+      if (cardVisualType !== "image") {
+        cardImageUrl = null;
+      }
+
+      if (cardVisualType === "image" && !cardImageUrl) {
+        throw new Error("Görsel seçeneği için bir fotoğraf yükleyin.");
+      }
 
       const payload = {
         name: formValues.name.trim(),
@@ -130,6 +160,8 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
         start_time: formValues.start_time || null,
         end_time: formValues.end_time || null,
         is_active: formValues.is_active,
+        card_visual_type: cardVisualType,
+        card_image_url: cardImageUrl,
       };
 
       if (editingId) {
@@ -145,6 +177,12 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
         if (!res.ok) throw new Error(json.error || "Güncellenemedi.");
         if (json.item) {
           setItems((prev) => prev.map((m) => (m.id === json.item!.id ? json.item! : m)));
+        }
+
+        const shouldCleanupPrevious =
+          Boolean(previousImageUrl) && previousImageUrl !== cardImageUrl;
+        if (shouldCleanupPrevious) {
+          await tryRemoveMenuCollectionCardImageFiles(supabase, restaurantId, [previousImageUrl]);
         }
       } else {
         const res = await fetch("/api/admin/menu-collections", {

@@ -3,7 +3,12 @@ import type {
   AdminMenuCollection,
   AdminMenuCollectionListItem,
   CategoryMenuCollectionsPickerMenu,
+  MenuCollectionCardVisualType,
 } from "@/lib/admin-menu/types";
+import { normalizeMenuCollectionCardVisualType } from "@/lib/admin-menu/types";
+
+export const MENU_COLLECTION_ADMIN_SELECT =
+  "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, created_at, updated_at";
 
 type DbMenuRow = {
   id: string;
@@ -16,9 +21,21 @@ type DbMenuRow = {
   end_time: string | null;
   is_active: boolean;
   sort_order: number | null;
+  card_visual_type?: string | null;
+  card_image_url?: string | null;
   created_at?: string;
   updated_at?: string;
 };
+
+function cardVisualFromRow(row: DbMenuRow): {
+  card_visual_type: MenuCollectionCardVisualType;
+  card_image_url: string | null;
+} {
+  return {
+    card_visual_type: normalizeMenuCollectionCardVisualType(row.card_visual_type),
+    card_image_url: row.card_image_url?.trim() || null,
+  };
+}
 
 export function isUniqueViolation(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
@@ -97,6 +114,7 @@ export function toListItem(
   row: DbMenuRow,
   categoryCount: number
 ): AdminMenuCollectionListItem {
+  const visual = cardVisualFromRow(row);
   return {
     id: row.id,
     name: row.name,
@@ -107,6 +125,8 @@ export function toListItem(
     end_time: row.end_time,
     is_active: row.is_active,
     sort_order: typeof row.sort_order === "number" ? row.sort_order : 0,
+    card_visual_type: visual.card_visual_type,
+    card_image_url: visual.card_image_url,
     created_at: row.created_at,
     updated_at: row.updated_at,
     category_count: categoryCount,
@@ -119,9 +139,7 @@ export async function listMenuCollectionsForRestaurant(
 ): Promise<AdminMenuCollectionListItem[]> {
   const { data: rows, error } = await admin
     .from("menu_collections")
-    .select(
-      "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, created_at, updated_at"
-    )
+    .select(MENU_COLLECTION_ADMIN_SELECT)
     .eq("restaurant_id", restaurantId)
     .order("sort_order", { ascending: true });
 
@@ -242,9 +260,7 @@ export async function getMenuCollectionForOwner(
 > {
   const { data: row, error } = await admin
     .from("menu_collections")
-    .select(
-      "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, created_at, updated_at"
-    )
+    .select(MENU_COLLECTION_ADMIN_SELECT)
     .eq("id", menuCollectionId)
     .maybeSingle();
 
@@ -645,6 +661,7 @@ export async function deleteProductMenuCollectionLinks(
 }
 
 export function toAdminMenuCollection(row: DbMenuRow): AdminMenuCollection {
+  const visual = cardVisualFromRow(row);
   return {
     id: row.id,
     restaurant_id: row.restaurant_id,
@@ -656,6 +673,8 @@ export function toAdminMenuCollection(row: DbMenuRow): AdminMenuCollection {
     end_time: row.end_time,
     is_active: row.is_active,
     sort_order: typeof row.sort_order === "number" ? row.sort_order : 0,
+    card_visual_type: visual.card_visual_type,
+    card_image_url: visual.card_image_url,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };

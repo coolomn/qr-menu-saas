@@ -8,6 +8,7 @@ import {
   mapDbErrorMessage,
   toListItem,
 } from "@/lib/admin-menu/helpers";
+import { tryRemoveMenuCollectionCardImageFiles } from "@/lib/admin-menu/product-image-upload";
 import { patchMenuCollectionSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
@@ -70,7 +71,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       .update(parsed.data)
       .eq("id", id)
       .select(
-        "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, created_at, updated_at"
+        "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, created_at, updated_at"
       )
       .single();
 
@@ -124,12 +125,19 @@ export async function DELETE(_request: Request, context: RouteContext) {
     }
 
     const junctionCounts = await getMenuCollectionJunctionCounts(admin, id);
+    const previousCardImageUrl = existing.row.card_image_url;
 
     const { error: deleteErr } = await admin.from("menu_collections").delete().eq("id", id);
 
     if (deleteErr) {
       console.error(deleteErr);
       return NextResponse.json({ error: mapDbErrorMessage(deleteErr) }, { status: 500 });
+    }
+
+    if (previousCardImageUrl) {
+      await tryRemoveMenuCollectionCardImageFiles(admin, existing.restaurantId, [
+        previousCardImageUrl,
+      ]);
     }
 
     return NextResponse.json({

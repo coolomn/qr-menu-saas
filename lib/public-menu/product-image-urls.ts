@@ -1,6 +1,11 @@
 const MENU_PUBLIC_BUCKET = "menu-public";
 
-export type MenuPublicAssetFolder = "products" | "background" | "logo" | "slider";
+export type MenuPublicAssetFolder =
+  | "products"
+  | "background"
+  | "logo"
+  | "slider"
+  | "menu-collections";
 
 export function resolvePublicProductCardImageSrc(product: {
   thumbnail_url?: string | null;
@@ -49,4 +54,12 @@ export function publicBackgroundStoragePathFromUrl(
   restaurantId: string
 ): string | null {
   return publicMenuAssetStoragePathFromUrl(url, restaurantId, "background");
+}
+
+/** Public URL → menu-public object path, only restaurants/{id}/menu-collections/*. */
+export function publicMenuCollectionCardStoragePathFromUrl(
+  url: string,
+  restaurantId: string
+): string | null {
+  return publicMenuAssetStoragePathFromUrl(url, restaurantId, "menu-collections");
 }

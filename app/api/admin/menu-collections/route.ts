@@ -95,10 +95,12 @@ export async function POST(request: Request) {
           end_time: fields.end_time,
           is_active: fields.is_active ?? true,
           sort_order,
+          card_visual_type: fields.card_visual_type ?? "icon",
+          card_image_url: fields.card_image_url ?? null,
         },
       ])
       .select(
-        "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, created_at, updated_at"
+        "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, created_at, updated_at"
       )
       .single();
 

@@ -17,6 +17,16 @@ const optionalTime = z
     return v;
   });
 
+const optionalUrl = z
+  .union([z.string().trim().url().max(2000), z.literal(""), z.null()])
+  .optional()
+  .transform((v) => {
+    if (v == null || v === "") return null;
+    return v;
+  });
+
+const cardVisualType = z.enum(["icon", "image", "none"]);
+
 const menuCollectionFields = {
   name: z.string().trim().min(1, "Menü adı zorunlu.").max(120),
   name_en: optionalText(120),
@@ -26,6 +36,8 @@ const menuCollectionFields = {
   end_time: optionalTime,
   is_active: z.boolean().optional().default(true),
   sort_order: z.number().int().min(0).max(9999).optional(),
+  card_visual_type: cardVisualType.optional().default("icon"),
+  card_image_url: optionalUrl,
 };
 
 export const createMenuCollectionSchema = z.object({
@@ -43,6 +55,8 @@ export const patchMenuCollectionSchema = z
     end_time: optionalTime,
     is_active: z.boolean().optional(),
     sort_order: z.number().int().min(0).max(9999).optional(),
+    card_visual_type: cardVisualType.optional(),
+    card_image_url: optionalUrl,
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Güncellenecek alan belirtilmedi.",

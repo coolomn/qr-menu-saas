@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { MenuCollectionCardVisualType } from "@/lib/admin-menu/types";
+import { normalizeMenuCollectionCardVisualType } from "@/lib/admin-menu/types";
 
 export type PublicMenuCollection = {
   id: string;
@@ -9,6 +11,8 @@ export type PublicMenuCollection = {
   start_time: string | null;
   end_time: string | null;
   sort_order: number;
+  card_visual_type: MenuCollectionCardVisualType;
+  card_image_url: string | null;
 };
 
 export type PublicMenuPicker = {
@@ -25,6 +29,8 @@ type MenuCollectionRow = {
   start_time: string | null;
   end_time: string | null;
   sort_order: number | null;
+  card_visual_type?: string | null;
+  card_image_url?: string | null;
 };
 
 type JunctionRow = {
@@ -67,6 +73,8 @@ function toPublicMenuCollection(row: MenuCollectionRow): PublicMenuCollection {
     start_time: row.start_time,
     end_time: row.end_time,
     sort_order: typeof row.sort_order === "number" ? row.sort_order : 0,
+    card_visual_type: normalizeMenuCollectionCardVisualType(row.card_visual_type),
+    card_image_url: row.card_image_url?.trim() || null,
   };
 }
 
@@ -76,6 +84,10 @@ export type MenuCollectionsPayload = {
 };
 
 const MENU_COLLECTION_COLUMNS =
+  "id, name, name_en, name_ru, description, start_time, end_time, sort_order, card_visual_type, card_image_url";
+
+/** Legacy select when new card visual columns are not migrated yet. */
+const MENU_COLLECTION_COLUMNS_LEGACY =
   "id, name, name_en, name_ru, description, start_time, end_time, sort_order";
 
 /**
@@ -93,20 +105,38 @@ export async function buildMenuCollectionsPayload(
     menuIdsByCategory: new Map(),
   };
 
-  const { data: menuRows, error: menuError } = await supabase
+  let menuRows: unknown = null;
+  const primary = await supabase
     .from("menu_collections")
     .select(MENU_COLLECTION_COLUMNS)
     .eq("restaurant_id", restaurantId)
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
-  if (menuError) {
-    if (isDbSchemaError(menuError)) {
-      console.warn("menu_collections unavailable for public menu:", menuError.message);
+  if (primary.error) {
+    if (isDbSchemaError(primary.error)) {
+      const legacy = await supabase
+        .from("menu_collections")
+        .select(MENU_COLLECTION_COLUMNS_LEGACY)
+        .eq("restaurant_id", restaurantId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+
+      if (legacy.error) {
+        if (isDbSchemaError(legacy.error)) {
+          console.warn("menu_collections unavailable for public menu:", legacy.error.message);
+          return empty;
+        }
+        console.error(legacy.error);
+        return empty;
+      }
+      menuRows = legacy.data;
+    } else {
+      console.error(primary.error);
       return empty;
     }
-    console.error(menuError);
-    return empty;
+  } else {
+    menuRows = primary.data;
   }
 
   const activeMenus = toMenuCollectionRows(menuRows).map(toPublicMenuCollection);

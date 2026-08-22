@@ -2,10 +2,10 @@
 
 import {
   getAllDayLabel,
-  getMenuCollectionEmoji,
   getMenuCollectionSubtitle,
   getMenuCollectionTitle,
   getMenuPickSubtitle,
+  resolveMenuCollectionCardVisual,
 } from "@/lib/public-menu/display";
 import type { PublicMenuCollection } from "@/lib/public-menu/menu-collections";
 import type { LogoDisplayMode } from "@/lib/public-menu/logo-display";
@@ -96,6 +96,7 @@ export function MenuPickScreen({
         {menuCollections.map((collection, index) => {
           const title = getMenuCollectionTitle(collection, language);
           const subtitle = getMenuCollectionSubtitle(collection, language);
+          const visual = resolveMenuCollectionCardVisual(collection);
           return (
             <button
               key={collection.id}
@@ -105,12 +106,28 @@ export function MenuPickScreen({
               style={{ animationDelay: `${120 + index * 80}ms`, animationDuration: "500ms" }}
             >
               <div className="flex items-center gap-4">
-                <span
-                  className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-xl bg-white/15 text-2xl sm:text-3xl shrink-0 transition-transform duration-300 group-hover:scale-105"
-                  aria-hidden
-                >
-                  {getMenuCollectionEmoji(collection)}
-                </span>
+                {visual.mode === "image" ? (
+                  <span
+                    className="relative flex h-12 w-12 sm:h-14 sm:w-14 shrink-0 overflow-hidden rounded-xl bg-white/15 transition-transform duration-300 group-hover:scale-105"
+                    aria-hidden
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={visual.imageUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </span>
+                ) : visual.mode === "icon" ? (
+                  <span
+                    className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-xl bg-white/15 text-2xl sm:text-3xl shrink-0 transition-transform duration-300 group-hover:scale-105"
+                    aria-hidden
+                  >
+                    {visual.emoji}
+                  </span>
+                ) : null}
                 <div className="min-w-0 flex-1">
                   <span className="block text-lg sm:text-xl font-black text-white tracking-tight leading-tight">
                     {title}
