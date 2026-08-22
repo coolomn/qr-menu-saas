@@ -5,6 +5,7 @@ import { Loader2, RefreshCw, Trash2, UtensilsCrossed } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import {
   PRODUCT_IMAGE_ACCEPT,
+  formatProductImageSaveError,
   tryRemoveProductImageFiles,
   uploadProductImage,
 } from "@/lib/admin-menu/product-image-upload";
@@ -56,6 +57,11 @@ export function ProductCardQuickImage({
         alert(upload.error);
         return;
       }
+      if (!upload.thumbnailUrl?.trim()) {
+        await tryRemoveProductImageFiles(supabase, restaurantId, [upload.url, upload.thumbnailUrl]);
+        alert("Ürün küçük görseli oluşturulamadı. Lütfen görseli tekrar deneyin.");
+        return;
+      }
       const { error } = await supabase
         .from("products")
         .update({ image_url: upload.url, thumbnail_url: upload.thumbnailUrl })
@@ -65,7 +71,7 @@ export function ProductCardQuickImage({
           upload.url,
           upload.thumbnailUrl,
         ]);
-        alert(error.message || "Görsel kaydedilemedi.");
+        alert(formatProductImageSaveError(error.message));
         return;
       }
       await tryRemoveProductImageFiles(supabase, restaurantId, [imageUrl, thumbnailUrl]);

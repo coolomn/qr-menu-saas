@@ -48,7 +48,7 @@ import {
   mergeProductMenuLinksMap,
 } from "@/lib/admin-menu/bulk-product-menu-collections";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadSliderImage, tryRemoveProductImageFiles } from "@/lib/admin-menu/product-image-upload";
+import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadSliderImage, tryRemoveProductImageFiles, formatProductImageSaveError } from "@/lib/admin-menu/product-image-upload";
 import {
   fillMissingLocalizedValue,
   fillMissingProductTranslations,
@@ -845,6 +845,8 @@ export default function AdminDashboard() {
     const previousThumbnailUrl = (editingRow?.thumbnail_url as string | undefined) || "";
     let imageUrl = newProduct.image_url;
     let thumbnailUrl = newProduct.thumbnail_url || "";
+    let uploadedNewImageUrl: string | null = null;
+    let uploadedNewThumbnailUrl: string | null = null;
     try {
       if (newProduct.file) {
         const productUpload = await uploadProductImage(supabase, restaurant.id, newProduct.file);
@@ -852,8 +854,18 @@ export default function AdminDashboard() {
           alert(productUpload.error);
           return;
         }
+        if (!productUpload.thumbnailUrl?.trim()) {
+          await tryRemoveProductImageFiles(supabase, restaurant.id, [
+            productUpload.url,
+            productUpload.thumbnailUrl,
+          ]);
+          alert("Ürün küçük görseli oluşturulamadı. Lütfen görseli tekrar deneyin.");
+          return;
+        }
         imageUrl = productUpload.url;
         thumbnailUrl = productUpload.thumbnailUrl;
+        uploadedNewImageUrl = productUpload.url;
+        uploadedNewThumbnailUrl = productUpload.thumbnailUrl;
       }
 
       const payload = {
@@ -871,7 +883,13 @@ export default function AdminDashboard() {
           savedProductRow = data;
           savedProductId = data.id;
         } else {
-          alert(error?.message || "Kayıt başarısız.");
+          if (uploadedNewImageUrl || uploadedNewThumbnailUrl) {
+            await tryRemoveProductImageFiles(supabase, restaurant.id, [
+              uploadedNewImageUrl,
+              uploadedNewThumbnailUrl,
+            ]);
+          }
+          alert(formatProductImageSaveError(error?.message));
           return;
         }
       } else {
@@ -885,7 +903,13 @@ export default function AdminDashboard() {
           savedProductRow = data;
           savedProductId = data.id;
         } else {
-          alert(error?.message || "Kayıt başarısız.");
+          if (uploadedNewImageUrl || uploadedNewThumbnailUrl) {
+            await tryRemoveProductImageFiles(supabase, restaurant.id, [
+              uploadedNewImageUrl,
+              uploadedNewThumbnailUrl,
+            ]);
+          }
+          alert(formatProductImageSaveError(error?.message));
           return;
         }
       }

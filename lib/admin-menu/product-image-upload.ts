@@ -2,9 +2,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  PRODUCT_IMAGE_CACHE_CONTROL,
+  uploadProductImageAtomic,
+} from "@/lib/admin-menu/product-image-upload-atomic";
+import {
   buildLogoImageObjectPath,
   buildMenuCollectionCardImageObjectPath,
-  buildProductImageObjectPaths,
   buildSliderImageObjectPath,
   buildWelcomeBackgroundObjectPath,
   prepareLogoImage,
@@ -26,7 +29,17 @@ export const MENU_PUBLIC_BUCKET = "menu-public";
 
 export const PRODUCT_IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
 
-export const PRODUCT_IMAGE_CACHE_CONTROL = "31536000";
+export {
+  PRODUCT_IMAGE_CACHE_CONTROL,
+  PRODUCT_THUMB_PREPARE_FAILED_MESSAGE,
+  formatProductFullPrepareError,
+  formatProductFullUploadError,
+  formatProductThumbPrepareError,
+  formatProductThumbUploadError,
+  formatProductImageSaveError,
+  sanitizeUploadErrorDetail,
+  uploadProductImageAtomic,
+} from "@/lib/admin-menu/product-image-upload-atomic";
 
 export type PublicAssetKind =
   | "logo"
@@ -205,57 +218,39 @@ export async function uploadProductImage(
   restaurantId: string,
   file: File
 ): Promise<ProductImageUploadResult | { error: string }> {
-  try {
-    const full = await prepareProductFullImage(file);
-    const unique = newAssetUniqueId();
-    let thumbExt = "webp";
-    let thumbBlob: Blob | null = null;
-    let thumbType: string = "image/webp";
-
-    try {
-      const thumb = await prepareProductThumbnail(full.blob);
-      thumbExt = thumb.ext;
-      thumbBlob = thumb.blob;
-      thumbType = thumb.contentType;
-    } catch (thumbErr) {
-      console.warn("[product-image] thumbnail create failed:", thumbErr);
-    }
-
-    const paths = buildProductImageObjectPaths(restaurantId, unique, full.ext, thumbExt);
-
-    const { error: originalError } = await supabase.storage
-      .from(MENU_PUBLIC_BUCKET)
-      .upload(paths.original, full.blob, {
-        contentType: full.contentType,
+  const result = await uploadProductImageAtomic(restaurantId, file, {
+    prepareFull: prepareProductFullImage,
+    prepareThumbnail: prepareProductThumbnail,
+    newUniqueId: newAssetUniqueId,
+    publicUrlForPath: (path) => publicUrlForPath(supabase, path),
+    uploadObject: async ({ path, body, contentType }) => {
+      const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, body, {
+        contentType,
         cacheControl: PRODUCT_IMAGE_CACHE_CONTROL,
         upsert: false,
       });
-    if (originalError) {
-      return { error: originalError.message || "Görsel yüklenemedi." };
-    }
-
-    const url = publicUrlForPath(supabase, paths.original);
-    let thumbnailUrl = "";
-
-    if (thumbBlob) {
-      const { error: thumbError } = await supabase.storage
-        .from(MENU_PUBLIC_BUCKET)
-        .upload(paths.thumbnail, thumbBlob, {
-          contentType: thumbType,
-          cacheControl: PRODUCT_IMAGE_CACHE_CONTROL,
-          upsert: false,
-        });
-      if (thumbError) {
-        console.warn("[product-image] thumbnail upload failed:", thumbError.message);
-      } else {
-        thumbnailUrl = publicUrlForPath(supabase, paths.thumbnail);
+      if (error) {
+        return { ok: false, message: error.message || "Yükleme başarısız." };
       }
-    }
+      return { ok: true };
+    },
+    removeObjects: async (paths) => {
+      if (paths.length === 0) return;
+      const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).remove(paths);
+      if (error) {
+        console.warn("[product-image] atomic cleanup skipped:", paths, error.message);
+      }
+    },
+  });
 
-    return { url, thumbnailUrl };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Görsel yüklenemedi." };
+  if ("error" in result) {
+    return { error: result.error };
   }
+
+  return {
+    url: result.url,
+    thumbnailUrl: result.thumbnailUrl,
+  };
 }
 
 export async function uploadWelcomeBackgroundImage(
