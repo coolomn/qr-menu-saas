@@ -2,10 +2,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  buildLogoImageObjectPath,
   buildMenuCollectionCardImageObjectPath,
   buildProductImageObjectPaths,
   buildSliderImageObjectPath,
   buildWelcomeBackgroundObjectPath,
+  prepareLogoImage,
   prepareMenuCollectionCardImage,
   prepareProductFullImage,
   prepareProductThumbnail,
@@ -14,6 +16,7 @@ import {
 } from "@/lib/images/prepare-presets";
 import {
   publicBackgroundStoragePathFromUrl,
+  publicLogoStoragePathFromUrl,
   publicMenuCollectionCardStoragePathFromUrl,
   publicProductStoragePathFromUrl,
   publicSliderStoragePathFromUrl,
@@ -109,6 +112,23 @@ export async function tryRemoveSliderImageFiles(
   for (const url of urls) {
     if (!url?.trim()) continue;
     const path = publicSliderStoragePathFromUrl(url, restaurantId);
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  for (const path of paths) {
+    await removeStoragePath(supabase, path);
+  }
+}
+
+/** Best-effort: yalnızca bu restoranın logo/ dosyalarını siler. */
+export async function tryRemoveLogoImageFiles(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  urls: Array<string | null | undefined>
+): Promise<void> {
+  const paths: string[] = [];
+  for (const url of urls) {
+    if (!url?.trim()) continue;
+    const path = publicLogoStoragePathFromUrl(url, restaurantId);
     if (path && !paths.includes(path)) paths.push(path);
   }
   for (const path of paths) {
@@ -272,6 +292,28 @@ export async function uploadSliderImage(
   try {
     const prepared = await prepareSliderImage(file);
     const path = buildSliderImageObjectPath(restaurantId, newAssetUniqueId(), prepared.ext);
+    const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, prepared.blob, {
+      contentType: prepared.contentType,
+      cacheControl: PRODUCT_IMAGE_CACHE_CONTROL,
+      upsert: false,
+    });
+    if (error) {
+      return { error: error.message || "Görsel yüklenemedi." };
+    }
+    return { url: publicUrlForPath(supabase, path) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Görsel yüklenemedi." };
+  }
+}
+
+export async function uploadLogoImage(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  file: File
+): Promise<{ url: string } | { error: string }> {
+  try {
+    const prepared = await prepareLogoImage(file);
+    const path = buildLogoImageObjectPath(restaurantId, newAssetUniqueId(), prepared.ext);
     const { error } = await supabase.storage.from(MENU_PUBLIC_BUCKET).upload(path, prepared.blob, {
       contentType: prepared.contentType,
       cacheControl: PRODUCT_IMAGE_CACHE_CONTROL,

@@ -48,7 +48,7 @@ import {
   mergeProductMenuLinksMap,
 } from "@/lib/admin-menu/bulk-product-menu-collections";
 import { formatPriceForDisplay } from "@/lib/format-price";
-import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadPublicAsset, uploadSliderImage, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles, tryRemoveSliderImageFiles } from "@/lib/admin-menu/product-image-upload";
+import { PRODUCT_IMAGE_ACCEPT, uploadLogoImage, uploadProductImage, uploadSliderImage, uploadWelcomeBackgroundImage, tryRemoveProductImageFiles, tryRemoveBackgroundImageFiles, tryRemoveLogoImageFiles, tryRemoveSliderImageFiles } from "@/lib/admin-menu/product-image-upload";
 import {
   fillMissingLocalizedValue,
   fillMissingProductTranslations,
@@ -436,13 +436,12 @@ export default function AdminDashboard() {
     try {
       let finalLogoUrl = settings.logo_url;
       let finalWelcomeBgUrl = settings.welcome_bg_url;
+      const previousLogoUrl = settings.logo_url;
       const previousWelcomeBgUrl = settings.welcome_bg_url;
       const previousSliderImages = [...(restaurant?.slider_images ?? settings.slider_images ?? [])];
 
       if (logoFile) {
-        const logoUpload = await uploadPublicAsset(supabase, restaurant.id, "logo", logoFile, {
-          ext: logoFile.name.split(".").pop(),
-        });
+        const logoUpload = await uploadLogoImage(supabase, restaurant.id, logoFile);
         if ("error" in logoUpload) {
           throw new Error(logoUpload.error);
         }
@@ -516,6 +515,13 @@ export default function AdminDashboard() {
       );
       setLogoFile(null);
       setWelcomeBgFile(null);
+      if (
+        logoFile &&
+        previousLogoUrl &&
+        previousLogoUrl !== finalLogoUrl
+      ) {
+        await tryRemoveLogoImageFiles(supabase, restaurant.id, [previousLogoUrl]);
+      }
       if (
         welcomeBgFile &&
         previousWelcomeBgUrl &&
@@ -2644,7 +2650,7 @@ export default function AdminDashboard() {
                   <div>
                     <label className="block text-[10px] md:text-xs font-black text-gray-400 mb-2 md:mb-3 uppercase tracking-widest">Restoran Logosu</label>
                     {settings.logo_url && !logoFile && (<div className="mb-4 bg-gray-50 p-4 rounded-2xl inline-block border-2 border-gray-100 w-full text-center md:text-left"><img src={settings.logo_url} alt="Logo" className="h-12 md:h-16 object-contain mx-auto md:mx-0" /></div>)}
-                    <input type="file" accept="image/*" onChange={e => setLogoFile(e.target.files ? e.target.files[0] : null)} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 outline-none" />
+                    <input type="file" accept={PRODUCT_IMAGE_ACCEPT} onChange={e => setLogoFile(e.target.files ? e.target.files[0] : null)} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 outline-none" />
                   </div>
 
                   <div className="p-4 md:p-6 border-2 border-indigo-100 rounded-3xl bg-indigo-50/30 space-y-4">

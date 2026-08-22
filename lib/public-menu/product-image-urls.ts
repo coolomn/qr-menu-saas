@@ -71,3 +71,11 @@ export function publicMenuCollectionCardStoragePathFromUrl(
 ): string | null {
   return publicMenuAssetStoragePathFromUrl(url, restaurantId, "menu-collections");
 }
+
+/** Public URL → menu-public object path, only restaurants/{id}/logo/*. */
+export function publicLogoStoragePathFromUrl(
+  url: string,
+  restaurantId: string
+): string | null {
+  return publicMenuAssetStoragePathFromUrl(url, restaurantId, "logo");
+}

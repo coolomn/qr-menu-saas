@@ -20,10 +20,12 @@ export const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
+export type PreparedImageFormat = "webp" | "jpeg" | "png";
+
 export type PreparedImage = {
   blob: Blob;
-  contentType: "image/webp" | "image/jpeg";
-  ext: "webp" | "jpg";
+  contentType: "image/webp" | "image/jpeg" | "image/png";
+  ext: "webp" | "jpg" | "png";
 };
 
 export type SniffedImageFormat = "webp" | "jpeg" | "png";
@@ -53,25 +55,37 @@ export async function sniffBlobImageFormat(blob: Blob): Promise<SniffedImageForm
   return null;
 }
 
-export function preparedImageForFormat(blob: Blob, format: "webp" | "jpeg"): PreparedImage {
-  const contentType = format === "webp" ? "image/webp" : "image/jpeg";
-  const ext = format === "webp" ? "webp" : "jpg";
+export function preparedImageForFormat(blob: Blob, format: PreparedImageFormat): PreparedImage {
+  const contentType =
+    format === "webp" ? "image/webp" : format === "jpeg" ? "image/jpeg" : "image/png";
+  const ext = format === "webp" ? "webp" : format === "jpeg" ? "jpg" : "png";
   const normalizedBlob = blob.type === contentType ? blob : new Blob([blob], { type: contentType });
   return { blob: normalizedBlob, contentType, ext };
 }
 
+function declaredFormatFromPrepared(prepared: PreparedImage): PreparedImageFormat {
+  if (prepared.contentType === "image/webp") return "webp";
+  if (prepared.contentType === "image/png") return "png";
+  return "jpeg";
+}
+
 /** Blob içeriği ile contentType/ext uyumunu garanti eder; upload öncesi kullanılır. */
 export async function ensurePreparedImageMimeConsistency(
-  prepared: PreparedImage
+  prepared: PreparedImage,
+  options?: { allowPng?: boolean }
 ): Promise<PreparedImage> {
   const sniffed = await sniffBlobImageFormat(prepared.blob);
   if (sniffed === "webp") return preparedImageForFormat(prepared.blob, "webp");
   if (sniffed === "jpeg") return preparedImageForFormat(prepared.blob, "jpeg");
   if (sniffed === "png") {
+    if (options?.allowPng) return preparedImageForFormat(prepared.blob, "png");
     throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
   }
 
-  const format = prepared.contentType === "image/webp" ? "webp" : "jpeg";
+  const format = declaredFormatFromPrepared(prepared);
+  if (format === "png" && !options?.allowPng) {
+    throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
+  }
   const blobType = prepared.blob.type.trim().toLowerCase();
   if (
     !blobType ||
@@ -177,6 +191,54 @@ export function welcomeWidthLadder(sourceWidth: number, steps: number[]): number
   return out;
 }
 
+export function longEdgeLadder(sourceWidth: number, sourceHeight: number, steps: number[]): number[] {
+  const longEdge = Math.max(Math.max(1, Math.round(sourceWidth)), Math.max(1, Math.round(sourceHeight)));
+  const out: number[] = [];
+  for (const step of steps) {
+    const capped = Math.min(Math.max(1, Math.round(step)), longEdge);
+    if (!out.includes(capped)) out.push(capped);
+  }
+  return out;
+}
+
+/**
+ * Logo çıktı bütçesi: uzun kenar merdiveni + kalite adımları.
+ * Hedefin üstünde kalsa da son başarılı encode döner (hard reject yok).
+ */
+export async function runBudgetedLongEdgeQualityEncode<T>(args: {
+  sourceWidth: number;
+  sourceHeight: number;
+  longEdgeSteps: number[];
+  qualitySteps: number[];
+  targetBytes: number;
+  hardLimitBytes: number;
+  encode: (size: BudgetedEncodeSize, quality: number) => Promise<{ bytes: number; value: T }>;
+}): Promise<T | null> {
+  const longEdges = longEdgeLadder(args.sourceWidth, args.sourceHeight, args.longEdgeSteps);
+  let lastSuccessful: T | null = null;
+  for (const maxLongEdge of longEdges) {
+    const size = fitWithinLongEdge(args.sourceWidth, args.sourceHeight, maxLongEdge);
+    let underPreferred: T | null = null;
+    let encodeFailed = false;
+    for (const quality of args.qualitySteps) {
+      try {
+        const result = await args.encode(size, quality);
+        lastSuccessful = result.value;
+        if (result.bytes <= args.targetBytes) return result.value;
+        if (result.bytes <= args.hardLimitBytes && !underPreferred) {
+          underPreferred = result.value;
+        }
+      } catch {
+        encodeFailed = true;
+        break;
+      }
+    }
+    if (underPreferred) return underPreferred;
+    if (encodeFailed) continue;
+  }
+  return lastSuccessful;
+}
+
 export function pickBudgetedEncodeResult<T extends { bytes: number }>(
   groupedByPriority: T[][],
   targetBytes: number,
@@ -241,7 +303,7 @@ export async function runBudgetedWidthQualityEncode<T>(args: {
 function canvasToBlob(
   canvas: HTMLCanvasElement,
   type: string,
-  quality: number
+  quality?: number
 ): Promise<Blob | null> {
   return new Promise((resolve) => {
     canvas.toBlob(resolve, type, quality);
@@ -274,6 +336,126 @@ async function decodeWelcomeBitmap(
   } catch {
     throw new ImagePrepareError(IMAGE_ERROR_DECODE);
   }
+}
+
+/** Resize edilmiş canvas üzerinde alpha örnekleme; tam piksel taraması yapmaz. */
+export function imageDataHasTransparency(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  sampleStep = 1
+): boolean {
+  const step = Math.max(1, Math.round(sampleStep));
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha < 255) return true;
+    }
+  }
+  return false;
+}
+
+function canvasHasTransparency(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number
+): boolean {
+  const sampleStep = Math.max(1, Math.ceil(Math.max(width, height) / 400));
+  const imageData = ctx.getImageData(0, 0, width, height);
+  return imageDataHasTransparency(imageData.data, width, height, sampleStep);
+}
+
+async function encodeLogoCanvas(
+  bitmap: ImageBitmap,
+  size: { width: number; height: number },
+  quality: number
+): Promise<PreparedImage> {
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const ctx = canvas.getContext("2d", { alpha: true });
+  if (!ctx) {
+    throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.clearRect(0, 0, size.width, size.height);
+  ctx.drawImage(bitmap, 0, 0, size.width, size.height);
+
+  const hasTransparency = canvasHasTransparency(ctx, size.width, size.height);
+
+  const webp = await canvasToBlob(canvas, "image/webp", quality);
+  if (webp && webp.size > 0) {
+    const sniffed = await sniffBlobImageFormat(webp);
+    if (sniffed === "webp") {
+      return preparedImageForFormat(webp, "webp");
+    }
+  }
+
+  if (hasTransparency) {
+    const png = await canvasToBlob(canvas, "image/png");
+    if (png && png.size > 0) {
+      const sniffed = await sniffBlobImageFormat(png);
+      if (sniffed === "png") {
+        return preparedImageForFormat(png, "png");
+      }
+    }
+    throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
+  }
+
+  const jpeg = await canvasToBlob(canvas, "image/jpeg", Math.max(quality, 0.85));
+  if (jpeg && jpeg.size > 0) {
+    const sniffed = await sniffBlobImageFormat(jpeg);
+    if (sniffed === "jpeg") {
+      return preparedImageForFormat(jpeg, "jpeg");
+    }
+  }
+  throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
+}
+
+export type PrepareLogoImageOptions = {
+  maxLongEdge: number;
+  quality: number;
+  qualitySteps: number[];
+  longEdgeSteps: number[];
+  targetOutputBytes: number;
+  maxOutputBytes: number;
+};
+
+/** Logo: WebP → (transparency varsa PNG / yoksa JPEG), uzun kenar bütçeli encode. */
+export async function prepareLogoImageFromSource(
+  source: File | Blob,
+  options: PrepareLogoImageOptions
+): Promise<PreparedImage> {
+  assertImageSource(source);
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(source);
+  } catch (error) {
+    if (error instanceof ImagePrepareError) throw error;
+    throw new ImagePrepareError(IMAGE_ERROR_DECODE);
+  }
+
+  try {
+    const prepared = await runBudgetedLongEdgeQualityEncode({
+      sourceWidth: bitmap.width,
+      sourceHeight: bitmap.height,
+      longEdgeSteps: options.longEdgeSteps,
+      qualitySteps: options.qualitySteps,
+      targetBytes: options.targetOutputBytes,
+      hardLimitBytes: options.maxOutputBytes,
+      encode: async (size, quality) => {
+        const encoded = await encodeLogoCanvas(bitmap, size, quality);
+        return { bytes: encoded.blob.size, value: encoded };
+      },
+    });
+    if (prepared) return prepared;
+  } finally {
+    bitmap.close();
+  }
+
+  throw new ImagePrepareError(IMAGE_ERROR_ENCODE);
 }
 
 async function encodeCanvas(

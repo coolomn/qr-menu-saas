@@ -1,6 +1,8 @@
 import {
   ensurePreparedImageMimeConsistency,
+  fitWithinLongEdge,
   prepareImage,
+  prepareLogoImageFromSource,
   type PreparedImage,
 } from "@/lib/images/prepare-image";
 
@@ -24,6 +26,14 @@ export const SLIDER_WIDTH_STEPS = [1920, 1600, 1440, 1280] as const;
 /** Hedef ~750 KB; tercih edilen üst sınır 1 MB. Boyut hedefine inmese de reddetmez. */
 export const SLIDER_TARGET_BYTES = Math.round(750 * 1024);
 export const SLIDER_MAX_OUTPUT_BYTES = 1024 * 1024;
+
+export const LOGO_MAX_LONG_EDGE = 800;
+export const LOGO_QUALITY = 0.86;
+export const LOGO_QUALITY_STEPS = [0.86, 0.82, 0.78, 0.74] as const;
+export const LOGO_LONG_EDGE_STEPS = [800, 640, 512] as const;
+/** Hedef ~250 KB; tercih edilen üst sınır 400 KB. Geçerli logo hard reject edilmez. */
+export const LOGO_TARGET_BYTES = Math.round(250 * 1024);
+export const LOGO_MAX_OUTPUT_BYTES = Math.round(400 * 1024);
 
 export function productFullImageSize(
   sourceWidth: number,
@@ -79,6 +89,22 @@ export function buildSliderImageObjectPath(
   ext: string
 ): string {
   return `restaurants/${restaurantId}/slider/${unique}.${ext}`;
+}
+
+export function buildLogoImageObjectPath(
+  restaurantId: string,
+  unique: string,
+  ext: string
+): string {
+  return `restaurants/${restaurantId}/logo/${unique}.${ext}`;
+}
+
+export function logoImageSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  maxLongEdge = LOGO_MAX_LONG_EDGE
+): { width: number; height: number } {
+  return fitWithinLongEdge(sourceWidth, sourceHeight, maxLongEdge);
 }
 
 export function sliderImageSize(
@@ -178,4 +204,17 @@ export async function prepareMenuCollectionCardImage(file: File): Promise<Prepar
     quality: MENU_COLLECTION_CARD_IMAGE_QUALITY,
     keepAlpha: false,
   });
+}
+
+/** Restoran logosu: max 800 px uzun kenar, transparency korunur, ~250 KB hedef / 400 KB tercih. */
+export async function prepareLogoImage(file: File): Promise<PreparedImage> {
+  const prepared = await prepareLogoImageFromSource(file, {
+    maxLongEdge: LOGO_MAX_LONG_EDGE,
+    quality: LOGO_QUALITY,
+    qualitySteps: [...LOGO_QUALITY_STEPS],
+    longEdgeSteps: [...LOGO_LONG_EDGE_STEPS],
+    targetOutputBytes: LOGO_TARGET_BYTES,
+    maxOutputBytes: LOGO_MAX_OUTPUT_BYTES,
+  });
+  return ensurePreparedImageMimeConsistency(prepared, { allowPng: true });
 }
