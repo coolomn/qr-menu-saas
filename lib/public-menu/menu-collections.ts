@@ -83,6 +83,11 @@ export type MenuCollectionsPayload = {
   menu_picker: PublicMenuPicker;
 };
 
+export type ActiveMenuCollectionsData = MenuCollectionsPayload & {
+  activeMenuIdSet: Set<string>;
+  defaultMenuCollectionId: string | null;
+};
+
 const MENU_COLLECTION_COLUMNS =
   "id, name, name_en, name_ru, description, start_time, end_time, sort_order, card_visual_type, card_image_url";
 
@@ -90,21 +95,18 @@ const MENU_COLLECTION_COLUMNS =
 const MENU_COLLECTION_COLUMNS_LEGACY =
   "id, name, name_en, name_ru, description, start_time, end_time, sort_order";
 
-/**
- * Loads active menu collections and category junctions for the public menu API.
- * On schema/read errors returns empty collections (legacy consumers unaffected).
- */
-export async function buildMenuCollectionsPayload(
-  supabase: SupabaseClient,
-  restaurantId: string,
-  categoryIds: string[]
-): Promise<MenuCollectionsPayload & { menuIdsByCategory: Map<string, string[]> }> {
-  const empty: MenuCollectionsPayload & { menuIdsByCategory: Map<string, string[]> } = {
-    menu_collections: [],
-    menu_picker: { enabled: false, default_menu_collection_id: null },
-    menuIdsByCategory: new Map(),
-  };
+const EMPTY_MENU_COLLECTIONS: ActiveMenuCollectionsData = {
+  menu_collections: [],
+  menu_picker: { enabled: false, default_menu_collection_id: null },
+  activeMenuIdSet: new Set(),
+  defaultMenuCollectionId: null,
+};
 
+/** Loads active menu collections for a restaurant (no category junctions). */
+export async function loadActiveMenuCollections(
+  supabase: SupabaseClient,
+  restaurantId: string
+): Promise<ActiveMenuCollectionsData> {
   let menuRows: unknown = null;
   const primary = await supabase
     .from("menu_collections")
@@ -125,15 +127,15 @@ export async function buildMenuCollectionsPayload(
       if (legacy.error) {
         if (isDbSchemaError(legacy.error)) {
           console.warn("menu_collections unavailable for public menu:", legacy.error.message);
-          return empty;
+          return EMPTY_MENU_COLLECTIONS;
         }
         console.error(legacy.error);
-        return empty;
+        return EMPTY_MENU_COLLECTIONS;
       }
       menuRows = legacy.data;
     } else {
       console.error(primary.error);
-      return empty;
+      return EMPTY_MENU_COLLECTIONS;
     }
   } else {
     menuRows = primary.data;
@@ -143,6 +145,24 @@ export async function buildMenuCollectionsPayload(
   const activeMenuIdSet = new Set(activeMenus.map((m) => m.id));
   const defaultMenuCollectionId = activeMenus[0]?.id ?? null;
 
+  return {
+    menu_collections: activeMenus,
+    menu_picker: {
+      enabled: activeMenus.length >= 2,
+      default_menu_collection_id: defaultMenuCollectionId,
+    },
+    activeMenuIdSet,
+    defaultMenuCollectionId,
+  };
+}
+
+/** Loads category ↔ menu junctions and applies default-menu fallback. */
+export async function buildCategoryMenuIdsMap(
+  supabase: SupabaseClient,
+  categoryIds: string[],
+  activeMenuIdSet: Set<string>,
+  defaultMenuCollectionId: string | null
+): Promise<Map<string, string[]>> {
   const menuIdsByCategory = new Map<string, string[]>();
 
   if (categoryIds.length > 0 && activeMenuIdSet.size > 0) {
@@ -177,12 +197,29 @@ export async function buildMenuCollectionsPayload(
     menuIdsByCategory.set(categoryId, ids);
   }
 
+  return menuIdsByCategory;
+}
+
+/**
+ * Loads active menu collections and category junctions for the public menu API.
+ * On schema/read errors returns empty collections (legacy consumers unaffected).
+ */
+export async function buildMenuCollectionsPayload(
+  supabase: SupabaseClient,
+  restaurantId: string,
+  categoryIds: string[]
+): Promise<MenuCollectionsPayload & { menuIdsByCategory: Map<string, string[]> }> {
+  const menuData = await loadActiveMenuCollections(supabase, restaurantId);
+  const menuIdsByCategory = await buildCategoryMenuIdsMap(
+    supabase,
+    categoryIds,
+    menuData.activeMenuIdSet,
+    menuData.defaultMenuCollectionId
+  );
+
   return {
-    menu_collections: activeMenus,
-    menu_picker: {
-      enabled: activeMenus.length >= 2,
-      default_menu_collection_id: defaultMenuCollectionId,
-    },
+    menu_collections: menuData.menu_collections,
+    menu_picker: menuData.menu_picker,
     menuIdsByCategory,
   };
 }

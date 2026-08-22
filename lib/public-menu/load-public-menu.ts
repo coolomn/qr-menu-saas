@@ -3,7 +3,8 @@ import type { PublicProductVariant } from "@/lib/admin-menu/product-variants";
 import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
 import {
   attachMenuCollectionIds,
-  buildMenuCollectionsPayload,
+  buildCategoryMenuIdsMap,
+  loadActiveMenuCollections,
   type PublicMenuCollection,
   type PublicMenuPicker,
 } from "@/lib/public-menu/menu-collections";
@@ -307,16 +308,12 @@ export async function buildPublicMenuBootstrap(
   supabase: SupabaseClient,
   restaurantRow: RestaurantRow
 ): Promise<PublicMenuBootstrapPayload> {
-  const { menu_collections, menu_picker } = await buildMenuCollectionsPayload(
-    supabase,
-    restaurantRow.id,
-    []
-  );
+  const menuData = await loadActiveMenuCollections(supabase, restaurantRow.id);
 
   return {
     restaurant: toPublicRestaurantPayload(restaurantRow),
-    menu_collections,
-    menu_picker,
+    menu_collections: menuData.menu_collections,
+    menu_picker: menuData.menu_picker,
   };
 }
 
@@ -392,42 +389,100 @@ async function loadProductRows(
   return sortProductsByOrder(toProductRows(productRows));
 }
 
+type PublicMenuCatalogPayload = PublicMenuContentPayload & {
+  menu_collections: PublicMenuCollection[];
+  menu_picker: PublicMenuPicker;
+};
+
+export function assemblePublicMenuCatalog(args: {
+  categoryRows: CategoryRow[];
+  menuData: {
+    menu_collections: PublicMenuCollection[];
+    menu_picker: PublicMenuPicker;
+  };
+  products: ProductRow[];
+  menuIdsByCategory: Map<string, string[]>;
+  productJunctionMaps: {
+    menuIdsByProduct: Map<string, string[]>;
+    productsWithJunction: Set<string>;
+  };
+  variantsByProduct: Map<string, PublicProductVariant[]>;
+}): PublicMenuCatalogPayload {
+  const publicCategories = attachMenuCollectionIds(args.categoryRows, args.menuIdsByCategory);
+
+  const productsWithMenus = attachProductMenuCollectionIds(
+    args.products,
+    args.productJunctionMaps.menuIdsByProduct,
+    args.productJunctionMaps.productsWithJunction,
+    args.menuIdsByCategory,
+    args.menuData.menu_picker.default_menu_collection_id
+  );
+
+  const publicProducts = attachProductVariants(productsWithMenus, args.variantsByProduct);
+
+  return {
+    categories: publicCategories,
+    products: publicProducts,
+    menu_collections: args.menuData.menu_collections,
+    menu_picker: args.menuData.menu_picker,
+  };
+}
+
+/**
+ * Full catalog loader with three parallel query groups:
+ * 1) categories + menu_collections
+ * 2) products + category_menu_collections
+ * 3) product_menu_collections + product_variants
+ */
+async function loadPublicMenuCatalog(
+  supabase: SupabaseClient,
+  restaurantRow: RestaurantRow
+): Promise<PublicMenuCatalogPayload> {
+  const restaurantId = restaurantRow.id;
+
+  const [categoryRows, menuData] = await Promise.all([
+    loadCategoryRows(supabase, restaurantId),
+    loadActiveMenuCollections(supabase, restaurantId),
+  ]);
+
+  const categoryIds = categoryRows.map((category) => category.id);
+
+  const [products, menuIdsByCategory] = await Promise.all([
+    loadProductRows(supabase, categoryIds),
+    buildCategoryMenuIdsMap(
+      supabase,
+      categoryIds,
+      menuData.activeMenuIdSet,
+      menuData.defaultMenuCollectionId
+    ),
+  ]);
+
+  const productIds = products.map((product) => product.id);
+
+  const [productJunctionMaps, variantsByProduct] = await Promise.all([
+    buildProductMenuCollectionsMaps(supabase, productIds, menuData.activeMenuIdSet),
+    buildActivePublicVariantsMap(supabase, productIds),
+  ]);
+
+  return assemblePublicMenuCatalog({
+    categoryRows,
+    menuData,
+    products,
+    menuIdsByCategory,
+    productJunctionMaps,
+    variantsByProduct,
+  });
+}
+
 /** Tam menü katalogu: categories + products + junctions + variants. */
 export async function buildPublicMenuContent(
   supabase: SupabaseClient,
   restaurantRow: RestaurantRow
 ): Promise<PublicMenuContentPayload> {
-  const categoryRows = await loadCategoryRows(supabase, restaurantRow.id);
-  const categoryIds = categoryRows.map((category) => category.id);
-  const products = await loadProductRows(supabase, categoryIds);
-
-  const { menu_collections, menu_picker, menuIdsByCategory } =
-    await buildMenuCollectionsPayload(supabase, restaurantRow.id, categoryIds);
-
-  const publicCategories = attachMenuCollectionIds(categoryRows, menuIdsByCategory);
-
-  const activeMenuIdSet = new Set(menu_collections.map((m) => m.id));
-  const productIds = products.map((p) => p.id);
-  const { menuIdsByProduct, productsWithJunction } = await buildProductMenuCollectionsMaps(
-    supabase,
-    productIds,
-    activeMenuIdSet
-  );
-
-  const productsWithMenus = attachProductMenuCollectionIds(
-    products,
-    menuIdsByProduct,
-    productsWithJunction,
-    menuIdsByCategory,
-    menu_picker.default_menu_collection_id
-  );
-
-  const variantsByProduct = await buildActivePublicVariantsMap(supabase, productIds);
-  const publicProducts = attachProductVariants(productsWithMenus, variantsByProduct);
-
+  const catalog = await loadPublicMenuCatalog(supabase, restaurantRow);
   return {
-    categories: publicCategories,
-    products: publicProducts,
+    categories: catalog.categories,
+    products: catalog.products,
   };
 }
 
@@ -435,11 +490,13 @@ export async function buildPublicMenuFull(
   supabase: SupabaseClient,
   restaurantRow: RestaurantRow
 ): Promise<PublicMenuFullPayload> {
-  const bootstrap = await buildPublicMenuBootstrap(supabase, restaurantRow);
-  const content = await buildPublicMenuContent(supabase, restaurantRow);
+  const catalog = await loadPublicMenuCatalog(supabase, restaurantRow);
   return {
-    ...bootstrap,
-    ...content,
+    restaurant: toPublicRestaurantPayload(restaurantRow),
+    menu_collections: catalog.menu_collections,
+    menu_picker: catalog.menu_picker,
+    categories: catalog.categories,
+    products: catalog.products,
   };
 }
 
