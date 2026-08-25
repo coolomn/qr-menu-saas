@@ -7,6 +7,8 @@ import {
   type MenuImportJobContinueResponse,
 } from "@/lib/menu-import/import-job";
 import { loadImportJobForOwner } from "@/lib/menu-import/job-access";
+import { evaluateMenuImportContinueRateLimit } from "@/lib/rate-limit/menu-import";
+import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,6 +27,19 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json(
         { ok: false, error: "Oturum gerekli." },
         { status: 401, headers: NO_STORE_HEADERS }
+      );
+    }
+
+    const rateLimit = await evaluateMenuImportContinueRateLimit(user.id);
+    if (!rateLimit.allowed) {
+      if (rateLimit.kind === "limited") {
+        const response = rateLimitedResponse(rateLimit.retryAfterSeconds);
+        response.headers.set("Cache-Control", "no-store");
+        return response;
+      }
+      return NextResponse.json(
+        { ok: false, error: "İş şu anda ilerletilemiyor. Lütfen birazdan tekrar deneyin." },
+        { status: 503, headers: NO_STORE_HEADERS }
       );
     }
 

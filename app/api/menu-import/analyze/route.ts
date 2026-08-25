@@ -26,6 +26,8 @@ import {
 import { mergeImportMenuPayloads } from "@/lib/menu-import/payload-merge";
 import { structureMenuFromImageBase64 } from "@/lib/menu-import/openai-menu";
 import { patchImportJob, pdfProgressMessage } from "@/lib/menu-import/import-job";
+import { evaluateMenuImportAnalyzeRateLimit } from "@/lib/rate-limit/menu-import";
+import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 const GENERIC_ANALYZE_ERROR =
   "Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.";
@@ -169,6 +171,20 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       return respondAfterUploadCleanup(
         cleanup,
         NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 })
+      );
+    }
+
+    const rateLimit = await evaluateMenuImportAnalyzeRateLimit(user.id, restaurantId);
+    if (!rateLimit.allowed) {
+      if (rateLimit.kind === "limited") {
+        return respondAfterUploadCleanup(cleanup, rateLimitedResponse(rateLimit.retryAfterSeconds));
+      }
+      return respondAfterUploadCleanup(
+        cleanup,
+        NextResponse.json(
+          { error: "Menü analizi şu anda kullanılamıyor. Lütfen birazdan tekrar deneyin." },
+          { status: 503 }
+        )
       );
     }
 
