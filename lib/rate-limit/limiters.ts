@@ -50,7 +50,7 @@ export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
   },
   allergenSuggestDaily: {
     algorithm: "fixedWindow",
-    tokens: 300,
+    tokens: 200,
     window: "1 d",
     prefix: "ratelimit:allergen-suggest:daily",
   },

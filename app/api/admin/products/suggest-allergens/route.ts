@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { inferAllergensWithOpenAI } from "@/lib/allergens/openai-allergen-infer";
 import { runAllergenSuggestionPipeline } from "@/lib/suggest-allergens";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
+import { evaluateAllergenSuggestRateLimit } from "@/lib/rate-limit/allergen-suggest";
+import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 export const runtime = "nodejs";
 
@@ -10,6 +12,17 @@ export async function POST(request: Request) {
     const { user, error: authErr } = await getUserFromBearer(request);
     if (authErr || !user) {
       return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 });
+    }
+
+    const rateLimit = await evaluateAllergenSuggestRateLimit(user.id);
+    if (!rateLimit.allowed) {
+      if (rateLimit.kind === "limited") {
+        return rateLimitedResponse(rateLimit.retryAfterSeconds);
+      }
+      return NextResponse.json(
+        { error: "Alerjen önerisi şu anda kullanılamıyor. Lütfen birazdan tekrar deneyin." },
+        { status: 503 }
+      );
     }
 
     let body: unknown;

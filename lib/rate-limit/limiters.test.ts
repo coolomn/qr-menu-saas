@@ -49,7 +49,7 @@ describe("RATE_LIMIT_CONFIG", () => {
     });
     assert.deepEqual(RATE_LIMIT_CONFIG.allergenSuggestDaily, {
       algorithm: "fixedWindow",
-      tokens: 300,
+      tokens: 200,
       window: "1 d",
       prefix: "ratelimit:allergen-suggest:daily",
     });
