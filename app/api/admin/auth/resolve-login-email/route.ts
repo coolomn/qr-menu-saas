@@ -6,12 +6,22 @@ import {
 } from "@/lib/admin-auth/login-username";
 import { resolveOwnerEmailByLoginUsername } from "@/lib/admin-auth/resolve-owner-email-by-username";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { evaluateResolveLoginEmailRateLimit } from "@/lib/rate-limit/resolve-login-email";
+import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 export const runtime = "nodejs";
 
 type Body = {
   username?: string;
 };
+
+function getClientIp(request: Request): string {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0].trim();
+  }
+  return request.headers.get("x-real-ip")?.trim() || "unknown";
+}
 
 export async function POST(request: Request) {
   let body: Body;
@@ -29,6 +39,11 @@ export async function POST(request: Request) {
   const username = normalizeLoginUsername(raw);
   if (!isValidLoginUsername(username)) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  const rateLimit = await evaluateResolveLoginEmailRateLimit(getClientIp(request), username);
+  if (!rateLimit.allowed) {
+    return rateLimitedResponse(rateLimit.retryAfterSeconds);
   }
 
   const svc = tryCreateServiceSupabase();
