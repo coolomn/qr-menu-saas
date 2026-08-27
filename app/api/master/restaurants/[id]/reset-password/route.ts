@@ -11,6 +11,8 @@ import {
   insertSubscriptionEvent,
   resolveOwnerEmail,
 } from "@/lib/master-admin/restaurant-data";
+import { evaluateMasterAdminPasswordResetRateLimit } from "@/lib/rate-limit/master-admin";
+import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 export const runtime = "nodejs";
 
@@ -26,6 +28,11 @@ export async function POST(request: Request, context: RouteContext) {
   const restaurantId = id.trim();
   if (!restaurantId) {
     return NextResponse.json({ error: "Geçersiz restoran kimliği." }, { status: 400 });
+  }
+
+  const rateLimit = await evaluateMasterAdminPasswordResetRateLimit(auth.user.id, restaurantId);
+  if (!rateLimit.allowed) {
+    return rateLimitedResponse(rateLimit.retryAfterSeconds);
   }
 
   let body: unknown;

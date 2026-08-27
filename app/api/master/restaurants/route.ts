@@ -7,6 +7,8 @@ import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
 import { buildInviteSetPasswordUrl } from "@/lib/admin-auth/invite-flow";
 import { buildOwnerLoginUrl } from "@/lib/master-admin/create-response";
 import type { MasterRestaurantListItem } from "@/lib/master-admin/types";
+import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
+import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 export const runtime = "nodejs";
 
@@ -127,6 +129,11 @@ export async function POST(request: Request) {
   const auth = await requireMasterAdmin(request);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const rateLimit = await evaluateMasterAdminMutationRateLimit(auth.user.id);
+  if (!rateLimit.allowed) {
+    return rateLimitedResponse(rateLimit.retryAfterSeconds);
   }
 
   let body: unknown;

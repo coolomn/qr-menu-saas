@@ -6,6 +6,8 @@ import {
   insertSubscriptionEvent,
   syncRestaurantFromSubscription,
 } from "@/lib/master-admin/restaurant-data";
+import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
+import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 export const runtime = "nodejs";
 
@@ -17,6 +19,11 @@ export async function POST(request: Request, context: RouteContext) {
   const auth = await requireMasterAdmin(request);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const rateLimit = await evaluateMasterAdminMutationRateLimit(auth.user.id);
+  if (!rateLimit.allowed) {
+    return rateLimitedResponse(rateLimit.retryAfterSeconds);
   }
 
   const { id } = await context.params;
