@@ -7,6 +7,7 @@ import {
   filterThumbnailBackfillEligible,
   isThumbnailBackfillEligible,
   parseThumbnailBackfillArgs,
+  type ThumbnailBackfillProduct,
 } from "./eligibility";
 import {
   createDefaultUniqueId,
@@ -15,7 +16,6 @@ import {
   runProductThumbnailBackfill,
   uploadedThumbBelongsToRestaurant,
   type ThumbnailBackfillDeps,
-  type ThumbnailBackfillProduct,
 } from "./run";
 import { buildProductImageObjectPaths } from "@/lib/images/prepare-presets";
 
@@ -225,7 +225,7 @@ describe("processOneThumbnailBackfill", () => {
       assert.equal(result.path, uploadedPath);
       assert.match(result.thumbnailUrl, /-thumb\.webp/);
     }
-    assert.ok(updatedFields?.thumbnail_url);
+    assert.ok((updatedFields as Record<string, string> | null)?.thumbnail_url);
   });
 
   it("best-effort removes uploaded thumb when DB update fails", async () => {

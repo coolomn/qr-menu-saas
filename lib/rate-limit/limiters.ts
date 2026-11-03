@@ -26,7 +26,7 @@ export type RateLimitConfig =
 
 /**
  * Faz 1 onaylı limit tablosu (bkz. proje planı).
- * Henüz hiçbir route bu limiter'ları kullanmıyor — yalnızca ortak altyapı.
+ * Route entegrasyonları: lib/rate-limit/*.ts (endpoint başına fail-open/fail-closed politikası).
  */
 export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
   resolveLoginEmailIp: {
