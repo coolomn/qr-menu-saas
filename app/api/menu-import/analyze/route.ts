@@ -73,6 +73,7 @@ function userFacingAnalyzeError(rawMessage: string): { message: string; status: 
 type ImportUploadCleanup = {
   admin: SupabaseClient | undefined;
   storagePath: string | null;
+  restaurantId: string | null;
   userId: string | null;
   deferCleanup: boolean;
   cleanedUp: boolean;
@@ -84,12 +85,13 @@ async function maybeCleanupUploadedImportFile(cleanup: ImportUploadCleanup): Pro
     cleanup.cleanedUp ||
     !cleanup.admin ||
     !cleanup.storagePath ||
+    !cleanup.restaurantId ||
     !cleanup.userId
   ) {
     return;
   }
   cleanup.cleanedUp = true;
-  await cleanupImportFile(cleanup.admin, cleanup.storagePath, cleanup.userId);
+  await cleanupImportFile(cleanup.admin, cleanup.storagePath, cleanup.restaurantId, cleanup.userId);
 }
 
 async function respondAfterUploadCleanup(
@@ -118,6 +120,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
   const cleanup: ImportUploadCleanup = {
     admin: undefined,
     storagePath: null,
+    restaurantId: null,
     userId: null,
     deferCleanup: false,
     cleanedUp: false,
@@ -152,6 +155,7 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
 
     assertImportStoragePath(storagePath, restaurantId, user.id);
     cleanup.storagePath = storagePath;
+    cleanup.restaurantId = restaurantId;
     cleanup.userId = user.id;
 
     const { data: restaurant, error: resErr } = await cleanup.admin

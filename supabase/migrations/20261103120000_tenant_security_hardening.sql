@@ -49,16 +49,17 @@ begin
     return new;
   end if;
 
+  -- Yalnızca izinli alanlar değiştiyse ek sorgu yapmadan geç (en sık durum: ayarlar kaydı).
+  if (to_jsonb(new) - owner_editable) is not distinct from (to_jsonb(old) - owner_editable) then
+    return new;
+  end if;
+
   if public.is_platform_admin() then
     return new;
   end if;
 
-  if (to_jsonb(new) - owner_editable) is distinct from (to_jsonb(old) - owner_editable) then
-    raise exception 'Bu restoran alanlarını değiştirme yetkiniz yok.'
-      using errcode = '42501';
-  end if;
-
-  return new;
+  raise exception 'Bu restoran alanlarını değiştirme yetkiniz yok.'
+    using errcode = '42501';
 end;
 $$;
 

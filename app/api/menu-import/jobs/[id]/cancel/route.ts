@@ -41,7 +41,7 @@ export async function POST(request: Request, context: RouteContext) {
       return cancelErrorResponse(loaded.error, loaded.status);
     }
 
-    const result = await cancelPdfImportJob(svc.client, loaded.job, user.id);
+    const result = await cancelPdfImportJob(svc.client, loaded.job);
     if (!result.ok) {
       return cancelErrorResponse(result.error, result.status);
     }

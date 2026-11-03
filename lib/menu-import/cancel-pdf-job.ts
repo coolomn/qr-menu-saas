@@ -6,8 +6,7 @@ const CANCELLED_MESSAGE = "Kullanıcı tarafından iptal edildi.";
 
 export async function cancelPdfImportJob(
   admin: SupabaseClient,
-  job: MenuImportJobRow,
-  userId: string
+  job: MenuImportJobRow
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   if (job.source_type !== "pdf") {
     return { ok: false, status: 400, error: "Yalnızca PDF analizi işleri iptal edilebilir." };
@@ -49,6 +48,6 @@ export async function cancelPdfImportJob(
     };
   }
 
-  await cleanupImportFile(admin, job.storage_path, userId);
+  await cleanupImportFile(admin, job.storage_path, job.restaurant_id, job.user_id);
   return { ok: true };
 }

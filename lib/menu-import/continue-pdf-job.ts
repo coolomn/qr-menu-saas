@@ -36,7 +36,7 @@ async function failImportJob(
     )
     .single();
 
-  await cleanupImportFile(admin, job.storage_path, userId);
+  await cleanupImportFile(admin, job.storage_path, job.restaurant_id, job.user_id);
 
   if (error || !failedJob) {
     console.error("[menu-import] fail job update failed:", job.id, error?.message);
@@ -79,7 +79,7 @@ async function completeImportJob(
     )
     .single();
 
-  await cleanupImportFile(admin, job.storage_path, userId);
+  await cleanupImportFile(admin, job.storage_path, job.restaurant_id, job.user_id);
 
   if (error || !completedJob) {
     throw new Error("İş tamamlanırken kayıt güncellenemedi.");
@@ -163,11 +163,12 @@ export async function continuePdfImportJob(
   let workingJob = claimed as MenuImportJobRow;
 
   try {
-    // DB satırındaki yol değiştirilmiş olabilir: indirmeden önce bu restoran+kullanıcıya ait olduğunu doğrula.
-    assertImportStoragePath(workingJob.storage_path, workingJob.restaurant_id, userId);
+    // DB satırındaki yol değiştirilmiş olabilir: indirmeden önce işin kendi restoran+kullanıcısına ait olduğunu doğrula.
+    // (Erişim yetkisi loadImportJobForOwner'da restoran sahipliğiyle kontrol edilir.)
+    assertImportStoragePath(workingJob.storage_path, workingJob.restaurant_id, workingJob.user_id);
     const { bucket, path: downloadPath } = resolveImportDownloadTarget(
       workingJob.storage_path,
-      userId
+      workingJob.user_id
     );
     const { data: blob, error: dlErr } = await admin.storage.from(bucket).download(downloadPath);
     if (dlErr || !blob) {

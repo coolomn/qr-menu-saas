@@ -25,39 +25,43 @@ export function isLegacyImportPath(path: string, userId: string): boolean {
   return path.startsWith(legacyImportPrefix(userId));
 }
 
+function isSafeFileSegment(segment: string): boolean {
+  return segment.length > 0 && segment !== "." && segment !== ".." && !segment.includes("\\");
+}
+
+/**
+ * Bu restoran + kullanıcıya ait tek seviyeli import dosyası:
+ * restaurants/{restaurantId}/imports/{userId}/{dosya}
+ * (buildImportStoragePath'in ürettiği biçim). Yol segment bazında kontrol edilir;
+ * "menu..pdf" gibi adlar geçerlidir, ".." / "." segmentleri ve iç içe klasörler reddedilir.
+ */
+export function isOwnImportFilePath(path: string, restaurantId: string, userId: string): boolean {
+  if (!path || !restaurantId || !userId) return false;
+  const parts = path.split("/");
+  return (
+    parts.length === 5 &&
+    parts[0] === "restaurants" &&
+    parts[1] === restaurantId &&
+    parts[2] === "imports" &&
+    parts[3] === userId &&
+    isSafeFileSegment(parts[4])
+  );
+}
+
 export function assertImportStoragePath(
   path: string,
   restaurantId: string,
   userId: string
 ): void {
-  if (path.includes("..") || path.includes("//")) {
+  if (isLegacyImportPath(path, userId)) {
+    if (path.includes("..") || path.includes("//")) {
+      throw new Error("Geçersiz dosya yolu.");
+    }
+    return;
+  }
+  if (!isOwnImportFilePath(path, restaurantId, userId)) {
     throw new Error("Geçersiz dosya yolu.");
   }
-  const newPrefix = expectedImportPrefix(restaurantId, userId);
-  const legacyPrefix = legacyImportPrefix(userId);
-  if (!path.startsWith(newPrefix) && !path.startsWith(legacyPrefix)) {
-    throw new Error("Geçersiz dosya yolu.");
-  }
-}
-
-/**
- * Sunucu tarafında silinebilecek import dosyası: yalnızca bu kullanıcının
- * restaurants/{restaurantId}/imports/{userId}/{dosya} klasöründeki tek seviyeli dosyalar.
- * DB'deki storage_path değiştirilmiş olsa bile başka kullanıcının dosyasına dokunulmaz.
- */
-export function isDeletableImportPath(path: string, userId: string): boolean {
-  if (!path || path.includes("..") || path.includes("//") || path.startsWith("/")) {
-    return false;
-  }
-  const parts = path.split("/");
-  return (
-    parts.length === 5 &&
-    parts[0] === "restaurants" &&
-    parts[1].length > 0 &&
-    parts[2] === "imports" &&
-    parts[3] === userId &&
-    parts[4].length > 0
-  );
 }
 
 export function resolveImportDownloadTarget(

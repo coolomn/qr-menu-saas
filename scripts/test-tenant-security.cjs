@@ -46,7 +46,13 @@ if (!url || !anonKey || !serviceKey) {
   console.error("Missing staging env (.env.staging.local).");
   process.exit(2);
 }
-if (production.NEXT_PUBLIC_SUPABASE_URL && production.NEXT_PUBLIC_SUPABASE_URL === url) {
+// Fail-closed: yalnızca bilinen staging projesine karşı çalışır.
+const STAGING_PROJECT_REF = "nslzwigdblleanptchvs";
+if (url !== `https://${STAGING_PROJECT_REF}.supabase.co`) {
+  console.error(`REFUSING: URL is not the staging project (${STAGING_PROJECT_REF}).`);
+  process.exit(2);
+}
+if (production.NEXT_PUBLIC_SUPABASE_URL === url) {
   console.error("REFUSING: staging URL equals production URL.");
   process.exit(2);
 }
@@ -111,7 +117,8 @@ async function main() {
       .select("id")
       .single();
     if (jobErr) {
-      console.log(`(import job insert skipped: ${jobErr.message})`);
+      // Kurulum başarısızsa import job kontrolleri sessizce atlanmasın: FAIL say.
+      record("seed import job for tamper checks", false, jobErr.message);
     } else {
       jobId = job.id;
     }
@@ -138,18 +145,31 @@ async function main() {
       );
     }
 
-    // 2) Owner slug / sahiplik değiştirememeli
+    // 2) Owner slug ve restoran adını değiştirememeli (owner_id zaten RLS WITH CHECK ile korunuyor;
+    //    burada yalnızca tetikleyicinin koruduğu alanlar test edilir)
     {
-      await owner.from("restaurants").update({ slug: `hijack-${suffix}` }).eq("id", restaurantId);
-      await owner.from("restaurants").update({ owner_id: otherUserId }).eq("id", restaurantId);
+      const { error: slugErr } = await owner
+        .from("restaurants")
+        .update({ slug: `hijack-${suffix}` })
+        .eq("id", restaurantId);
+      const { error: nameErr } = await owner
+        .from("restaurants")
+        .update({ name: `Hijacked ${suffix}` })
+        .eq("id", restaurantId);
       const { data: after } = await admin
         .from("restaurants")
-        .select("slug, owner_id")
+        .select("slug, name")
         .eq("id", restaurantId)
         .single();
       record(
-        "owner cannot change slug or owner_id",
-        after.slug === `tenant-sec-test-${suffix}` && after.owner_id === userId
+        "owner cannot change slug",
+        after.slug === `tenant-sec-test-${suffix}`,
+        slugErr ? `rejected: ${slugErr.code}` : "no error returned"
+      );
+      record(
+        "owner cannot change name",
+        after.name === `Tenant Sec Test ${suffix}`,
+        nameErr ? `rejected: ${nameErr.code}` : "no error returned"
       );
     }
 
