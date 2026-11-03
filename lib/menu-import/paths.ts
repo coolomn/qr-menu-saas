@@ -40,6 +40,26 @@ export function assertImportStoragePath(
   }
 }
 
+/**
+ * Sunucu tarafında silinebilecek import dosyası: yalnızca bu kullanıcının
+ * restaurants/{restaurantId}/imports/{userId}/{dosya} klasöründeki tek seviyeli dosyalar.
+ * DB'deki storage_path değiştirilmiş olsa bile başka kullanıcının dosyasına dokunulmaz.
+ */
+export function isDeletableImportPath(path: string, userId: string): boolean {
+  if (!path || path.includes("..") || path.includes("//") || path.startsWith("/")) {
+    return false;
+  }
+  const parts = path.split("/");
+  return (
+    parts.length === 5 &&
+    parts[0] === "restaurants" &&
+    parts[1].length > 0 &&
+    parts[2] === "imports" &&
+    parts[3] === userId &&
+    parts[4].length > 0
+  );
+}
+
 export function resolveImportDownloadTarget(
   storagePath: string,
   userId: string

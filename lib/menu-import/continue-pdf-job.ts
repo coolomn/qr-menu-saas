@@ -4,7 +4,7 @@ import { pdfProgressMessage, type MenuImportJobRow } from "./import-job";
 import { optimizeImageForAnalyze } from "./image-optimize";
 import { structureMenuFromImageBase64 } from "./openai-menu";
 import { mergeImportMenuPayloads } from "./payload-merge";
-import { resolveImportDownloadTarget } from "./paths";
+import { assertImportStoragePath, resolveImportDownloadTarget } from "./paths";
 import { assertPdfMagicBytes } from "./pdf-meta";
 import { loadPdfDocument, renderPdfPageToPngBuffer } from "./pdf-render";
 import type { ImportMenuPayload } from "./schema";
@@ -163,6 +163,8 @@ export async function continuePdfImportJob(
   let workingJob = claimed as MenuImportJobRow;
 
   try {
+    // DB satırındaki yol değiştirilmiş olabilir: indirmeden önce bu restoran+kullanıcıya ait olduğunu doğrula.
+    assertImportStoragePath(workingJob.storage_path, workingJob.restaurant_id, userId);
     const { bucket, path: downloadPath } = resolveImportDownloadTarget(
       workingJob.storage_path,
       userId
