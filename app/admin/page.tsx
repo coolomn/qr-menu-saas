@@ -60,6 +60,8 @@ import { translateText, translateMenuCategoryFallback } from "@/lib/admin-menu/a
 import { fillMissingCategoryName } from "@/lib/admin-menu/menu-category-translations";
 import { type AllergenSuggestion } from "@/lib/suggest-allergens";
 import Link from "next/link";
+import SubscriptionLockedScreen from "@/app/admin/_components/SubscriptionLockedScreen";
+import { getTenantLockState, type TenantLockState } from "@/lib/tenant/lock-state";
 import {
   loadOwnerRestaurantById,
   loadSelectedOwnerRestaurant,
@@ -163,6 +165,7 @@ export default function AdminDashboard() {
   const [user, setUser] = useState<any>(null);
   const [restaurant, setRestaurant] = useState<any>(null);
   const [hasMultipleRestaurants, setHasMultipleRestaurants] = useState(false);
+  const [tenantLock, setTenantLock] = useState<TenantLockState>({ locked: false });
   const [categories, setCategories] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   
@@ -341,6 +344,15 @@ export default function AdminDashboard() {
       )) as typeof restaurant;
 
       if (resData) {
+        // Aboneliği bitmiş/askıdaki restoran: paneli yükleme, yalnızca kilit ekranını göster.
+        const lock = getTenantLockState(resData as { tenant_status?: string | null; subscription_ends_at?: string | null });
+        if (lock.locked) {
+          setRestaurant(resData);
+          setTenantLock(lock);
+          setLoading(false);
+          return;
+        }
+        setTenantLock({ locked: false });
         setRestaurant(resData);
         setSettings({ 
             logo_url: resData.logo_url || "", 
@@ -1961,6 +1973,18 @@ export default function AdminDashboard() {
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-gray-400 italic">TapMenu Hazırlanıyor...</div>;
+
+  if (tenantLock.locked) {
+    return (
+      <SubscriptionLockedScreen
+        restaurantName={String(restaurant?.name ?? "")}
+        lock={tenantLock}
+        canSwitchRestaurant={hasMultipleRestaurants}
+        onSwitchRestaurant={() => router.push("/admin/select-restaurant")}
+        onLogout={() => supabase.auth.signOut().then(() => router.push("/admin/login"))}
+      />
+    );
+  }
 
   const productPreviewSrc = newProduct.file ? productImageObjectUrl : newProduct.image_url || null;
   const showProductImagePanel = Boolean(newProduct.file || newProduct.image_url);

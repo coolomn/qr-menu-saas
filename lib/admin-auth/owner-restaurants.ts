@@ -10,6 +10,8 @@ export type OwnerRestaurantSummary = {
   name: string;
   slug: string;
   logo_url: string | null;
+  tenant_status?: string | null;
+  subscription_ends_at?: string | null;
 };
 
 export async function listOwnerRestaurantsForUser(
@@ -18,7 +20,7 @@ export async function listOwnerRestaurantsForUser(
 ): Promise<OwnerRestaurantSummary[]> {
   const { data, error } = await supabase
     .from("restaurants")
-    .select("id, name, slug, logo_url")
+    .select("id, name, slug, logo_url, tenant_status, subscription_ends_at")
     .eq("owner_id", userId)
     .order("name");
 

@@ -51,6 +51,7 @@ import {
 import { ImportVariantTemplatePanel } from "@/app/admin/import/_components/ImportVariantTemplatePanel";
 import { ImportProductPreviewRow } from "@/app/admin/import/_components/ImportProductPreviewRow";
 import { loadSelectedOwnerRestaurant } from "@/lib/admin-auth/owner-restaurants";
+import { getTenantLockState } from "@/lib/tenant/lock-state";
 
 const supabase = getBrowserSupabase();
 
@@ -236,7 +237,8 @@ export default function AdminMenuImportPage() {
         router.replace("/admin/select-restaurant");
         return;
       }
-      if (!selected?.id) {
+      // Abonelik kilidi varsa içe aktarma açılmaz; /admin kilit ekranını gösterir.
+      if (!selected?.id || getTenantLockState(selected).locked) {
         router.replace("/admin");
         return;
       }
