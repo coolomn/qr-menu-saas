@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs/config";
 import { buildSecurityHeaderRules } from "./lib/security/headers";
 
 const defaultDevOrigins = [
@@ -27,5 +28,14 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  org: "us-kreatif",
+  project: "tapmenu",
+  // Kaynak haritası yükleme anahtarı (gizli). Yoksa yükleme atlanır, uygulama yine çalışır.
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  widenClientFileUpload: true,
+  // Tarayıcı olaylarını kendi alan adımız üzerinden gönder (app/monitoring/route.ts).
+  tunnelRoute: "/monitoring",
+  silent: !process.env.CI,
+});
 

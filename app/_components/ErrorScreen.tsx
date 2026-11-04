@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 
 type Action =
   | { kind: "retry"; label: string; onClick: () => void }
@@ -19,7 +20,7 @@ type Props = {
 
 /**
  * Tüm hata/404 sayfalarının ortak görünümü.
- * Hata ayrıntısı (mesaj, stack) asla ekrana basılmaz; yalnızca konsola yazılır.
+ * Hata ayrıntısı (mesaj, stack) asla ekrana basılmaz; konsola yazılır ve Sentry'ye gönderilir.
  */
 export default function ErrorScreen({
   title,
@@ -30,7 +31,9 @@ export default function ErrorScreen({
   showDigest = true,
 }: Props) {
   useEffect(() => {
-    if (error) console.error(error);
+    if (!error) return;
+    console.error(error);
+    Sentry.captureException(error);
   }, [error]);
 
   return (
