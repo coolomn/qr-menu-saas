@@ -73,6 +73,11 @@ async function main() {
   let otherUserId = null;
   let restaurantId = null;
   let jobId = null;
+  let otherRestaurantId = null;
+  let ownCategoryId = null;
+  let otherCategoryId = null;
+  let hiddenProductId = null;
+  const uploadedImagePaths = [];
 
   try {
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -121,6 +126,71 @@ async function main() {
       record("seed import job for tamper checks", false, jobErr.message);
     } else {
       jobId = job.id;
+    }
+
+    // Başka bir tenant (otherUser) + kategoriler + pasif ürün
+    {
+      const { data: otherRest, error } = await admin
+        .from("restaurants")
+        .insert({ name: `Tenant Sec Other ${suffix}`, slug: `tenant-sec-other-${suffix}`, owner_id: otherUserId })
+        .select("id")
+        .single();
+      if (error) throw new Error(`insert other restaurant: ${error.message}`);
+      otherRestaurantId = otherRest.id;
+
+      const { data: cats, error: catErr } = await admin
+        .from("categories")
+        .insert([
+          { name: `Own Cat ${suffix}`, restaurant_id: restaurantId },
+          { name: `Other Cat ${suffix}`, restaurant_id: otherRestaurantId },
+        ])
+        .select("id, restaurant_id");
+      if (catErr) throw new Error(`insert categories: ${catErr.message}`);
+      ownCategoryId = cats.find((c) => c.restaurant_id === restaurantId).id;
+      otherCategoryId = cats.find((c) => c.restaurant_id === otherRestaurantId).id;
+
+      const { data: prod, error: prodErr } = await admin
+        .from("products")
+        .insert({
+          name: `Hidden ${suffix}`,
+          price: "1",
+          restaurant_id: restaurantId,
+          category_id: ownCategoryId,
+          is_active: false,
+        })
+        .select("id")
+        .single();
+      if (prodErr) throw new Error(`insert product: ${prodErr.message}`);
+      hiddenProductId = prod.id;
+    }
+
+    // 7) Giriş yapmamış ziyaretçi (anon key) tenant verisini okuyamamalı
+    {
+      const anon = createClient(url, anonKey, { auth: { persistSession: false } });
+      const { data: r } = await anon
+        .from("restaurants")
+        .select("id, login_username, owner_id, tenant_status")
+        .in("id", [restaurantId, otherRestaurantId]);
+      record("anon cannot read restaurants (login_username/owner_id)", !r || r.length === 0, `${r ? r.length : 0} rows`);
+
+      const { data: c } = await anon.from("categories").select("id").in("id", [ownCategoryId, otherCategoryId]);
+      record("anon cannot read categories", !c || c.length === 0, `${c ? c.length : 0} rows`);
+
+      const { data: p } = await anon.from("products").select("id").eq("id", hiddenProductId);
+      record("anon cannot read products (incl. inactive)", !p || p.length === 0, `${p ? p.length : 0} rows`);
+
+      // Eski production bucket'ı: menu-images (yalnızca varsa test edilir)
+      const { data: bucket } = await admin.storage.getBucket("menu-images");
+      if (!bucket) {
+        record("anon cannot upload to menu-images", true, "bucket yok, kontrol uygulanamadı");
+      } else {
+        const p = `tenant-sec-test-${suffix}.txt`;
+        const { error } = await anon.storage
+          .from("menu-images")
+          .upload(p, Buffer.from("x"), { contentType: "text/plain" });
+        if (!error) uploadedImagePaths.push(p);
+        record("anon cannot upload to menu-images", !!error, error ? "rejected" : "UPLOADED");
+      }
     }
 
     const owner = createClient(url, anonKey, { auth: { persistSession: false } });
@@ -230,6 +300,37 @@ async function main() {
       record("owner cannot insert import job", !jobInserted);
     }
 
+    // 8) Owner kendi kategorisiyle başka restoranın menüsüne ürün yazamamalı
+    {
+      const { data } = await owner
+        .from("products")
+        .insert({ name: `Injected ${suffix}`, price: "1", restaurant_id: otherRestaurantId, category_id: ownCategoryId })
+        .select("id");
+      const inserted = Array.isArray(data) && data.length > 0;
+      if (inserted) await admin.from("products").delete().eq("id", data[0].id);
+      record("owner cannot insert product into another restaurant", !inserted);
+    }
+
+    // 9) Owner restoranını silememeli
+    {
+      await owner.from("restaurants").delete().eq("id", restaurantId);
+      const { data: still } = await admin.from("restaurants").select("id").eq("id", restaurantId);
+      record("owner cannot delete restaurant", Array.isArray(still) && still.length === 1);
+    }
+
+    // 10) Owner kendi kategori/ürünlerini görebilmeli, başkasınınkini görememeli (regresyon)
+    {
+      const { data: cats } = await owner.from("categories").select("id").in("id", [ownCategoryId, otherCategoryId]);
+      const ids = (cats || []).map((c) => c.id);
+      record(
+        "owner sees own categories only",
+        ids.length === 1 && ids[0] === ownCategoryId,
+        `${ids.length} rows`
+      );
+      const { data: prods } = await owner.from("products").select("id").eq("id", hiddenProductId);
+      record("owner CAN read own products (incl. inactive)", Array.isArray(prods) && prods.length === 1);
+    }
+
     // 6) Service role (master admin API yolu) hâlâ abonelik güncelleyebilmeli
     {
       const { error } = await admin
@@ -240,6 +341,12 @@ async function main() {
     }
   } finally {
     if (jobId) await admin.from("menu_import_jobs").delete().eq("id", jobId);
+    if (uploadedImagePaths.length) await admin.storage.from("menu-images").remove(uploadedImagePaths);
+    for (const rid of [restaurantId, otherRestaurantId].filter(Boolean)) {
+      await admin.from("products").delete().eq("restaurant_id", rid);
+      await admin.from("categories").delete().eq("restaurant_id", rid);
+    }
+    if (otherRestaurantId) await admin.from("restaurants").delete().eq("id", otherRestaurantId);
     if (restaurantId) await admin.from("restaurants").delete().eq("id", restaurantId);
     if (userId) await admin.auth.admin.deleteUser(userId);
     if (otherUserId) await admin.auth.admin.deleteUser(otherUserId);
