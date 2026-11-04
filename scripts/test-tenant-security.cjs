@@ -77,7 +77,10 @@ async function main() {
   let ownCategoryId = null;
   let otherCategoryId = null;
   let hiddenProductId = null;
+  let activeRestaurantId = null;
+  let activeCategoryId = null;
   const uploadedImagePaths = [];
+  const uploadedPublicPaths = [];
 
   try {
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -162,6 +165,29 @@ async function main() {
         .single();
       if (prodErr) throw new Error(`insert product: ${prodErr.message}`);
       hiddenProductId = prod.id;
+
+      // Aynı sahibin AKTİF ikinci restoranı (kilit yalnızca süresi bitene uygulanmalı)
+      const futureDate = new Date(Date.now() + 30 * 86400000).toISOString();
+      const { data: act, error: actErr } = await admin
+        .from("restaurants")
+        .insert({
+          name: `Tenant Sec Active ${suffix}`,
+          slug: `tenant-sec-active-${suffix}`,
+          owner_id: userId,
+          tenant_status: "active",
+          subscription_ends_at: futureDate,
+        })
+        .select("id")
+        .single();
+      if (actErr) throw new Error(`insert active restaurant: ${actErr.message}`);
+      activeRestaurantId = act.id;
+      const { data: actCat, error: actCatErr } = await admin
+        .from("categories")
+        .insert({ name: `Active Cat ${suffix}`, restaurant_id: activeRestaurantId })
+        .select("id")
+        .single();
+      if (actCatErr) throw new Error(`insert active category: ${actCatErr.message}`);
+      activeCategoryId = actCat.id;
     }
 
     // 7) Giriş yapmamış ziyaretçi (anon key) tenant verisini okuyamamalı
@@ -243,22 +269,105 @@ async function main() {
       );
     }
 
-    // 3) Owner görünüm ayarlarını hâlâ kaydedebilmeli (regresyon)
+    // 3) AKTİF restoranda owner görünüm ayarlarını kaydedebilmeli (regresyon)
     {
       const { error } = await owner
         .from("restaurants")
         .update({ primary_color: "#123456", instagram: "test_account" })
-        .eq("id", restaurantId);
+        .eq("id", activeRestaurantId);
       const { data: after } = await admin
         .from("restaurants")
         .select("primary_color, instagram")
-        .eq("id", restaurantId)
+        .eq("id", activeRestaurantId)
         .single();
       record(
-        "owner CAN still save appearance settings",
+        "active owner CAN save appearance settings",
         !error && after.primary_color === "#123456" && after.instagram === "test_account",
         error ? error.message : ""
       );
+    }
+
+    // 3b) AKTİF restoranda da slug/abonelik alanları değiştirilememeli (tetikleyici, kilitten bağımsız)
+    {
+      const { error: slugErr } = await owner
+        .from("restaurants")
+        .update({ slug: `hijack-active-${suffix}` })
+        .eq("id", activeRestaurantId);
+      const { error: subErr } = await owner
+        .from("restaurants")
+        .update({ subscription_ends_at: "2099-01-01T00:00:00Z" })
+        .eq("id", activeRestaurantId);
+      const { data: after } = await admin
+        .from("restaurants")
+        .select("slug, subscription_ends_at")
+        .eq("id", activeRestaurantId)
+        .single();
+      record("active owner cannot change slug", after.slug === `tenant-sec-active-${suffix}`, slugErr ? `rejected: ${slugErr.code}` : "no error");
+      record(
+        "active owner cannot extend subscription",
+        !String(after.subscription_ends_at).startsWith("2099"),
+        subErr ? `rejected: ${subErr.code}` : "no error"
+      );
+    }
+
+    // 11) Süresi BİTMİŞ restoranda owner hiçbir şey yazamamalı
+    {
+      await owner.from("restaurants").update({ primary_color: "#abcdef" }).eq("id", restaurantId);
+      const { data: r } = await admin.from("restaurants").select("primary_color").eq("id", restaurantId).single();
+      record("expired owner cannot save settings", r.primary_color !== "#abcdef");
+
+      const { data: catIns } = await owner
+        .from("categories")
+        .insert({ name: `Locked Cat ${suffix}`, restaurant_id: restaurantId })
+        .select("id");
+      const catInserted = Array.isArray(catIns) && catIns.length > 0;
+      if (catInserted) await admin.from("categories").delete().eq("id", catIns[0].id);
+      record("expired owner cannot insert category", !catInserted);
+
+      await owner.from("products").update({ name: `Edited ${suffix}` }).eq("id", hiddenProductId);
+      const { data: p } = await admin.from("products").select("name").eq("id", hiddenProductId).single();
+      record("expired owner cannot edit product", p.name === `Hidden ${suffix}`);
+
+      await owner.from("products").delete().eq("id", hiddenProductId);
+      const { data: still } = await admin.from("products").select("id").eq("id", hiddenProductId);
+      record("expired owner cannot delete product", Array.isArray(still) && still.length === 1);
+
+      const { data: mcIns } = await owner
+        .from("menu_collections")
+        .insert({ name: `Locked Menu ${suffix}`, restaurant_id: restaurantId })
+        .select("id");
+      const mcInserted = Array.isArray(mcIns) && mcIns.length > 0;
+      if (mcInserted) await admin.from("menu_collections").delete().eq("id", mcIns[0].id);
+      record("expired owner cannot insert menu collection", !mcInserted);
+
+      const lockedPath = `restaurants/${restaurantId}/logo/locked-${suffix}.png`;
+      const { error: upErr } = await owner.storage
+        .from("menu-public")
+        .upload(lockedPath, Buffer.from("x"), { contentType: "image/png" });
+      if (!upErr) uploadedPublicPaths.push(lockedPath);
+      record("expired owner cannot upload image", !!upErr, upErr ? "rejected" : "UPLOADED");
+    }
+
+    // 12) AKTİF restoranda owner kategori/ürün ekleyip görsel yükleyebilmeli (regresyon)
+    {
+      const { data: catIns, error: catErr } = await owner
+        .from("categories")
+        .insert({ name: `Active New Cat ${suffix}`, restaurant_id: activeRestaurantId })
+        .select("id");
+      record("active owner CAN insert category", !catErr && Array.isArray(catIns) && catIns.length === 1, catErr ? catErr.message : "");
+
+      const { data: prodIns, error: prodErr } = await owner
+        .from("products")
+        .insert({ name: `Active Prod ${suffix}`, price: "1", restaurant_id: activeRestaurantId, category_id: activeCategoryId })
+        .select("id");
+      record("active owner CAN insert product", !prodErr && Array.isArray(prodIns) && prodIns.length === 1, prodErr ? prodErr.message : "");
+
+      const activePath = `restaurants/${activeRestaurantId}/logo/active-${suffix}.png`;
+      const { error: upErr } = await owner.storage
+        .from("menu-public")
+        .upload(activePath, Buffer.from("x"), { contentType: "image/png" });
+      if (!upErr) uploadedPublicPaths.push(activePath);
+      record("active owner CAN upload image", !upErr, upErr ? upErr.message : "");
     }
 
     // 4) Owner yeni restoran açamamalı
@@ -342,11 +451,14 @@ async function main() {
   } finally {
     if (jobId) await admin.from("menu_import_jobs").delete().eq("id", jobId);
     if (uploadedImagePaths.length) await admin.storage.from("menu-images").remove(uploadedImagePaths);
-    for (const rid of [restaurantId, otherRestaurantId].filter(Boolean)) {
+    if (uploadedPublicPaths.length) await admin.storage.from("menu-public").remove(uploadedPublicPaths);
+    for (const rid of [restaurantId, otherRestaurantId, activeRestaurantId].filter(Boolean)) {
+      await admin.from("menu_collections").delete().eq("restaurant_id", rid);
       await admin.from("products").delete().eq("restaurant_id", rid);
       await admin.from("categories").delete().eq("restaurant_id", rid);
     }
     if (otherRestaurantId) await admin.from("restaurants").delete().eq("id", otherRestaurantId);
+    if (activeRestaurantId) await admin.from("restaurants").delete().eq("id", activeRestaurantId);
     if (restaurantId) await admin.from("restaurants").delete().eq("id", restaurantId);
     if (userId) await admin.auth.admin.deleteUser(userId);
     if (otherUserId) await admin.auth.admin.deleteUser(otherUserId);
