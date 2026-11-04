@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { EXCEL_INVALID_MESSAGE } from "./constants";
+import { EXCEL_INVALID_MESSAGE, EXCEL_MAX_COLS, EXCEL_MAX_ROWS, EXCEL_MAX_SHEETS } from "./constants";
 import type { ExcelCellValue, ExcelSheetGrid, ExcelWorkbookData } from "./types";
 
 function cellToValue(cell: XLSX.CellObject | undefined): ExcelCellValue {
@@ -52,11 +52,15 @@ function trimGrid(matrix: ExcelCellValue[][]): ExcelCellValue[][] {
   return cropped.slice(start, end + 1);
 }
 
-function sheetToGrid(sheetName: string, sheet: XLSX.WorkSheet): ExcelSheetGrid | null {
+/** @internal Testte doğrudan kullanılır. */
+export function sheetToGrid(sheetName: string, sheet: XLSX.WorkSheet): ExcelSheetGrid | null {
   const ref = sheet["!ref"];
   if (!ref) return null;
 
   const range = XLSX.utils.decode_range(ref);
+  // Dosyanın bildirdiği boyuta güvenme: tarama alanını sınırla.
+  range.e.r = Math.min(range.e.r, range.s.r + EXCEL_MAX_ROWS - 1);
+  range.e.c = Math.min(range.e.c, range.s.c + EXCEL_MAX_COLS - 1);
   const matrix: ExcelCellValue[][] = [];
 
   for (let r = range.s.r; r <= range.e.r; r++) {
@@ -88,6 +92,7 @@ export function readExcelWorkbook(buffer: Buffer): ExcelWorkbookData {
       cellNF: false,
       cellText: true,
       raw: false,
+      sheetRows: EXCEL_MAX_ROWS,
     });
   } catch (e) {
     console.error("[menu-import/excel] workbook read failed:", e instanceof Error ? e.message : e);
@@ -99,7 +104,7 @@ export function readExcelWorkbook(buffer: Buffer): ExcelWorkbookData {
   }
 
   const sheets: ExcelSheetGrid[] = [];
-  for (const name of workbook.SheetNames) {
+  for (const name of workbook.SheetNames.slice(0, EXCEL_MAX_SHEETS)) {
     const sheet = workbook.Sheets[name];
     if (!sheet) continue;
     // Hidden sheets

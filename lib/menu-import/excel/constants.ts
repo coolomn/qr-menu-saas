@@ -10,6 +10,14 @@ export const EXCEL_EMPTY_MESSAGE =
 
 export const EXCEL_TOO_LARGE_MESSAGE = "Excel dosyası çok büyük (en fazla 12 MB).";
 
+/**
+ * Okunacak en fazla satır / sütun / sayfa. Küçük bir dosya "1M satır × 16K sütun" boyut
+ * bildirip sunucuyu milyarlarca hücre taramaya zorlayamasın (DoS). Menüler bunun çok altında.
+ */
+export const EXCEL_MAX_ROWS = 5000;
+export const EXCEL_MAX_COLS = 200;
+export const EXCEL_MAX_SHEETS = 30;
+
 /** Yatay blokları ayırmak için minimum boş sütun sayısı. */
 export const EXCEL_BLOCK_GAP_COLUMNS = 2;
 

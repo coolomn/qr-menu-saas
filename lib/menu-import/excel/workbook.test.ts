@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import * as XLSX from "xlsx";
-import { readExcelWorkbook, assertExcelMagicOrExtension } from "./read-workbook";
+import { readExcelWorkbook, assertExcelMagicOrExtension, sheetToGrid } from "./read-workbook";
 import { analyzeExcelBuffer } from "./analyze-excel";
 
 function buildXlsxBuffer(sheets: Record<string, (string | number | null)[][]>): Buffer {
@@ -41,6 +41,23 @@ describe("excel workbook", () => {
     const { payload, summary } = await analyzeExcelBuffer(buf, { enableAi: false });
     assert.ok(summary.productCount >= 2);
     assert.ok(payload.categories.length >= 1);
+  });
+
+  it("does not scan a huge declared range (DoS guard)", () => {
+    // Gerçekte 2 satırlık ama Excel'in en büyük alanını (1M satır × 16K sütun) bildiren sayfa.
+    const sheet: XLSX.WorkSheet = {
+      "!ref": "A1:XFD1048576",
+      A1: { t: "s", v: "Tatlılar", w: "Tatlılar" },
+      A2: { t: "s", v: "Baklava", w: "Baklava" },
+      B2: { t: "s", v: "180", w: "180" },
+    };
+
+    const started = Date.now();
+    const grid = sheetToGrid("Menu", sheet);
+    assert.ok(Date.now() - started < 5000, "huge declared range must not be fully scanned");
+    assert.ok(grid);
+    assert.equal(grid.rows[1][0], "Baklava");
+    assert.equal(grid.rows[1][1], "180");
   });
 
   it("rejects corrupt buffer", () => {
