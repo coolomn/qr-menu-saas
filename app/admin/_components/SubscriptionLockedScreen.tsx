@@ -2,7 +2,7 @@
 
 import { Lock, LogOut, Store } from "lucide-react";
 import { formatLockDate, type TenantLockState } from "@/lib/tenant/lock-state";
-import { SUPPORT_CONTACT } from "@/lib/tenant/support-contact";
+import { SUPPORT_CONTACT, buildSupportWhatsAppUrl } from "@/lib/tenant/support-contact";
 
 type Props = {
   restaurantName: string;
@@ -25,6 +25,7 @@ export default function SubscriptionLockedScreen({
   onLogout,
 }: Props) {
   const endDate = formatLockDate(lock.endsAt);
+  const whatsappUrl = buildSupportWhatsAppUrl(restaurantName);
   const title = lock.reason === "suspended" ? "Hesabınız askıya alındı" : "Aboneliğiniz sona erdi";
   const body =
     lock.reason === "suspended"
@@ -43,11 +44,11 @@ export default function SubscriptionLockedScreen({
 
         <div className="mt-6 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <p className="font-bold">Yenilemek için bizimle iletişime geçin</p>
-          {SUPPORT_CONTACT.whatsappUrl || SUPPORT_CONTACT.email ? (
+          {whatsappUrl || SUPPORT_CONTACT.email ? (
             <div className="mt-2 flex flex-col gap-1.5">
-              {SUPPORT_CONTACT.whatsappUrl && (
+              {whatsappUrl && (
                 <a
-                  href={SUPPORT_CONTACT.whatsappUrl}
+                  href={whatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-bold text-blue-700 underline underline-offset-2"
