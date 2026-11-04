@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import {
   getCategoryForOwner,
   ensureCategoryMenuCollectionLink,
@@ -469,15 +470,9 @@ export async function POST(request: Request) {
     }
     const admin = svc.client;
 
-    const { data: restaurant, error: resErr } = await admin
-      .from("restaurants")
-      .select("id")
-      .eq("id", restaurantId)
-      .eq("owner_id", user.id)
-      .maybeSingle();
-
-    if (resErr || !restaurant) {
-      return NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 });
+    const tenant = await requireActiveOwnedRestaurant(admin, { userId: user.id, restaurantId });
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const targetResult = await resolveImportTargetMenuCollection(

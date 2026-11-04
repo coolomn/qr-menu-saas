@@ -679,6 +679,7 @@ export default function AdminDashboard() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
+          restaurantId: restaurant?.id,
           name: prev.name,
           description: prev.description,
           categoryName,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
@@ -160,17 +161,14 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
     cleanup.restaurantId = restaurantId;
     cleanup.userId = user.id;
 
-    const { data: restaurant, error: resErr } = await cleanup.admin
-      .from("restaurants")
-      .select("id")
-      .eq("id", restaurantId)
-      .eq("owner_id", user.id)
-      .maybeSingle();
-
-    if (resErr || !restaurant) {
+    const tenant = await requireActiveOwnedRestaurant(cleanup.admin, {
+      userId: user.id,
+      restaurantId,
+    });
+    if (!tenant.ok) {
       return respondAfterUploadCleanup(
         cleanup,
-        NextResponse.json({ error: "Restoran bulunamadı veya yetkiniz yok." }, { status: 403 })
+        NextResponse.json({ error: tenant.error }, { status: tenant.status })
       );
     }
 

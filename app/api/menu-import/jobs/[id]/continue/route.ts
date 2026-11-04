@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import { continuePdfImportJob } from "@/lib/menu-import/continue-pdf-job";
@@ -64,6 +65,17 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json(
         { ok: false, error: loaded.error },
         { status: loaded.status, headers: NO_STORE_HEADERS }
+      );
+    }
+
+    const tenant = await requireActiveOwnedRestaurant(svc.client, {
+      userId: user.id,
+      restaurantId: loaded.job.restaurant_id,
+    });
+    if (!tenant.ok) {
+      return NextResponse.json(
+        { ok: false, error: tenant.error },
+        { status: tenant.status, headers: NO_STORE_HEADERS }
       );
     }
 
