@@ -298,5 +298,6 @@ export async function POST(request: Request) {
     responseBody.temporary_password = temporaryPassword;
   }
 
-  return NextResponse.json(responseBody, { status: 201 });
+  // Yanıt geçici şifre içerebilir: tarayıcı/ara önbellekte saklanmasın.
+  return NextResponse.json(responseBody, { status: 201, headers: { "Cache-Control": "no-store" } });
 }

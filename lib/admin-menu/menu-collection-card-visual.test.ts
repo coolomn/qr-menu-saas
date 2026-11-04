@@ -23,12 +23,21 @@ describe("menu collection card visual types", () => {
   });
 
   it("accepts card visual fields on create and patch schemas", () => {
-    const created = createMenuCollectionSchema.parse({
-      restaurantId: "11111111-1111-4111-8111-111111111111",
-      name: "Kahvaltı",
-      card_visual_type: "image",
-      card_image_url: "https://cdn.example/restaurants/x/menu-collections/a.webp",
-    });
+    const prevSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://abc.supabase.co";
+    let created;
+    try {
+      created = createMenuCollectionSchema.parse({
+        restaurantId: "11111111-1111-4111-8111-111111111111",
+        name: "Kahvaltı",
+        card_visual_type: "image",
+        card_image_url:
+          "https://abc.supabase.co/storage/v1/object/public/menu-public/restaurants/x/menu-collections/a.webp",
+      });
+    } finally {
+      if (prevSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = prevSupabaseUrl;
+    }
     assert.equal(created.card_visual_type, "image");
     assert.ok(created.card_image_url);
 

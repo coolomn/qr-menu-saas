@@ -524,6 +524,13 @@ export async function POST(request: Request) {
             { status: ownerCheck.status === 404 ? 400 : ownerCheck.status }
           );
         }
+        // Sahibin başka bir restoranındaki kategoriye aktarım yapılamaz.
+        if (ownerCheck.category.restaurant_id !== restaurantId) {
+          return NextResponse.json(
+            { error: "Seçilen kategori bu restorana ait değil." },
+            { status: 400 }
+          );
+        }
         categoryId = ownerCheck.category.id;
         categoriesReused++;
       } else {

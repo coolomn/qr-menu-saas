@@ -17,8 +17,39 @@ const optionalTime = z
     return v;
   });
 
-const optionalUrl = z
-  .union([z.string().trim().url().max(2000), z.literal(""), z.null()])
+/**
+ * Menü kartı görseli yalnızca bizim Supabase Storage'ımızdan (https, public object yolu) gelebilir.
+ * Başka sitelerden resim/izleme pikseli gösterilmesini ve http içeriği engeller.
+ */
+export function isAllowedStorageImageUrl(
+  value: string,
+  supabaseUrl: string | undefined = process.env.NEXT_PUBLIC_SUPABASE_URL
+): boolean {
+  let url: URL;
+  let base: URL;
+  try {
+    url = new URL(value);
+    base = new URL(supabaseUrl ?? "");
+  } catch {
+    return false;
+  }
+  return (
+    url.protocol === "https:" &&
+    url.host === base.host &&
+    url.pathname.startsWith("/storage/v1/object/public/")
+  );
+}
+
+const storageImageUrl = z
+  .union([
+    z
+      .string()
+      .trim()
+      .max(2000)
+      .refine((v) => isAllowedStorageImageUrl(v), "Görsel adresi geçersiz."),
+    z.literal(""),
+    z.null(),
+  ])
   .optional()
   .transform((v) => {
     if (v == null || v === "") return null;
@@ -37,7 +68,7 @@ const menuCollectionFields = {
   is_active: z.boolean().optional().default(true),
   sort_order: z.number().int().min(0).max(9999).optional(),
   card_visual_type: cardVisualType.optional().default("icon"),
-  card_image_url: optionalUrl,
+  card_image_url: storageImageUrl,
 };
 
 export const createMenuCollectionSchema = z.object({
@@ -56,7 +87,7 @@ export const patchMenuCollectionSchema = z
     is_active: z.boolean().optional(),
     sort_order: z.number().int().min(0).max(9999).optional(),
     card_visual_type: cardVisualType.optional(),
-    card_image_url: optionalUrl,
+    card_image_url: storageImageUrl,
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Güncellenecek alan belirtilmedi.",

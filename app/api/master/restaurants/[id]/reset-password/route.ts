@@ -119,7 +119,7 @@ export async function POST(request: Request, context: RouteContext) {
       owner_email: updated.ownerEmail,
       temporary_password: updated.temporaryPassword,
       login_url: buildOwnerLoginUrl(origin),
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Şifre işlemi başarısız." }, { status: 500 });
