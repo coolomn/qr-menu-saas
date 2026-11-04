@@ -174,20 +174,6 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       );
     }
 
-    const rateLimit = await evaluateMenuImportAnalyzeRateLimit(user.id, restaurantId);
-    if (!rateLimit.allowed) {
-      if (rateLimit.kind === "limited") {
-        return respondAfterUploadCleanup(cleanup, rateLimitedResponse(rateLimit.retryAfterSeconds));
-      }
-      return respondAfterUploadCleanup(
-        cleanup,
-        NextResponse.json(
-          { error: "Menü analizi şu anda kullanılamıyor. Lütfen birazdan tekrar deneyin." },
-          { status: 503 }
-        )
-      );
-    }
-
     const isPdf = isPdfMime(mimeType ?? "");
     const isImage = isImageMime(mimeType ?? "");
     const isExcel =
@@ -252,6 +238,21 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
           NextResponse.json({ error: msg }, { status: 422 })
         );
       }
+    }
+
+    // Limit, dosya türü / PDF doğrulamasından SONRA: geçersiz yüklemeler kotayı yakmasın.
+    const rateLimit = await evaluateMenuImportAnalyzeRateLimit(user.id, restaurantId);
+    if (!rateLimit.allowed) {
+      if (rateLimit.kind === "limited") {
+        return respondAfterUploadCleanup(cleanup, rateLimitedResponse(rateLimit.retryAfterSeconds));
+      }
+      return respondAfterUploadCleanup(
+        cleanup,
+        NextResponse.json(
+          { error: "Menü analizi şu anda kullanılamıyor. Lütfen birazdan tekrar deneyin." },
+          { status: 503 }
+        )
+      );
     }
 
     pageCount = isPdf ? pdfPageCount : 1;

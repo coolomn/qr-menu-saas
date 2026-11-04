@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { RATE_LIMIT_CONFIG, tryGetLimiter, type RateLimitName } from "./limiters";
+import { RATE_LIMIT_CONFIG, envScopedPrefix, tryGetLimiter, type RateLimitName } from "./limiters";
 
 const EXPECTED_NAMES: RateLimitName[] = [
   "resolveLoginEmailIp",
@@ -33,7 +33,7 @@ describe("RATE_LIMIT_CONFIG", () => {
     });
     assert.deepEqual(RATE_LIMIT_CONFIG.resolveLoginEmailUsername, {
       algorithm: "slidingWindow",
-      tokens: 5,
+      tokens: 10,
       window: "1 m",
       prefix: "ratelimit:resolve-login-email:username",
     });
@@ -95,18 +95,34 @@ describe("RATE_LIMIT_CONFIG", () => {
 
 describe("tryGetLimiter", () => {
   it("returns null for every limiter name when Upstash env vars are unset", () => {
-    const savedUrl = process.env.UPSTASH_REDIS_REST_URL;
-    const savedToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-    delete process.env.UPSTASH_REDIS_REST_URL;
-    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    const keys = [
+      "UPSTASH_REDIS_REST_URL",
+      "UPSTASH_REDIS_REST_TOKEN",
+      "KV_REST_API_URL",
+      "KV_REST_API_TOKEN",
+    ] as const;
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    for (const k of keys) delete process.env[k];
 
     try {
       for (const name of EXPECTED_NAMES) {
         assert.equal(tryGetLimiter(name), null);
       }
     } finally {
-      if (savedUrl !== undefined) process.env.UPSTASH_REDIS_REST_URL = savedUrl;
-      if (savedToken !== undefined) process.env.UPSTASH_REDIS_REST_TOKEN = savedToken;
+      for (const k of keys) {
+        if (saved[k] !== undefined) process.env[k] = saved[k];
+      }
     }
+  });
+});
+
+describe("envScopedPrefix", () => {
+  it("keeps the prefix unchanged in production and when VERCEL_ENV is unset", () => {
+    assert.equal(envScopedPrefix("ratelimit:x", "production"), "ratelimit:x");
+    assert.equal(envScopedPrefix("ratelimit:x", undefined), "ratelimit:x");
+  });
+
+  it("namespaces preview keys so they never share counters with production", () => {
+    assert.equal(envScopedPrefix("ratelimit:x", "preview"), "preview:ratelimit:x");
   });
 });

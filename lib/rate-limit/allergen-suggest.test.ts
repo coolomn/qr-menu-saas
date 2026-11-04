@@ -45,14 +45,14 @@ describe("evaluateAllergenSuggestRateLimit", () => {
     assert.ok(result.retryAfterSeconds >= 14 && result.retryAfterSeconds <= 15);
   });
 
-  it("returns limited when the daily cap is exceeded, without checking the short window", async () => {
-    const reset = Date.now() + 3_600_000;
-    let shortLimiterCalled = false;
+  it("returns limited when the short window is exceeded, without consuming the daily cap", async () => {
+    const reset = Date.now() + 30_000;
+    let dailyLimiterCalled = false;
     const deps = makeDeps({
-      getDailyLimiter: () => fakeLimiter({ success: false, limit: 200, remaining: 0, reset }),
-      getShortLimiter: () => {
-        shortLimiterCalled = true;
-        return fakeLimiter({ success: true, limit: 20, remaining: 19, reset: Date.now() + 60_000 });
+      getShortLimiter: () => fakeLimiter({ success: false, limit: 20, remaining: 0, reset }),
+      getDailyLimiter: () => {
+        dailyLimiterCalled = true;
+        return fakeLimiter({ success: true, limit: 200, remaining: 199, reset: Date.now() + 86_400_000 });
       },
     });
     const result = await evaluateAllergenSuggestRateLimit("user-3", deps);
@@ -60,7 +60,19 @@ describe("evaluateAllergenSuggestRateLimit", () => {
     assert.equal(result.allowed, false);
     if (result.allowed) return;
     assert.equal(result.kind, "limited");
-    assert.equal(shortLimiterCalled, false);
+    assert.equal(dailyLimiterCalled, false);
+  });
+
+  it("returns limited when the daily cap is exceeded", async () => {
+    const reset = Date.now() + 3_600_000;
+    const deps = makeDeps({
+      getDailyLimiter: () => fakeLimiter({ success: false, limit: 200, remaining: 0, reset }),
+    });
+    const result = await evaluateAllergenSuggestRateLimit("user-3b", deps);
+
+    assert.equal(result.allowed, false);
+    if (result.allowed) return;
+    assert.equal(result.kind, "limited");
   });
 
   it("fails closed as unavailable when the daily limiter throws (Upstash unreachable)", async () => {

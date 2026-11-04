@@ -63,6 +63,14 @@ export default function LoginPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: trimmedIdentifier }),
         });
+        if (resolveRes.status === 429) {
+          const retryAfter = Number(resolveRes.headers.get("Retry-After")) || 60;
+          setError(
+            `Çok fazla giriş denemesi yapıldı. Lütfen ${retryAfter} saniye sonra tekrar deneyin veya e-posta adresinizle giriş yapın.`
+          );
+          setLoading(false);
+          return;
+        }
         if (!resolveRes.ok) {
           setError(LOGIN_ERROR_MESSAGE);
           setLoading(false);

@@ -645,6 +645,12 @@ export default function AdminMenuImportPage() {
             headers,
             cache: "no-store",
           });
+          if (contRes.status === 429) {
+            // Sınır dolduysa akışı kesme; sunucunun söylediği kadar bekleyip devam et.
+            const retryAfter = Number(contRes.headers.get("Retry-After")) || 10;
+            await sleep(Math.min(retryAfter, 60) * 1000);
+            continue;
+          }
           const { data: cont, parseError: contErr } =
             await readApiJsonResponse<MenuImportJobContinueResponse & Record<string, unknown>>(
               contRes
@@ -663,6 +669,10 @@ export default function AdminMenuImportPage() {
           }
           if (cont.status === "failed") {
             throw new Error(cont.error || "PDF analizi başarısız.");
+          }
+          if (!cont.advanced) {
+            // Sayfa başka bir istekte işleniyor; sunucuyu boş döngüyle yormadan bekle.
+            await sleep(1500);
           }
         } else {
           await sleep(1500);

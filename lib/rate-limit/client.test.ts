@@ -68,4 +68,13 @@ describe("checkLimit", () => {
     if (result.state !== "unavailable") return;
     assert.equal(result.reason, "unknown_error");
   });
+
+  it("treats a library timeout as unavailable instead of allowed", async () => {
+    const limiter: RateLimiterLike = {
+      limit: async () => ({ success: true, limit: 10, remaining: 10, reset: 0, reason: "timeout" }),
+    };
+    const result = await checkLimit(limiter, "user-6");
+
+    assert.deepEqual(result, { state: "unavailable", reason: "timeout" });
+  });
 });

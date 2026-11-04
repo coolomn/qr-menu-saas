@@ -7,13 +7,14 @@ function resolveRedisClient(): Redis | null {
   if (redisClientResolved) return redisClient;
   redisClientResolved = true;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  // Vercel Marketplace (Upstash) entegrasyonu KV_REST_API_* adlarını verir; elle kurulumda UPSTASH_REDIS_REST_* kullanılır.
+  const url = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL)?.trim();
+  const token = (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN)?.trim();
   if (!url || !token) {
     return null;
   }
 
-  redisClient = new Redis({ url, token });
+  redisClient = new Redis({ url, token, retry: { retries: 1 } });
   return redisClient;
 }
 
@@ -29,6 +30,8 @@ export type RateLimiterLike = {
     limit: number;
     remaining: number;
     reset: number;
+    /** @upstash/ratelimit: "timeout" ise Redis'e ulaşılamadan izin verilmiştir. */
+    reason?: string;
   }>;
 };
 
@@ -47,6 +50,11 @@ export async function checkLimit(
 ): Promise<RateLimitCheckResult> {
   try {
     const result = await limiter.limit(identifier);
+    // Kütüphane zaman aşımında success:true döner; bunu gerçek bir "izin" saymıyoruz,
+    // fail-open/fail-closed kararını çağıran endpoint versin.
+    if (result.reason === "timeout") {
+      return { state: "unavailable", reason: "timeout" };
+    }
     if (result.success) {
       return {
         state: "allowed",

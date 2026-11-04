@@ -37,7 +37,7 @@ export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
   },
   resolveLoginEmailUsername: {
     algorithm: "slidingWindow",
-    tokens: 5,
+    tokens: 10,
     window: "1 m",
     prefix: "ratelimit:resolve-login-email:username",
   },
@@ -87,6 +87,16 @@ export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
   },
 };
 
+/**
+ * Preview ve production aynı Redis'i paylaşıyor; önizlemede yapılan denemeler
+ * canlıdaki sayaçları tüketmesin diye anahtarlar ortama göre ayrılır.
+ * Production'da prefix değişmez.
+ */
+export function envScopedPrefix(prefix: string, vercelEnv = process.env.VERCEL_ENV): string {
+  if (!vercelEnv || vercelEnv === "production") return prefix;
+  return `${vercelEnv}:${prefix}`;
+}
+
 function buildLimiter(redis: Redis, config: RateLimitConfig): Ratelimit {
   const algorithm =
     config.algorithm === "slidingWindow"
@@ -95,8 +105,16 @@ function buildLimiter(redis: Redis, config: RateLimitConfig): Ratelimit {
         ? Ratelimit.fixedWindow(config.tokens, config.window)
         : Ratelimit.tokenBucket(config.refillRate, config.interval, config.maxTokens);
 
-  return new Ratelimit({ redis, limiter: algorithm, prefix: config.prefix });
+  return new Ratelimit({
+    redis,
+    limiter: algorithm,
+    prefix: envScopedPrefix(config.prefix),
+    // Upstash yavaşsa isteği en fazla ~1.5 sn bekletir; zaman aşımı checkLimit'te "unavailable" olur.
+    timeout: RATE_LIMIT_TIMEOUT_MS,
+  });
 }
+
+export const RATE_LIMIT_TIMEOUT_MS = 1500;
 
 const limiterCache = new Map<RateLimitName, Ratelimit>();
 

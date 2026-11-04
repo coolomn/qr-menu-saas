@@ -19,7 +19,7 @@ const defaultDeps: AllergenSuggestRateLimitDeps = {
 };
 
 /**
- * Önce günlük tavan, sonra kısa pencere kontrol edilir.
+ * Önce kısa pencere, sonra günlük tavan kontrol edilir.
  * Fail-closed: limiter yoksa veya checkLimit "unavailable" dönerse istek reddedilir —
  * bu özellik OpenAI maliyeti taşıyor ve kritik değil, owner ürünü AI önerisi olmadan da kaydedebilir.
  */
@@ -27,19 +27,7 @@ export async function evaluateAllergenSuggestRateLimit(
   userId: string,
   deps: AllergenSuggestRateLimitDeps = defaultDeps
 ): Promise<AllergenSuggestRateLimitDecision> {
-  const dailyLimiter = deps.getDailyLimiter();
-  if (!dailyLimiter) {
-    return { allowed: false, kind: "unavailable" };
-  }
-
-  const dailyResult = await deps.checkLimit(dailyLimiter, userId);
-  if (dailyResult.state === "unavailable") {
-    return { allowed: false, kind: "unavailable" };
-  }
-  if (dailyResult.state === "limited") {
-    return { allowed: false, kind: "limited", retryAfterSeconds: dailyResult.retryAfterSeconds };
-  }
-
+  // Önce kısa pencere: dakikalık sınıra takılan istekler günlük kotayı tüketmesin.
   const shortLimiter = deps.getShortLimiter();
   if (!shortLimiter) {
     return { allowed: false, kind: "unavailable" };
@@ -51,6 +39,19 @@ export async function evaluateAllergenSuggestRateLimit(
   }
   if (shortResult.state === "limited") {
     return { allowed: false, kind: "limited", retryAfterSeconds: shortResult.retryAfterSeconds };
+  }
+
+  const dailyLimiter = deps.getDailyLimiter();
+  if (!dailyLimiter) {
+    return { allowed: false, kind: "unavailable" };
+  }
+
+  const dailyResult = await deps.checkLimit(dailyLimiter, userId);
+  if (dailyResult.state === "unavailable") {
+    return { allowed: false, kind: "unavailable" };
+  }
+  if (dailyResult.state === "limited") {
+    return { allowed: false, kind: "limited", retryAfterSeconds: dailyResult.retryAfterSeconds };
   }
 
   return { allowed: true };
