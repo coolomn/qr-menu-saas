@@ -9,6 +9,7 @@ import {
 } from "@/lib/master-admin/restaurant-data";
 import { resolveSubscriptionDates, type PlanType } from "@/lib/master-admin/plans";
 import { parseUpdateRestaurantBody } from "@/lib/master-admin/update-payload";
+import { reservedSlugChangeError } from "@/lib/master-admin/slug";
 import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
 import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
@@ -88,6 +89,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     };
 
     if (payload.slug) {
+      const reservedError = reservedSlugChangeError(payload.slug, existing.restaurant.slug);
+      if (reservedError) {
+        return NextResponse.json({ error: reservedError }, { status: 400 });
+      }
       const available = await assertSlugAvailable(auth.admin, payload.slug, restaurantId);
       if (!available) {
         return NextResponse.json({ error: "Bu slug zaten kullanılıyor." }, { status: 409 });

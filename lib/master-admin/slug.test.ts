@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseCreateRestaurantBody } from "./create-payload";
-import { isReservedSlug, isValidSlug, RESERVED_SLUG_ERROR, RESERVED_SLUGS } from "./slug";
+import {
+  isReservedSlug,
+  isValidSlug,
+  RESERVED_SLUG_ERROR,
+  RESERVED_SLUGS,
+  reservedSlugChangeError,
+} from "./slug";
 import { parseUpdateRestaurantBody } from "./update-payload";
 
 const createBody = (slug: string) => ({
@@ -40,8 +46,12 @@ describe("yasaklı restoran adresleri (slug)", () => {
   });
 
   it("restoran güncellerken yasaklı adrese geçilemez", () => {
-    assert.deepEqual(parseUpdateRestaurantBody({ slug: "api" }), { ok: false, error: RESERVED_SLUG_ERROR });
-    const ok = parseUpdateRestaurantBody({ slug: "kafe-x" });
-    assert.equal(ok.ok, true);
+    assert.equal(reservedSlugChangeError("api", "kafe-x"), RESERVED_SLUG_ERROR);
+    assert.equal(reservedSlugChangeError("kafe-y", "kafe-x"), null);
+  });
+
+  it("adresi zaten listede olan eski restoranın diğer bilgileri kaydedilebilir (adres değişmiyorsa)", () => {
+    assert.equal(reservedSlugChangeError("demo", "demo"), null);
+    assert.equal(parseUpdateRestaurantBody({ slug: "demo", name: "Demo Kafe" }).ok, true);
   });
 });

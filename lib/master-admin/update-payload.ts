@@ -1,10 +1,5 @@
 import type { PlanType } from "@/lib/master-admin/plans";
-import {
-  isReservedSlug,
-  isValidSlug,
-  normalizeSlugInput,
-  RESERVED_SLUG_ERROR,
-} from "@/lib/master-admin/slug";
+import { isValidSlug, normalizeSlugInput } from "@/lib/master-admin/slug";
 
 export type UpdateRestaurantPayload = {
   name?: string;
@@ -55,7 +50,7 @@ export function parseUpdateRestaurantBody(
         error: "Slug yalnızca küçük harf, rakam ve tire içerebilir (en az 2 karakter).",
       };
     }
-    if (isReservedSlug(slug)) return { ok: false, error: RESERVED_SLUG_ERROR };
+    // Yasaklı adres kontrolü route'ta, mevcut adresle karşılaştırılarak yapılır (reservedSlugChangeError).
     data.slug = slug;
   }
 

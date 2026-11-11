@@ -43,3 +43,12 @@ export function isReservedSlug(slug: string): boolean {
 }
 
 export const RESERVED_SLUG_ERROR = "Bu adres sistem tarafından kullanılıyor; başka bir adres seçin.";
+
+/**
+ * Güncellemede yasak yalnızca adres DEĞİŞİYORSA uygulanır: listede olan eski bir adres
+ * (liste sonradan büyüdüyse) restoranın diğer bilgilerinin kaydedilmesini engellemesin.
+ */
+export function reservedSlugChangeError(nextSlug: string, currentSlug: string | null | undefined): string | null {
+  if (nextSlug === (currentSlug ?? "")) return null;
+  return isReservedSlug(nextSlug) ? RESERVED_SLUG_ERROR : null;
+}

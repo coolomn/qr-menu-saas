@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePublicMenuUrl } from "@/lib/domains/use-public-menu-url";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Shield } from "lucide-react";
 import { CreateSuccessPanel } from "@/app/admin/master/_components/create-success-panel";
@@ -61,6 +62,7 @@ function toDateInputValue(iso: string | null): string {
 
 export default function MasterNewRestaurantPage() {
   const router = useRouter();
+  const menuUrlFor = usePublicMenuUrl();
   const [authReady, setAuthReady] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const [slugTouched, setSlugTouched] = useState(false);
@@ -281,7 +283,7 @@ export default function MasterNewRestaurantPage() {
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="ornek-restoran"
               />
-              <p className="text-xs text-gray-500 mt-1">Public menü: /menu/{form.slug || "slug"}</p>
+              <p className="text-xs text-gray-500 mt-1">Menü adresi: {menuUrlFor(form.slug || "slug")}</p>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
