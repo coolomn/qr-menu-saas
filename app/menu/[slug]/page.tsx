@@ -614,6 +614,7 @@ export default function CustomerMenu() {
             openInstagramIOSAggressive(instagramCtx!.webUrl, u);
           }}
         />
+        <PublicVenueActions restaurant={restaurant} language={language} accentColor={themeColor} />
         {menuDataLoading && pendingNavigation ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20 flex justify-center px-6">
             <p className="rounded-full bg-black/60 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white">
@@ -639,6 +640,7 @@ export default function CustomerMenu() {
       <div className="relative flex min-h-[100dvh] flex-col items-center justify-between bg-stone-900 font-sans">
         <PublicMenuBackgroundImage src={restaurant.welcome_bg_url} />
         <div className="pointer-events-none absolute inset-0 z-[1] bg-black/30" />
+        <PublicVenueActions restaurant={restaurant} language={language} accentColor={themeColor} />
 
         <div className="relative z-10 w-full p-6 flex justify-end">
           <div className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3">
