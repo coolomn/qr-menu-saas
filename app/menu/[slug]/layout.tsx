@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { canonicalMenuUrl } from "@/lib/domains/hosts";
 import { loadMenuSlugName } from "@/lib/public-menu/menu-layout-context";
 
 export async function generateMetadata({
@@ -9,7 +10,12 @@ export async function generateMetadata({
   const { slug } = await params;
   const name = await loadMenuSlugName(slug);
   const title = name ? `${name} - Dijital menü` : "Menü - TapMenu";
-  return { title };
+  return {
+    title,
+    // Menü hem eski (tapmenu.com.tr/menu/…) hem yeni (qr.tapmenu.com.tr/…) adreste açılır;
+    // arama motorlarına asıl adresin qr alan adı olduğunu bildiririz.
+    ...(name ? { alternates: { canonical: canonicalMenuUrl(slug) } } : {}),
+  };
 }
 
 export default function MenuSlugLayout({ children }: { children: React.ReactNode }) {

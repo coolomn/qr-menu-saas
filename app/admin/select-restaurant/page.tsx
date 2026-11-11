@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { usePublicMenuUrl } from "@/lib/domains/use-public-menu-url";
 import { ExternalLink, Loader2, LogOut, UtensilsCrossed } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import {
@@ -15,6 +16,7 @@ const supabase = getBrowserSupabase();
 
 export default function SelectRestaurantPage() {
   const router = useRouter();
+  const menuUrlFor = usePublicMenuUrl();
   const [loading, setLoading] = useState(true);
   const [restaurants, setRestaurants] = useState<OwnerRestaurantSummary[]>([]);
   const [selectingId, setSelectingId] = useState<string | null>(null);
@@ -90,7 +92,7 @@ export default function SelectRestaurantPage() {
 
         <div className="space-y-3">
           {restaurants.map((restaurant) => {
-            const publicHref = restaurant.slug?.trim() ? `/menu/${restaurant.slug.trim()}` : null;
+            const publicHref = restaurant.slug?.trim() ? menuUrlFor(restaurant.slug) : null;
             const busy = selectingId === restaurant.id;
 
             return (

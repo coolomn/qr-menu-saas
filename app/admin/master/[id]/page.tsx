@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { publicMenuUrl } from "@/lib/domains/hosts";
+import { usePublicMenuUrl } from "@/lib/domains/use-public-menu-url";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Copy, ExternalLink, Loader2, Mail, Shield } from "lucide-react";
 import { OnboardingCard } from "@/app/admin/master/_components/onboarding-card";
@@ -58,6 +60,7 @@ function itemToForm(item: MasterRestaurantListItem): FormState {
 
 export default function MasterRestaurantDetailPage() {
   const router = useRouter();
+  const menuUrlFor = usePublicMenuUrl();
   const params = useParams();
   const restaurantId = typeof params?.id === "string" ? params.id : "";
 
@@ -368,7 +371,7 @@ export default function MasterRestaurantDetailPage() {
 
   const copyMenuLink = async () => {
     if (!item) return;
-    const url = `${window.location.origin}/menu/${item.slug}`;
+    const url = publicMenuUrl(item.slug, window.location.hostname, window.location.origin);
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -533,7 +536,7 @@ export default function MasterRestaurantDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-1 text-sm">
             <a
-              href={`/menu/${item.slug}`}
+              href={menuUrlFor(item.slug)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-blue-600 font-bold"
@@ -608,6 +611,12 @@ export default function MasterRestaurantDetailPage() {
                 onChange={(e) => setForm({ ...form, slug: e.target.value })}
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 font-mono text-sm text-gray-900 outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {item && form.slug.trim() !== item.slug && (
+                <p className="mt-1.5 text-xs font-semibold text-amber-700">
+                  Dikkat: menü adresi değişir. Bu restoranın basılı QR kodları ve paylaşılan linkleri
+                  çalışmaz hale gelir; yeni QR basılması gerekir.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Owner e-posta</label>

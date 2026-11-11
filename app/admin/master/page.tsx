@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { publicMenuUrl } from "@/lib/domains/hosts";
+import { usePublicMenuUrl } from "@/lib/domains/use-public-menu-url";
 import { useRouter } from "next/navigation";
 import { Copy, ExternalLink, LogOut, Plus, Shield } from "lucide-react";
 import { masterJsonFetch } from "@/lib/master-admin/client-api";
@@ -74,6 +76,7 @@ function RestaurantStatusBadge({ r }: { r: MasterRestaurantListItem }) {
 
 export default function MasterAdminPage() {
   const router = useRouter();
+  const menuUrlFor = usePublicMenuUrl();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [masterEmail, setMasterEmail] = useState<string | null>(null);
@@ -150,7 +153,7 @@ export default function MasterAdminPage() {
   }, [router, reloadList]);
 
   const copyMenuLink = async (slug: string) => {
-    const url = `${window.location.origin}/menu/${slug}`;
+    const url = publicMenuUrl(slug, window.location.hostname, window.location.origin);
     try {
       await navigator.clipboard.writeText(url);
       setCopiedSlug(slug);
@@ -328,7 +331,7 @@ export default function MasterAdminPage() {
                               {extendBusyId === r.id ? "…" : "+6 ay"}
                             </button>
                             <a
-                              href={`/menu/${r.slug}`}
+                              href={menuUrlFor(r.slug)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-semibold text-xs"
@@ -404,7 +407,7 @@ export default function MasterAdminPage() {
                         +6 ay
                       </button>
                       <a
-                        href={`/menu/${r.slug}`}
+                        href={menuUrlFor(r.slug)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-blue-600 text-sm font-bold"

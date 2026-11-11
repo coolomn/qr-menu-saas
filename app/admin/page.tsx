@@ -62,6 +62,8 @@ import { type AllergenSuggestion } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import SubscriptionLockedScreen from "@/app/admin/_components/SubscriptionLockedScreen";
 import { getTenantLockState, type TenantLockState } from "@/lib/tenant/lock-state";
+import { publicMenuUrl } from "@/lib/domains/hosts";
+import { usePublicMenuUrl } from "@/lib/domains/use-public-menu-url";
 import {
   loadOwnerRestaurantById,
   loadSelectedOwnerRestaurant,
@@ -161,6 +163,7 @@ function buildCategoryProductPreview(
 
 export default function AdminDashboard() {
   const router = useRouter();
+  const menuUrlFor = usePublicMenuUrl();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [restaurant, setRestaurant] = useState<any>(null);
@@ -1782,7 +1785,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const downloadQRCode = () => { window.open(`https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(`https://tapmenu.com.tr/menu/${restaurant.slug}${tableNumber ? `?masa=${tableNumber}` : ""}`)}`, '_blank'); };
+  const downloadQRCode = () => { window.open(`https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(`${publicMenuUrl(restaurant.slug, window.location.hostname, window.location.origin)}${tableNumber ? `?masa=${encodeURIComponent(tableNumber)}` : ""}`)}`, '_blank'); };
 
   const activeCategoriesForFilter = useMemo(
     () => (categories ?? []).filter((c) => c.is_active !== false),
@@ -1988,7 +1991,7 @@ export default function AdminDashboard() {
 
   const productPreviewSrc = newProduct.file ? productImageObjectUrl : newProduct.image_url || null;
   const showProductImagePanel = Boolean(newProduct.file || newProduct.image_url);
-  const publicMenuHref = restaurant?.slug?.trim() ? `/menu/${restaurant.slug.trim()}` : null;
+  const publicMenuHref = restaurant?.slug?.trim() ? menuUrlFor(restaurant.slug) : null;
 
   const viewPublicMenuButton = publicMenuHref ? (
     <a

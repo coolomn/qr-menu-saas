@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs/config";
 import { buildSecurityHeaderRules } from "./lib/security/headers";
+import { buildDomainAfterFilesRewrites, buildDomainRedirects } from "./lib/domains/routing-rules";
 
 const defaultDevOrigins = [
   "127.0.0.1",
@@ -25,6 +26,13 @@ const nextConfig: NextConfig = {
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
       isDev: process.env.NODE_ENV === "development",
     });
+  },
+  // Alan adı ayrımı: app.tapmenu.com.tr (panel), qr.tapmenu.com.tr/{slug} (menü). Ayrıntı: lib/domains/.
+  async redirects() {
+    return buildDomainRedirects();
+  },
+  async rewrites() {
+    return { beforeFiles: [], afterFiles: buildDomainAfterFilesRewrites(), fallback: [] };
   },
 };
 

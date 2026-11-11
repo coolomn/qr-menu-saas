@@ -1,5 +1,10 @@
 import type { PlanType } from "@/lib/master-admin/plans";
-import { isValidSlug, normalizeSlugInput } from "@/lib/master-admin/slug";
+import {
+  isReservedSlug,
+  isValidSlug,
+  normalizeSlugInput,
+  RESERVED_SLUG_ERROR,
+} from "@/lib/master-admin/slug";
 
 export type UpdateRestaurantPayload = {
   name?: string;
@@ -50,6 +55,7 @@ export function parseUpdateRestaurantBody(
         error: "Slug yalnızca küçük harf, rakam ve tire içerebilir (en az 2 karakter).",
       };
     }
+    if (isReservedSlug(slug)) return { ok: false, error: RESERVED_SLUG_ERROR };
     data.slug = slug;
   }
 

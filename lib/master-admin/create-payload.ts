@@ -1,7 +1,12 @@
 import { validateLoginUsername, normalizeLoginUsername } from "@/lib/admin-auth/login-username";
 import type { PlanType } from "@/lib/master-admin/plans";
 import { isValidEmail } from "@/lib/master-admin/owner-email";
-import { isValidSlug, normalizeSlugInput } from "@/lib/master-admin/slug";
+import {
+  isReservedSlug,
+  isValidSlug,
+  normalizeSlugInput,
+  RESERVED_SLUG_ERROR,
+} from "@/lib/master-admin/slug";
 
 export type OwnerCreationMode = "invite" | "temporary_password";
 
@@ -65,6 +70,7 @@ export function parseCreateRestaurantBody(
       error: "Slug yalnızca küçük harf, rakam ve tire içerebilir (en az 2 karakter).",
     };
   }
+  if (isReservedSlug(slug)) return { ok: false, error: RESERVED_SLUG_ERROR };
 
   const loginUsername = normalizeLoginUsername(loginUsernameInput);
   const loginUsernameError = validateLoginUsername(loginUsername);
