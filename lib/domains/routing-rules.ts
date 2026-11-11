@@ -7,6 +7,23 @@ function hostCondition(hostname: string) {
   return [{ type: "host" as const, value: hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") }];
 }
 
+/**
+ * /admin ve alt sayfaları başka bir alan adına taşır.
+ * Tek kural ("/admin/:path*") Vercel'de boş path için "/admin/" üretip fazladan bir
+ * yönlendirmeye yol açıyordu → tam eşleşme ve alt sayfalar iki ayrı kural.
+ */
+function adminMoveRules(fromHost: string, appHost: string, permanent: boolean): Redirect[] {
+  return [
+    { source: "/admin", has: hostCondition(fromHost), destination: `https://${appHost}/admin`, permanent },
+    {
+      source: "/admin/:path+",
+      has: hostCondition(fromHost),
+      destination: `https://${appHost}/admin/:path+`,
+      permanent,
+    },
+  ];
+}
+
 function redirectsForSet(set: HostSet): Redirect[] {
   // Geçiş döneminde tarayıcılar kalıcı olarak önbelleğe almasın diye geçici (307) yönlendirme.
   const permanent = false;
@@ -14,22 +31,12 @@ function redirectsForSet(set: HostSet): Redirect[] {
 
   // Pazarlama sitesi: panel artık app alan adında. (Eski /menu/{slug} burada çalışmaya devam eder.)
   for (const marketingHost of set.marketing) {
-    rules.push({
-      source: "/admin/:path*",
-      has: hostCondition(marketingHost),
-      destination: `https://${set.app}/admin/:path*`,
-      permanent,
-    });
+    rules.push(...adminMoveRules(marketingHost, set.app, permanent));
   }
 
   // Menü alan adı: panel burada açılmaz; kök adres pazarlama sitesine gider.
+  rules.push(...adminMoveRules(set.menu, set.app, permanent));
   rules.push(
-    {
-      source: "/admin/:path*",
-      has: hostCondition(set.menu),
-      destination: `https://${set.app}/admin/:path*`,
-      permanent,
-    },
     {
       source: "/",
       has: hostCondition(set.menu),

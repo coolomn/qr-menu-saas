@@ -60,6 +60,12 @@ describe("alan adı yönlendirme kuralları", () => {
     );
   });
 
+  it("tam /admin için ayrı kural var (Vercel'de boş yol '/admin/' üretip fazladan yönlendirme yapmasın)", () => {
+    const rules = buildDomainRedirects();
+    assert.ok(rules.some((r) => r.source === "/admin" && r.destination === "https://app.tapmenu.com.tr/admin"));
+    assert.ok(rules.every((r) => !r.source.includes(":path*")), "':path*' kullanılmamalı");
+  });
+
   it("pazarlama ana sayfası olduğu gibi kalır", async () => {
     await expectUntouched("https://tapmenu.com.tr/");
   });

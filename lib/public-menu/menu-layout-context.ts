@@ -1,19 +1,21 @@
 import { cache } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 
 /**
  * Metadata-only restaurant lookup (shared by menu slug layout metadata).
+ *
+ * Sunucu tarafı (service role) okuma: 2026-11-04 güvenlik düzeltmesinden beri anonim anahtar
+ * restaurants tablosunu okuyamıyor; anon ile okununca başlık hep boş kalıyordu.
+ * Yalnızca sunucu bileşenlerinden (app/menu/[slug]/layout.tsx) çağrılır; yalnızca `name` seçilir.
  */
 export const loadMenuSlugName = cache(async (slug: string): Promise<string> => {
   const normalizedSlug = slug.trim();
   if (!normalizedSlug) return "";
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return "";
+  const service = tryCreateServiceSupabase();
+  if (!service.ok) return "";
 
-  const supabase = createClient(url, key);
-  const { data } = await supabase
+  const { data } = await service.client
     .from("restaurants")
     .select("name")
     .eq("slug", normalizedSlug)
