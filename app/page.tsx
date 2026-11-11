@@ -12,7 +12,7 @@ export default function Home() {
           <span className="text-2xl font-black tracking-tight text-gray-900">TapMenu</span>
         </div>
         <div className="flex gap-4">
-          <Link href="/menu/nuup" className="hidden md:flex items-center text-gray-600 hover:text-gray-900 font-medium transition-colors">
+          <Link href="/menu/tapmenu-cafe" className="hidden md:flex items-center text-gray-600 hover:text-gray-900 font-medium transition-colors">
             Canlı Demo
           </Link>
           <Link href="/admin/login" className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-50 transition-all">
@@ -40,7 +40,7 @@ export default function Home() {
         </p>
         
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link href="/menu/nuup" className="w-full sm:w-auto px-8 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+          <Link href="/menu/tapmenu-cafe" className="w-full sm:w-auto px-8 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
             Örnek Menüyü İncele <ArrowRight size={20} />
           </Link>
           <Link href="/admin/login" className="w-full sm:w-auto px-8 py-4 bg-white text-gray-800 font-bold rounded-xl border border-gray-200 shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-2">
