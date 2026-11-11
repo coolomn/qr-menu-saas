@@ -6,6 +6,7 @@ import {
 } from "@/lib/public-menu/load-public-menu";
 import { publicMenuJsonResponse } from "@/lib/public-menu/public-menu-route-response";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { tagPublicMenuResponse } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +45,7 @@ export async function GET(
 
   try {
     const payload = await buildPublicMenuBootstrap(svc.client, loaded.restaurant);
+    await tagPublicMenuResponse(loaded.restaurant.id);
     return publicMenuJsonResponse(payload, 200, { restaurantId: loaded.restaurant.id });
   } catch (error) {
     console.error(error);

@@ -34,6 +34,6 @@ export async function POST(request: Request) {
   }
 
   const ids = (data ?? []).map((r: { id: string }) => r.id);
-  const ok = await purgePublicMenuCache(ids);
-  return NextResponse.json({ ok, count: ids.length }, { headers: NO_STORE });
+  const purge = await purgePublicMenuCache(ids);
+  return NextResponse.json({ ok: purge !== "failed", purge, count: ids.length }, { headers: NO_STORE });
 }

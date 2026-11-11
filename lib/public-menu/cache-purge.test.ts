@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { publicMenuCacheTag, purgePublicMenuCache } from "./cache-purge";
+import { isVercelPurgeAvailable, publicMenuCacheTag, purgePublicMenuCache } from "./cache-purge";
 import { publicMenuJsonResponse } from "./public-menu-route-response";
 import { VERCEL_CACHE_TAG_HEADER } from "./cache-headers";
 
@@ -14,10 +14,10 @@ describe("publicMenuCacheTag", () => {
 describe("purgePublicMenuCache", () => {
   it("purges deduplicated tags for the given restaurants", async () => {
     const calls: string[][] = [];
-    const ok = await purgePublicMenuCache(["r1", "r2", "r1", " ", null], async (tags) => {
+    const res = await purgePublicMenuCache(["r1", "r2", "r1", " ", null], async (tags) => {
       calls.push(tags);
-    });
-    assert.equal(ok, true);
+    }, () => true);
+    assert.equal(res, "purged");
     assert.deepEqual(calls, [["menu-r1", "menu-r2"]]);
   });
 
@@ -25,25 +25,40 @@ describe("purgePublicMenuCache", () => {
     const calls: string[][] = [];
     await purgePublicMenuCache("r9", async (tags) => {
       calls.push(tags);
-    });
+    }, () => true);
     assert.deepEqual(calls, [["menu-r9"]]);
   });
 
   it("does nothing for an empty list", async () => {
     let called = false;
-    assert.equal(await purgePublicMenuCache([], async () => void (called = true)), true);
+    assert.equal(await purgePublicMenuCache([], async () => void (called = true), () => true), "skipped");
     assert.equal(called, false);
   });
 
   it("never throws when the purge API fails (save must still succeed)", async () => {
-    const ok = await purgePublicMenuCache("r1", async () => {
+    const res = await purgePublicMenuCache("r1", async () => {
       throw new Error("purge down");
-    });
-    assert.equal(ok, false);
+    }, () => true);
+    assert.equal(res, "failed");
   });
 
-  it("is a no-op outside Vercel (default purge)", async () => {
-    assert.equal(await purgePublicMenuCache("r1"), true);
+  it("reports unavailable outside Vercel without calling purge", async () => {
+    let called = false;
+    assert.equal(await purgePublicMenuCache("r1", async () => void (called = true)), "unavailable");
+    assert.equal(called, false);
+  });
+
+  it("detects the Vercel request context purge API", async () => {
+    const sym = Symbol.for("@vercel/request-context");
+    const g = globalThis as Record<symbol, unknown>;
+    const prev = g[sym];
+    try {
+      g[sym] = { get: () => ({ purge: { dangerouslyDeleteByTag: async () => {} } }) };
+      assert.equal(isVercelPurgeAvailable(), true);
+    } finally {
+      g[sym] = prev;
+    }
+    assert.equal(isVercelPurgeAvailable(), false);
   });
 });
 

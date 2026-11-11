@@ -17,13 +17,27 @@ if (!url.includes(STAGING_REF) || !serviceKey || !anonKey) {
   process.exit(1);
 }
 const [previewUrl, slug, bypass] = process.argv.slice(2);
-if (!previewUrl || !slug || previewUrl.includes("tapmenu.com.tr")) {
+const PRODUCTION_HOSTS = new Set(["tapmenu.com.tr", "www.tapmenu.com.tr"]);
+if (!previewUrl || !slug || PRODUCTION_HOSTS.has(new URL(previewUrl).hostname)) {
   console.error("preview-url (canlı değil) ve slug gerekli");
   process.exit(1);
 }
 
 const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-const extraHeaders: Record<string, string> = bypass ? { "x-vercel-protection-bypass": bypass } : {};
+const extraHeaders: Record<string, string> = {};
+
+/** Korumalı önizleme: "share:<token>" → paylaşım çerezi, aksi halde protection-bypass gizli anahtarı. */
+async function setupAccess() {
+  if (!bypass) return;
+  if (bypass.startsWith("share:")) {
+    const res = await fetch(`${previewUrl}/?_vercel_share=${bypass.slice(6)}`, { redirect: "manual" });
+    const cookies = res.headers.getSetCookie().map((c) => c.split(";")[0]);
+    if (cookies.length === 0) throw new Error("paylaşım çerezi alınamadı");
+    extraHeaders.Cookie = cookies.join("; ");
+  } else {
+    extraHeaders["x-vercel-protection-bypass"] = bypass;
+  }
+}
 
 async function getMenu() {
   const res = await fetch(`${previewUrl}/api/public-menu/${slug}`, { headers: extraHeaders });
@@ -54,6 +68,7 @@ async function refresh(token: string) {
 }
 
 async function main() {
+  await setupAccess();
   const { data: rest, error } = await admin.from("restaurants").select("id, owner_id").eq("slug", slug).single();
   if (error || !rest?.owner_id) throw error ?? new Error("restoranın sahibi yok (sahipli bir staging restoranı seçin)");
 
