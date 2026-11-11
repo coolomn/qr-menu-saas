@@ -100,6 +100,13 @@ export type PublicProduct = {
   menu_collection_ids?: string[];
   sort_order?: number | null;
   variants?: PublicProductVariant[];
+  is_sold_out?: boolean;
+  badges?: string[];
+  calories?: number | null;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  price_updated_at?: string | null;
 };
 
 function isPublicProductVariant(value: unknown): value is PublicProductVariant {
@@ -141,6 +148,13 @@ export function normalizePublicProduct(raw: unknown): PublicProduct | null {
       ? (row.menu_collection_ids as string[])
       : undefined,
     sort_order: typeof row.sort_order === "number" ? row.sort_order : null,
+    is_sold_out: row.is_sold_out === true,
+    badges: Array.isArray(row.badges) ? (row.badges as unknown[]).filter((b): b is string => typeof b === "string") : [],
+    calories: typeof row.calories === "number" ? row.calories : null,
+    protein_g: typeof row.protein_g === "number" ? row.protein_g : null,
+    carbs_g: typeof row.carbs_g === "number" ? row.carbs_g : null,
+    fat_g: typeof row.fat_g === "number" ? row.fat_g : null,
+    price_updated_at: typeof row.price_updated_at === "string" ? row.price_updated_at : null,
   };
 
   return variants ? { ...base, variants } : base;

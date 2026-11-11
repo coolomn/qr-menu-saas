@@ -14,6 +14,16 @@ import type { FontStyleId } from "@/lib/public-menu/themes/font-ids";
 import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
 import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
+import {
+  cleanSocialLinksForSave,
+  normalizeWhatsappNumber,
+  parseOpeningHours,
+  resolveSocialUrl,
+  sanitizeHttpUrl,
+  SOCIAL_PLATFORMS,
+  type OpeningHours,
+  type SocialLinks,
+} from "@/lib/public-menu/venue-info";
 
 export type RestaurantSettingsFormState = {
   logo_url: string;
@@ -24,6 +34,14 @@ export type RestaurantSettingsFormState = {
   logo_display_mode: LogoDisplayMode;
   theme_id: ThemeId;
   font_style_id: FontStyleId;
+  wifi_name: string;
+  wifi_password: string;
+  whatsapp_number: string;
+  google_review_url: string;
+  /** null = çalışma saatleri menüde gösterilmez. */
+  opening_hours: OpeningHours | null;
+  social_links: SocialLinks;
+  show_price_date: boolean;
 };
 
 export type SaveRestaurantSettingsInput = {
@@ -89,6 +107,29 @@ function logSaveTiming(label: string, ms: number): void {
   console.debug(`${label}: ${Math.round(ms)} ms`);
 }
 
+/** Mekan bilgisi alanlarını kaydetmeden önce doğrular; hata varsa Türkçe mesaj döner. */
+export function validateVenueSettings(settings: RestaurantSettingsFormState): string | null {
+  if ((settings.wifi_name ?? "").trim().length > 64) return "Wi-Fi adı en fazla 64 karakter olabilir.";
+  if ((settings.wifi_password ?? "").trim().length > 64) return "Wi-Fi şifresi en fazla 64 karakter olabilir.";
+  const wa = (settings.whatsapp_number ?? "").trim();
+  if (wa && !normalizeWhatsappNumber(wa)) {
+    return "WhatsApp numarası geçersiz. Örnek: 0555 123 45 67 veya +90 555 123 45 67";
+  }
+  const google = (settings.google_review_url ?? "").trim();
+  if (google && !sanitizeHttpUrl(google)) return "Google yorum linki geçersiz (https:// ile başlayan bir bağlantı girin).";
+  const links = settings.social_links ?? {};
+  for (const platform of SOCIAL_PLATFORMS) {
+    const value = (links[platform.id] ?? "").trim();
+    if (value && !resolveSocialUrl(platform.id, value)) {
+      return `${platform.label} bağlantısı geçersiz.`;
+    }
+  }
+  if (settings.opening_hours && !parseOpeningHours(settings.opening_hours)) {
+    return "Çalışma saatleri geçersiz (saatleri SS:DD biçiminde girin).";
+  }
+  return null;
+}
+
 export function buildRestaurantSettingsDbPayload(input: {
   settings: RestaurantSettingsFormState;
   logoUrl: string;
@@ -104,6 +145,13 @@ export function buildRestaurantSettingsDbPayload(input: {
     logo_display_mode: input.settings.logo_display_mode,
     theme_id: input.settings.theme_id,
     font_style_id: input.settings.font_style_id,
+    wifi_name: (input.settings.wifi_name ?? "").trim() || null,
+    wifi_password: (input.settings.wifi_password ?? "").trim() || null,
+    whatsapp_number: normalizeWhatsappNumber(input.settings.whatsapp_number ?? "") ?? null,
+    google_review_url: sanitizeHttpUrl(input.settings.google_review_url ?? "") ?? null,
+    opening_hours: input.settings.opening_hours ?? null,
+    social_links: cleanSocialLinksForSave(input.settings.social_links ?? {}),
+    show_price_date: input.settings.show_price_date === true,
   };
 }
 
@@ -157,6 +205,10 @@ export async function saveRestaurantSettings(
   input: SaveRestaurantSettingsInput
 ): Promise<SaveRestaurantSettingsResult> {
   const totalStartedAt = performance.now();
+  const venueError = validateVenueSettings(input.settings);
+  if (venueError) {
+    throw new RestaurantSettingsSaveError("Ayarlar kaydedilemedi", venueError);
+  }
   let finalLogoUrl = input.settings.logo_url;
   let finalWelcomeBgUrl = input.settings.welcome_bg_url;
 

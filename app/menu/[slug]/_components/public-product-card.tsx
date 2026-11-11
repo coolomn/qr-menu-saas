@@ -15,6 +15,7 @@ import {
 import { ProductImageLightbox } from "@/app/menu/[slug]/_components/ProductImageLightbox";
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
 import { resolvePublicProductCardImageSrc } from "@/lib/public-menu/product-image-urls";
+import { pickLang, resolveProductBadges } from "@/lib/public-menu/venue-info";
 
 type PublicProductCardProps = {
   product: PublicProduct;
@@ -54,12 +55,14 @@ export function PublicProductCard({
   const productName = getText(productRecord, "name");
   const description = getText(productRecord, "description");
   const cardImageUrl = resolvePublicProductCardImageSrc(product);
+  const soldOut = product.is_sold_out === true;
+  const badges = resolveProductBadges(product.badges, language);
 
   return (
     <>
       <button
         type="button"
-        className={`${c.productCard} w-full cursor-pointer text-left transition-opacity hover:opacity-95 active:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
+        className={`${c.productCard} ${soldOut ? "opacity-60" : ""} w-full cursor-pointer text-left transition-opacity hover:opacity-95 active:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
         onClick={() => setDetailOpen(true)}
         aria-label={productName ? `${productName} — detayları gör` : "Ürün detaylarını gör"}
       >
@@ -68,7 +71,7 @@ export function PublicProductCard({
             <img
               src={cardImageUrl}
               alt=""
-              className="w-full h-full object-cover"
+              className={`w-full h-full object-cover ${soldOut ? "grayscale" : ""}`}
               loading="lazy"
               decoding="async"
               draggable={false}
@@ -112,7 +115,29 @@ export function PublicProductCard({
             </ul>
           )}
 
+          {(soldOut || badges.length > 0) && (
+            <div className="mb-1 flex flex-wrap gap-1">
+              {soldOut && (
+                <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                  {pickLang(language, { tr: "Tükendi", en: "Sold out", ru: "Нет в наличии" })}
+                </span>
+              )}
+              {badges.map((badge) => (
+                <span
+                  key={badge.id}
+                  className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-bold"
+                >
+                  <span aria-hidden>{badge.icon}</span> {badge.label}
+                </span>
+              ))}
+            </div>
+          )}
+
           {description && <p className={c.productDescription}>{description}</p>}
+
+          {typeof product.calories === "number" && (
+            <p className="mt-0.5 text-[10px] font-semibold opacity-60">{product.calories} kcal</p>
+          )}
 
           <PublicProductAllergens
             allergens={product.allergens}

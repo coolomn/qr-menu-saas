@@ -16,10 +16,10 @@ import {
 } from "@/lib/public-menu/themes/resolve";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
+import { hasNutrition, pickLang, readNutrition, resolveProductBadges } from "@/lib/public-menu/venue-info";
 
 const OPTIONAL_META_FIELDS = [
   { keys: ["grammage", "gram", "weight", "weight_g", "portion"], label: "Gramaj" },
-  { keys: ["calories", "calorie", "kalori"], label: "Kalori" },
 ] as const;
 
 type ProductImageLightboxProps = {
@@ -120,6 +120,9 @@ export function ProductImageLightbox({
   const variants = Array.isArray(product.variants) ? product.variants : [];
   const showVariants = hasProductVariants(variants);
   const optionalMeta = readOptionalMeta(productRecord);
+  const nutrition = readNutrition(productRecord);
+  const badges = resolveProductBadges(product.badges, language);
+  const soldOut = product.is_sold_out === true;
 
   useEffect(() => {
     if (!open) return;
@@ -225,6 +228,41 @@ export function ProductImageLightbox({
           {description ? (
             <p className={`${c.productDescription} leading-relaxed`}>{description}</p>
           ) : null}
+
+          {(soldOut || badges.length > 0) && (
+            <div className="flex flex-wrap gap-1.5">
+              {soldOut && (
+                <span className="rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-white">
+                  {pickLang(language, { tr: "Tükendi", en: "Sold out", ru: "Нет в наличии" })}
+                </span>
+              )}
+              {badges.map((badge) => (
+                <span key={badge.id} className="rounded-full bg-black/10 px-2.5 py-1 text-[11px] font-bold">
+                  <span aria-hidden>{badge.icon}</span> {badge.label}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {hasNutrition(nutrition) && (
+            <dl className="flex flex-wrap gap-x-5 gap-y-3">
+              {[
+                { label: pickLang(language, { tr: "Kalori", en: "Calories", ru: "Калории" }), value: nutrition.calories, unit: "kcal" },
+                { label: pickLang(language, { tr: "Protein", en: "Protein", ru: "Белки" }), value: nutrition.protein_g, unit: "g" },
+                { label: pickLang(language, { tr: "Karbonhidrat", en: "Carbs", ru: "Углеводы" }), value: nutrition.carbs_g, unit: "g" },
+                { label: pickLang(language, { tr: "Yağ", en: "Fat", ru: "Жиры" }), value: nutrition.fat_g, unit: "g" },
+              ]
+                .filter((item) => item.value !== null)
+                .map((item) => (
+                  <div key={item.label} className="min-w-[5rem]">
+                    <dt className={`${c.allergenLabel} normal-case tracking-wide`}>{item.label}</dt>
+                    <dd className={`${c.fontBody} mt-0.5 text-sm font-semibold`}>
+                      {item.value} {item.unit}
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+          )}
 
           {optionalMeta.length > 0 && (
             <dl className="flex flex-wrap gap-x-5 gap-y-3">

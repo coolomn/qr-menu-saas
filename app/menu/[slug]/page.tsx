@@ -20,6 +20,10 @@ import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slid
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
 import {
+  PublicPriceDateNote,
+  PublicVenueActions,
+} from "@/app/menu/[slug]/_components/public-venue-info";
+import {
   normalizePublicProducts,
   type PublicProduct,
 } from "@/lib/public-menu/product-variants";
@@ -847,6 +851,13 @@ export default function CustomerMenu() {
           />
         ))}
       </main>
+      <PublicPriceDateNote
+        products={products}
+        show={restaurant.show_price_date}
+        language={language}
+        className={tc.emptyStateText}
+      />
+      <PublicVenueActions restaurant={restaurant} language={language} accentColor={themeColor} />
     </MenuThemeShell>
   );
 }

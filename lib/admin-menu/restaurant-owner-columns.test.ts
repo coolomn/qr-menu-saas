@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { buildRestaurantSettingsDbPayload } from "./save-restaurant-settings";
@@ -11,7 +11,13 @@ import { buildRestaurantSettingsDbPayload } from "./save-restaurant-settings";
  */
 function loadOwnerEditableColumns(): string[] {
   const dir = path.join(process.cwd(), "supabase", "migrations");
-  const sql = readFileSync(path.join(dir, "20261103120000_tenant_security_hardening.sql"), "utf8");
+  // Fonksiyonu tanımlayan EN SON migration geçerlidir (create or replace).
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .filter((f) => /create or replace function public\.restaurants_guard_owner_update/.test(readFileSync(path.join(dir, f), "utf8")))
+    .sort();
+  assert.ok(files.length > 0, "restaurants_guard_owner_update tanımı bulunamadı");
+  const sql = readFileSync(path.join(dir, files[files.length - 1]), "utf8");
   const match = sql.match(/owner_editable\s+text\[\]\s*:=\s*array\[([\s\S]*?)\];/);
   assert.ok(match, "owner_editable listesi migration içinde bulunamadı");
   return [...match[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);

@@ -137,7 +137,7 @@ export function BulkPriceEditPanel({
         const minPrice = minActiveVariantPrice(mergedVariants);
         const { error: syncErr } = await supabase
           .from("products")
-          .update({ price: minPrice })
+          .update({ price: minPrice, price_updated_at: new Date().toISOString() })
           .eq("id", productId);
         if (syncErr) throw new Error(syncErr.message || "Ürün fiyat özeti güncellenemedi.");
         savedProductPrices[productId] = minPrice;

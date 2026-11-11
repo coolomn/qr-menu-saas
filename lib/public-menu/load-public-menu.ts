@@ -38,6 +38,13 @@ export type RestaurantRow = {
   font_style_id?: string | null;
   tenant_status?: string | null;
   subscription_ends_at?: string | null;
+  wifi_name?: string | null;
+  wifi_password?: string | null;
+  whatsapp_number?: string | null;
+  google_review_url?: string | null;
+  opening_hours?: unknown;
+  social_links?: unknown;
+  show_price_date?: boolean | null;
 };
 
 export type PublicRestaurantPayload = Omit<
@@ -88,6 +95,13 @@ type ProductRow = {
   sort_order?: number | null;
   created_at?: string | null;
   variants?: PublicProductVariant[];
+  is_sold_out?: boolean;
+  badges?: string[];
+  calories?: number | null;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  price_updated_at?: string | null;
 };
 
 export type PublicMenuBootstrapPayload = {
@@ -121,6 +135,27 @@ const RESTAURANT_COLUMNS = [
   "font_style_id",
   "tenant_status",
   "subscription_ends_at",
+].join(",");
+
+/** Faz 2.1 kolonları; migration uygulanmadıysa sorgu bunlarsız tekrarlanır. */
+const RESTAURANT_VENUE_COLUMNS = [
+  "wifi_name",
+  "wifi_password",
+  "whatsapp_number",
+  "google_review_url",
+  "opening_hours",
+  "social_links",
+  "show_price_date",
+].join(",");
+
+const PRODUCT_BASICS_COLUMNS = [
+  "is_sold_out",
+  "badges",
+  "calories",
+  "protein_g",
+  "carbs_g",
+  "fat_g",
+  "price_updated_at",
 ].join(",");
 
 const CATEGORY_COLUMNS = [
@@ -222,9 +257,17 @@ export async function loadPublicMenuRestaurantBySlug(
 ): Promise<LoadRestaurantResult> {
   let { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
-    .select(RESTAURANT_COLUMNS)
+    .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS].join(","))
     .eq("slug", normalizedSlug)
     .maybeSingle();
+
+  if (restaurantError && isMissingColumn(restaurantError)) {
+    ({ data: restaurant, error: restaurantError } = await supabase
+      .from("restaurants")
+      .select(RESTAURANT_COLUMNS)
+      .eq("slug", normalizedSlug)
+      .maybeSingle());
+  }
 
   let gateColumnsAvailable = true;
 
@@ -353,11 +396,21 @@ async function loadProductRows(
 
   let { data: productRows, error: productsError } = await supabase
     .from("products")
-    .select(PRODUCT_COLUMNS)
+    .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS].join(","))
     .in("category_id", categoryIds)
     .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
+
+  if (productsError && isMissingColumn(productsError)) {
+    ({ data: productRows, error: productsError } = await supabase
+      .from("products")
+      .select(PRODUCT_COLUMNS)
+      .in("category_id", categoryIds)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }));
+  }
 
   if (productsError && isMissingColumn(productsError)) {
     const retryWithSort = await supabase

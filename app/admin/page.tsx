@@ -7,6 +7,14 @@ import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, Powe
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
 import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
+import { ProductBasicsFields } from "@/app/admin/_components/products/ProductBasicsFields";
+import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSettings";
+import {
+  normalizeBadgeIds,
+  parseNutritionInput,
+  parseOpeningHours,
+  type SocialLinks,
+} from "@/lib/public-menu/venue-info";
 import { isProductPriceEmpty } from "@/lib/admin-menu/bulk-price-edit";
 import {
   nextProductSortOrderInCategory,
@@ -186,6 +194,13 @@ export default function AdminDashboard() {
     logo_display_mode: "auto" as LogoDisplayMode,
     theme_id: "classic" as ThemeId,
     font_style_id: "classic" as FontStyleId,
+    wifi_name: "",
+    wifi_password: "",
+    whatsapp_number: "",
+    google_review_url: "",
+    opening_hours: null as ReturnType<typeof parseOpeningHours>,
+    social_links: {} as SocialLinks,
+    show_price_date: false,
   });
   
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -262,6 +277,9 @@ export default function AdminDashboard() {
     description: "", description_en: "", description_ru: "", 
     price: "", category_id: "", file: null as File | null, image_url: "", thumbnail_url: "",
     allergens: [] as string[],
+    is_sold_out: false,
+    badges: [] as string[],
+    calories: "", protein_g: "", carbs_g: "", fat_g: "",
     pricing_mode: "single" as PricingMode,
     variants: [] as EditableProductVariant[],
   });
@@ -369,6 +387,16 @@ export default function AdminDashboard() {
             logo_display_mode: normalizeLogoDisplayMode(resData.logo_display_mode),
             theme_id: normalizeThemeId(resData.theme_id),
             font_style_id: normalizeFontStyleId(resData.font_style_id),
+            wifi_name: resData.wifi_name || "",
+            wifi_password: resData.wifi_password || "",
+            whatsapp_number: resData.whatsapp_number || "",
+            google_review_url: resData.google_review_url || "",
+            opening_hours: parseOpeningHours(resData.opening_hours),
+            social_links:
+              resData.social_links && typeof resData.social_links === "object"
+                ? (resData.social_links as SocialLinks)
+                : {},
+            show_price_date: resData.show_price_date === true,
         });
         
         const { data: catData } = await supabase.from("categories").select("*").eq("restaurant_id", resData.id).order('sort_order');
@@ -530,6 +558,15 @@ export default function AdminDashboard() {
   const handleToggleActive = async (productId: string, currentStatus: boolean) => {
     await supabase.from("products").update({ is_active: !currentStatus }).eq("id", productId);
     setProducts(products.map((p: any) => p.id === productId ? { ...p, is_active: !currentStatus } : p));
+  };
+
+  const handleToggleSoldOut = async (productId: string, current: boolean) => {
+    const { error } = await supabase.from("products").update({ is_sold_out: !current }).eq("id", productId);
+    if (error) {
+      alert("Tükendi durumu kaydedilemedi: " + error.message);
+      return;
+    }
+    setProducts((prev: any[]) => prev.map((p: any) => (p.id === productId ? { ...p, is_sold_out: !current } : p)));
   };
 
   const handleProductImageUpdated = (
@@ -758,6 +795,12 @@ export default function AdminDashboard() {
       description: product.description || "", description_en: product.description_en || "", description_ru: product.description_ru || "",
       price: product.price || "", category_id: product.category_id || "", file: null, image_url: product.image_url || "", thumbnail_url: product.thumbnail_url || "",
       allergens: product.allergens || [],
+      is_sold_out: product.is_sold_out === true,
+      badges: normalizeBadgeIds(product.badges),
+      calories: product.calories != null ? String(product.calories) : "",
+      protein_g: product.protein_g != null ? String(product.protein_g) : "",
+      carbs_g: product.carbs_g != null ? String(product.carbs_g) : "",
+      fat_g: product.fat_g != null ? String(product.fat_g) : "",
       pricing_mode: hasVariants ? "variants" : "single",
       variants: hasVariants
         ? existingVariants.map((v) => ({ label: v.label, price: v.price }))
@@ -789,6 +832,9 @@ export default function AdminDashboard() {
       image_url: "",
       thumbnail_url: "",
       allergens: [],
+      is_sold_out: false,
+      badges: [],
+      calories: "", protein_g: "", carbs_g: "", fat_g: "",
       pricing_mode: "single",
       variants: [],
     });
@@ -853,6 +899,25 @@ export default function AdminDashboard() {
         ? minActiveVariantPrice(newProduct.variants)
         : newProduct.price.trim();
 
+    const calories = parseNutritionInput(newProduct.calories, { integer: true, max: 20000 });
+    const protein = parseNutritionInput(newProduct.protein_g, { integer: false, max: 5000 });
+    const carbs = parseNutritionInput(newProduct.carbs_g, { integer: false, max: 5000 });
+    const fat = parseNutritionInput(newProduct.fat_g, { integer: false, max: 5000 });
+    if (calories === undefined || protein === undefined || carbs === undefined || fat === undefined) {
+      alert("Besin değerleri geçersiz: yalnızca sayı girin (kalori en çok 20000, diğerleri en çok 5000).");
+      return;
+    }
+
+    // Varyant fiyatları değiştiyse (ürün fiyatı özeti aynı kalsa bile) fiyat tarihini elle güncelle.
+    const previousVariants = editingProductId ? productVariantsMap[editingProductId] || [] : [];
+    const nextVariantKey = newProduct.pricing_mode === "variants"
+      ? JSON.stringify(newProduct.variants.map((v) => [v.label.trim(), v.price.trim()]))
+      : "[]";
+    const previousVariantKey = JSON.stringify(
+      sortProductVariantsByOrder(previousVariants).map((v) => [v.label.trim(), String(v.price).trim()])
+    );
+    const variantPricesChanged = editingProductId ? nextVariantKey !== previousVariantKey : false;
+
     setUploading(true);
     const editingRow = editingProductId
       ? products.find((p: { id: string }) => p.id === editingProductId)
@@ -888,7 +953,11 @@ export default function AdminDashboard() {
         restaurant_id: restaurant.id,
         category_id: newProduct.category_id, name: newProduct.name, name_en: newProduct.name_en, name_ru: newProduct.name_ru,
         description: newProduct.description, description_en: newProduct.description_en, description_ru: newProduct.description_ru,
-        price: resolvedPrice, image_url: imageUrl, thumbnail_url: thumbnailUrl, allergens: newProduct.allergens
+        price: resolvedPrice, image_url: imageUrl, thumbnail_url: thumbnailUrl, allergens: newProduct.allergens,
+        is_sold_out: newProduct.is_sold_out,
+        badges: normalizeBadgeIds(newProduct.badges),
+        calories, protein_g: protein, carbs_g: carbs, fat_g: fat,
+        ...(variantPricesChanged ? { price_updated_at: new Date().toISOString() } : {}),
       };
 
       let savedProductId = editingProductId;
@@ -2373,6 +2442,11 @@ export default function AdminDashboard() {
                                         </span>
                                       )}
                                       {!p.is_active && (
+                                        <span className="text-[9px] font-black bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-md uppercase">
+                                          Menüde gizli
+                                        </span>
+                                      )}
+                                      {p.is_sold_out === true && (
                                         <span className="text-[9px] font-black bg-red-100 text-red-700 px-1.5 py-0.5 rounded-md uppercase">
                                           Tükendi
                                         </span>
@@ -2408,6 +2482,20 @@ export default function AdminDashboard() {
                                       className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50"
                                     >
                                       <Edit3 size={16} aria-hidden />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleToggleSoldOut(p.id, p.is_sold_out === true)}
+                                      title={p.is_sold_out === true ? "Tekrar stokta" : "Tükendi olarak işaretle"}
+                                      aria-label={p.is_sold_out === true ? "Tekrar stokta" : "Tükendi olarak işaretle"}
+                                      disabled={productDeletingId === p.id}
+                                      className={`px-2 py-2 rounded-lg text-[10px] font-black uppercase transition-colors ${
+                                        p.is_sold_out === true
+                                          ? "text-white bg-red-600 hover:bg-red-700"
+                                          : "text-red-600 bg-red-50 hover:bg-red-100"
+                                      } disabled:opacity-50`}
+                                    >
+                                      Tükendi
                                     </button>
                                     <button
                                       type="button"
@@ -2734,6 +2822,11 @@ export default function AdminDashboard() {
                     />
                   </div>
 
+                  <VenueInfoSettings
+                    value={settings}
+                    onChange={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
+                  />
+
                   <div className="p-4 md:p-6 border-2 border-gray-100 rounded-3xl bg-gray-50/50">
                     <div className="flex items-center gap-2 mb-2"><ImageIcon size={18} className="text-blue-500" /><label className="text-xs md:text-sm font-black text-gray-900 uppercase">Menü İçi Vitrin Görselleri</label></div>
                     <p className="text-[10px] md:text-xs font-bold text-gray-400 mb-4">En fazla 3 adet, yatay (16:9). JPG, PNG veya WebP; en fazla 20 MB. Yüklemeden önce otomatik WebP optimize edilir.</p>
@@ -3028,6 +3121,13 @@ export default function AdminDashboard() {
                             <input placeholder="Название" className="w-full max-w-full min-w-0 min-h-11 border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_ru} onChange={e => setNewProduct({...newProduct, name_ru: e.target.value})} />
                             <textarea placeholder="Описание" className="w-full max-w-full min-w-0 box-border resize-y border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_ru} onChange={e => setNewProduct({...newProduct, description_ru: e.target.value})} />
                         </div>
+                    </div>
+
+                    <div className="p-3 md:p-5 border-2 border-gray-50 rounded-2xl">
+                      <ProductBasicsFields
+                        value={newProduct}
+                        onChange={(patch) => setNewProduct((prev) => ({ ...prev, ...patch }))}
+                      />
                     </div>
 
                     <div className="p-3 md:p-5 border-2 border-gray-50 rounded-2xl space-y-3">
