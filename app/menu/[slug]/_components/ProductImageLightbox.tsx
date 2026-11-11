@@ -237,7 +237,7 @@ export function ProductImageLightbox({
                 </span>
               )}
               {badges.map((badge) => (
-                <span key={badge.id} className="rounded-full bg-black/10 px-2.5 py-1 text-[11px] font-bold">
+                <span key={badge.id} className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-bold text-gray-800">
                   <span aria-hidden>{badge.icon}</span> {badge.label}
                 </span>
               ))}

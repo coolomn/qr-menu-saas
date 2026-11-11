@@ -62,7 +62,7 @@ export function PublicProductCard({
     <>
       <button
         type="button"
-        className={`${c.productCard} ${soldOut ? "opacity-60" : ""} w-full cursor-pointer text-left transition-opacity hover:opacity-95 active:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
+        className={`${c.productCard} w-full cursor-pointer text-left transition-opacity hover:opacity-95 active:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
         onClick={() => setDetailOpen(true)}
         aria-label={productName ? `${productName} — detayları gör` : "Ürün detaylarını gör"}
       >
@@ -71,7 +71,7 @@ export function PublicProductCard({
             <img
               src={cardImageUrl}
               alt=""
-              className={`w-full h-full object-cover ${soldOut ? "grayscale" : ""}`}
+              className={`w-full h-full object-cover ${soldOut ? "grayscale opacity-50" : ""}`}
               loading="lazy"
               decoding="async"
               draggable={false}
@@ -84,7 +84,7 @@ export function PublicProductCard({
               showVariants ? "mb-1.5" : "mb-1"
             }`}
           >
-            <h3 className={`${c.fontHeading} ${c.productTitle}`}>{productName}</h3>
+            <h3 className={`${c.fontHeading} ${c.productTitle} ${soldOut ? "opacity-60" : ""}`}>{productName}</h3>
             {!showVariants && (
               <PublicMenuPrice
                 raw={product.price}
@@ -125,7 +125,7 @@ export function PublicProductCard({
               {badges.map((badge) => (
                 <span
                   key={badge.id}
-                  className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-bold"
+                  className="rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold text-gray-800"
                 >
                   <span aria-hidden>{badge.icon}</span> {badge.label}
                 </span>
@@ -133,10 +133,12 @@ export function PublicProductCard({
             </div>
           )}
 
-          {description && <p className={c.productDescription}>{description}</p>}
+          {description && (
+            <p className={`${c.productDescription} ${soldOut ? "opacity-60" : ""}`}>{description}</p>
+          )}
 
           {typeof product.calories === "number" && (
-            <p className="mt-0.5 text-[10px] font-semibold opacity-60">{product.calories} kcal</p>
+            <p className="mt-0.5 inline-block self-start rounded-md border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] font-bold text-gray-700">{product.calories} kcal</p>
           )}
 
           <PublicProductAllergens
