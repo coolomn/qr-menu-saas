@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
+import { createMenuSnapshot } from "@/lib/menu-snapshot";
 
 export const runtime = "nodejs";
 
 type Body = { restaurantId?: string };
 
 /**
- * Restoran sahibinin tüm kategorilerini ve ürünlerini siler.
+ * Restoran sahibinin tüm kategorilerini ve ürünlerini siler (önce menu_snapshots yedeği alınır).
  * Önce ürünler (FK), sonra kategoriler.
  */
 export async function POST(request: Request) {
@@ -35,15 +37,18 @@ export async function POST(request: Request) {
     }
     const admin = svc.client;
 
-    const { data: rest, error: rErr } = await admin
-      .from("restaurants")
-      .select("id")
-      .eq("id", restaurantId)
-      .eq("owner_id", user.id)
-      .maybeSingle();
+    const tenant = await requireActiveOwnedRestaurant(admin, { userId: user.id, restaurantId });
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+    }
 
-    if (rErr || !rest) {
-      return NextResponse.json({ error: "Yetkisiz veya restoran bulunamadı." }, { status: 403 });
+    // Silmeden önce yedek: alınamazsa hiçbir şey silinmez.
+    const snapshot = await createMenuSnapshot(admin, restaurantId, "menu_reset");
+    if (!snapshot.ok) {
+      return NextResponse.json(
+        { error: "Menü yedeği alınamadığı için sıfırlama yapılmadı. Lütfen tekrar deneyin." },
+        { status: 500 }
+      );
     }
 
     const { data: cats, error: cErr } = await admin.from("categories").select("id").eq("restaurant_id", restaurantId);
@@ -67,7 +72,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: dErr.message || "Kategoriler silinemedi." }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, snapshotId: snapshot.snapshotId });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Bilinmeyen hata." }, { status: 500 });

@@ -17,6 +17,7 @@ import {
 import type { PlanType } from "@/lib/master-admin/plans";
 import { resolveSubscriptionDates } from "@/lib/master-admin/plans";
 import type { MasterRestaurantListItem } from "@/lib/master-admin/types";
+import type { MenuSnapshotSummary } from "@/lib/menu-snapshot";
 import { waitForBrowserSession } from "@/lib/supabase/browser";
 
 type FormState = {
@@ -73,6 +74,15 @@ export default function MasterRestaurantDetailPage() {
     temporaryPassword: string;
     loginUrl: string;
   } | null>(null);
+  const [snapshots, setSnapshots] = useState<MenuSnapshotSummary[] | null>(null);
+
+  const loadSnapshots = useCallback(async (token: string) => {
+    const result = await masterJsonFetch<{ snapshots: MenuSnapshotSummary[] }>(
+      `/api/master/restaurants/${restaurantId}/menu-snapshots`,
+      token
+    );
+    setSnapshots(result.ok ? result.data.snapshots : []);
+  }, [restaurantId]);
 
   const loadRestaurant = useCallback(async () => {
     const session = await waitForBrowserSession();
@@ -128,6 +138,7 @@ export default function MasterRestaurantDetailPage() {
       if (!cancelled) {
         await loadRestaurant();
         setLoading(false);
+        void loadSnapshots(session.access_token);
       }
     };
 
@@ -135,7 +146,7 @@ export default function MasterRestaurantDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [restaurantId, router, loadRestaurant]);
+  }, [restaurantId, router, loadRestaurant, loadSnapshots]);
 
   const displayStatus = useMemo(() => {
     if (!item) return "active";
@@ -267,6 +278,40 @@ export default function MasterRestaurantDetailPage() {
     setForm(itemToForm(result.data.restaurant));
     setSuccessMessage(
       result.data.status === "suspended" ? "Restoran pasifleştirildi." : "Restoran aktifleştirildi."
+    );
+  };
+
+  const handleRestoreSnapshot = async (snap: MenuSnapshotSummary) => {
+    const when = new Date(snap.created_at).toLocaleString("tr-TR");
+    const ok = window.confirm(
+      `${when} tarihli yedek geri yüklensin mi?\n` +
+        `${snap.counts.categories} kategori, ${snap.counts.products} ürün geri gelecek.\n` +
+        "Not: Restoranın şu an menüsü boş olmalı."
+    );
+    if (!ok) return;
+
+    setActionBusy(`restore-${snap.id}`);
+    setError(null);
+    setSuccessMessage(null);
+
+    const result = await withToken(async (token) => {
+      const res = await masterJsonFetch<{ ok: true; counts: MenuSnapshotSummary["counts"] }>(
+        `/api/master/restaurants/${restaurantId}/menu-snapshots`,
+        token,
+        { method: "POST", body: JSON.stringify({ snapshotId: snap.id }) }
+      );
+      await loadSnapshots(token);
+      return res;
+    });
+
+    setActionBusy(null);
+    if (!result) return;
+    if (!result.ok) {
+      setError(result.error || "Yedek geri yüklenemedi.");
+      return;
+    }
+    setSuccessMessage(
+      `Menü geri yüklendi: ${result.data.counts.categories} kategori, ${result.data.counts.products} ürün.`
     );
   };
 
@@ -505,6 +550,39 @@ export default function MasterRestaurantDetailPage() {
               {copied ? "Kopyalandı" : "Link kopyala"}
             </button>
           </div>
+        </section>
+
+        <section className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
+          <h2 className="text-sm font-black text-gray-900 uppercase tracking-wide">Menü yedekleri</h2>
+          <p className="text-xs text-gray-500">
+            Müşteri &quot;Menüyü sıfırla&quot; yaptığında menü otomatik yedeklenir ve 30 gün saklanır.
+            Geri yükleme yalnızca menü boşken yapılabilir.
+          </p>
+          {snapshots === null ? (
+            <p className="text-xs text-gray-400">Yükleniyor…</p>
+          ) : snapshots.length === 0 ? (
+            <p className="text-xs text-gray-400">Yedek yok.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {snapshots.map((snap) => (
+                <li key={snap.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                  <span className="text-gray-700">
+                    {new Date(snap.created_at).toLocaleString("tr-TR")} · {snap.counts.categories} kategori,{" "}
+                    {snap.counts.products} ürün
+                  </span>
+                  <button
+                    type="button"
+                    disabled={Boolean(actionBusy)}
+                    onClick={() => void handleRestoreSnapshot(snap)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {actionBusy === `restore-${snap.id}` && <Loader2 size={12} className="animate-spin" />}
+                    Geri yükle
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <form
