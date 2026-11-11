@@ -3,6 +3,7 @@ import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import { createMenuSnapshot } from "@/lib/menu-snapshot";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: dErr.message || "Kategoriler silinemedi." }, { status: 500 });
     }
 
+    await purgePublicMenuCache(restaurantId);
     return NextResponse.json({ ok: true, snapshotId: snapshot.snapshotId });
   } catch (e) {
     console.error(e);

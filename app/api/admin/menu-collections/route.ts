@@ -9,6 +9,7 @@ import {
 import { createMenuCollectionSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -112,6 +113,7 @@ export async function POST(request: Request) {
     }
 
     const item = toListItem(inserted, 0);
+    await purgePublicMenuCache(restaurantId);
     return NextResponse.json({ item }, { status: 201 });
   } catch (e) {
     console.error(e);

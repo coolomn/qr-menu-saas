@@ -7,6 +7,7 @@ import {
 } from "@/lib/master-admin/restaurant-data";
 import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
 import { rateLimitedResponse } from "@/lib/rate-limit/respond";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -74,6 +75,7 @@ export async function POST(request: Request, context: RouteContext) {
       newValues: { status: newStatus },
     });
 
+    await purgePublicMenuCache(restaurantId);
     return NextResponse.json({ restaurant: refreshed.item, status: newStatus });
   } catch (err) {
     console.error(err);

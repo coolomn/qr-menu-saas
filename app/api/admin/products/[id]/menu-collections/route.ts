@@ -10,6 +10,7 @@ import {
 import { putProductMenuCollectionsSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -106,6 +107,7 @@ export async function PUT(request: Request, context: RouteContext) {
     const uniqueIds = [...new Set(parsed.data.menu_collection_ids)];
     await replaceProductMenuCollections(admin, productId, uniqueIds);
 
+    await purgePublicMenuCache(product.restaurant_id);
     return NextResponse.json({ menu_collection_ids: uniqueIds });
   } catch (e) {
     console.error(e);

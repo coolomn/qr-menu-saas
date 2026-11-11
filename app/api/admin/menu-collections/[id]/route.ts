@@ -12,6 +12,7 @@ import { tryRemoveMenuCollectionCardImageFiles } from "@/lib/admin-menu/product-
 import { patchMenuCollectionSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -84,6 +85,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const counts = await getCategoryCountsByMenuCollection(admin, existing.restaurantId, [id]);
     const item = toListItem(updated, counts.get(id) ?? 0);
+    await purgePublicMenuCache(existing.restaurantId);
     return NextResponse.json({ item });
   } catch (e) {
     console.error(e);
@@ -140,6 +142,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
       ]);
     }
 
+    await purgePublicMenuCache(existing.restaurantId);
     return NextResponse.json({
       ok: true,
       id,

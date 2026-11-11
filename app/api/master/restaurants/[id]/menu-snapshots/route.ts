@@ -4,6 +4,7 @@ import { insertSubscriptionEvent } from "@/lib/master-admin/restaurant-data";
 import { listMenuSnapshots, restoreMenuSnapshot } from "@/lib/menu-snapshot";
 import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
 import { rateLimitedResponse } from "@/lib/rate-limit/respond";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,7 @@ export async function POST(request: Request, context: RouteContext) {
       newValues: { snapshot_id: snapshotId, counts: result.counts },
     });
 
+    await purgePublicMenuCache(restaurantId);
     return NextResponse.json({ ok: true, counts: result.counts });
   } catch (err) {
     console.error(err);

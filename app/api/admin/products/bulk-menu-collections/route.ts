@@ -18,6 +18,7 @@ import {
 import { bulkProductMenuCollectionsSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -184,6 +185,7 @@ export async function POST(request: Request) {
       await deleteProductMenuCollectionLinks(admin, productIds, menuCollectionIds);
     }
 
+    await purgePublicMenuCache(restaurantId);
     return NextResponse.json({
       ok: true,
       action,

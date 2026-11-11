@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getProductForOwner, mapDbErrorMessage } from "@/lib/admin-menu/helpers";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -37,6 +38,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: mapDbErrorMessage(deleteErr) }, { status: 500 });
     }
 
+    await purgePublicMenuCache(productResult.product.restaurant_id);
     return NextResponse.json({ ok: true, id: productId });
   } catch (e) {
     console.error(e);

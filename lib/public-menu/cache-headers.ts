@@ -19,6 +19,9 @@ export function publicMenuCacheHeadersForStatus(status: number) {
   return status === 200 ? PUBLIC_MENU_SUCCESS_CACHE_HEADERS : PUBLIC_MENU_ERROR_CACHE_HEADERS;
 }
 
+/** Vercel CDN etiket başlığı; değer lib/public-menu/cache-purge.ts publicMenuCacheTag ile aynı olmalı. */
+export const VERCEL_CACHE_TAG_HEADER = "Vercel-Cache-Tag";
+
 /** Slug-scoped full menu API path (distinct cache key per restaurant). */
 export function publicMenuApiPath(slug: string): string {
   return `/api/public-menu/${encodeURIComponent(slug.trim())}`;

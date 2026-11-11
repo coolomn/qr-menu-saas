@@ -33,6 +33,7 @@ import {
   resolveImportProductPrice,
   type ImportVariantCommitRow,
 } from "@/lib/menu-import/variant-templates";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -595,6 +596,7 @@ export async function POST(request: Request) {
       }
     }
 
+    await purgePublicMenuCache(restaurantId);
     return NextResponse.json({
       ok: true,
       categoriesCreated,

@@ -44,7 +44,7 @@ export async function GET(
 
   try {
     const payload = await buildPublicMenuFull(svc.client, loaded.restaurant);
-    return publicMenuJsonResponse(payload, 200);
+    return publicMenuJsonResponse(payload, 200, { restaurantId: loaded.restaurant.id });
   } catch (error) {
     console.error(error);
     return publicMenuJsonResponse({ error: "Menü okunamadı." }, 500);

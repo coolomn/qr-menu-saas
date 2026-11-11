@@ -11,6 +11,7 @@ import { resolveSubscriptionDates, type PlanType } from "@/lib/master-admin/plan
 import { parseUpdateRestaurantBody } from "@/lib/master-admin/update-payload";
 import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
 import { rateLimitedResponse } from "@/lib/rate-limit/respond";
+import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
 
@@ -195,6 +196,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       },
     });
 
+    await purgePublicMenuCache(restaurantId);
     return NextResponse.json({ restaurant: refreshed.item });
   } catch (err) {
     console.error(err);

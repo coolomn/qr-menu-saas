@@ -11,7 +11,8 @@ export type RateLimitName =
   | "menuImportContinue"
   | "masterAdminMutation"
   | "masterAdminPasswordResetByAdmin"
-  | "masterAdminPasswordResetByRestaurant";
+  | "masterAdminPasswordResetByRestaurant"
+  | "menuCacheRefresh";
 
 export type RateLimitConfig =
   | { algorithm: "slidingWindow"; tokens: number; window: Duration; prefix: string }
@@ -84,6 +85,13 @@ export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
     tokens: 3,
     window: "1 h",
     prefix: "ratelimit:master-admin:password-reset:restaurant",
+  },
+  menuCacheRefresh: {
+    algorithm: "tokenBucket",
+    refillRate: 30,
+    interval: "1 m",
+    maxTokens: 30,
+    prefix: "ratelimit:menu-cache-refresh",
   },
 };
 
