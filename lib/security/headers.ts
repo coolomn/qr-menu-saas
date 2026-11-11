@@ -4,9 +4,12 @@
  * - Zararsız başlıklar her sayfada zorunlu.
  * - Admin paneli başka sitelerin iframe'ine gömülemez (clickjacking).
  *   Public menü (/menu/...) gömülebilir kalır: işletmeler menüyü kendi sitelerine koyabilir.
- * - CSP şimdilik yalnızca "Report-Only": hiçbir şeyi engellemez, ihlalleri tarayıcı
- *   konsoluna yazar. Konsol temiz kalınca zorunlu hale getirilecek.
+ * - CSP zorunlu (2026-11-11): Report-Only döneminde canlı sayfalarda ihlal görülmedi.
+ *   İhlaller /api/csp-report üzerinden Vercel loglarına yazılır. Yeni bir harici servis
+ *   (ödeme, analitik, harita vb.) eklerken buradaki izin listesini güncelle.
  */
+
+export const CSP_REPORT_PATH = "/api/csp-report";
 
 type Header = { key: string; value: string };
 type HeaderRule = { source: string; headers: Header[] };
@@ -40,6 +43,8 @@ export function buildContentSecurityPolicy(params: {
     "object-src": "'none'",
     "base-uri": "'self'",
     "form-action": "'self'",
+    // İhlaller Vercel loglarına düşer (app/api/csp-report/route.ts).
+    "report-uri": CSP_REPORT_PATH,
   };
 
   return Object.entries(directives)
@@ -62,7 +67,7 @@ export function buildSecurityHeaderRules(params: {
           value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
         },
         {
-          key: "Content-Security-Policy-Report-Only",
+          key: "Content-Security-Policy",
           value: buildContentSecurityPolicy(params),
         },
       ],

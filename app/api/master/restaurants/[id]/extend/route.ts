@@ -9,6 +9,7 @@ import {
 import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
 import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
+import { statusAfterEndDateChange } from "@/lib/cron/daily-maintenance";
 
 export const runtime = "nodejs";
 
@@ -57,9 +58,11 @@ export async function POST(request: Request, context: RouteContext) {
     const oldEndsAt = existing.subscription.ends_at;
     const newEndsAt = computeExtendedEndsAt(oldEndsAt, months);
 
+    // Cron "expired" işaretlediyse uzatma restoranı yeniden açmalı; "suspended" korunur.
+    const newStatus = statusAfterEndDateChange(existing.subscription.status, newEndsAt);
     const { error: updateError } = await auth.admin
       .from("restaurant_subscriptions")
-      .update({ ends_at: newEndsAt })
+      .update({ ends_at: newEndsAt, status: newStatus })
       .eq("restaurant_id", restaurantId);
 
     if (updateError) {
@@ -69,7 +72,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     await syncRestaurantFromSubscription(auth.admin, restaurantId, {
       ends_at: newEndsAt,
-      status: existing.subscription.status,
+      status: newStatus,
     });
 
     const refreshed = await fetchMasterRestaurantById(auth.admin, restaurantId);

@@ -12,6 +12,7 @@ import { parseUpdateRestaurantBody } from "@/lib/master-admin/update-payload";
 import { evaluateMasterAdminMutationRateLimit } from "@/lib/rate-limit/master-admin";
 import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
+import { statusAfterEndDateChange } from "@/lib/cron/daily-maintenance";
 
 export const runtime = "nodejs";
 
@@ -144,6 +145,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
+    // Cron "expired" işaretlediyse ileri bir bitiş tarihi restoranı yeniden açar; "suspended" korunur.
+    const newStatus = statusAfterEndDateChange(existing.subscription.status, dates.ends_at);
     const subscriptionPatch: Partial<SubscriptionCoreRow> & {
       plan_type: string;
       starts_at: string;
@@ -152,6 +155,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       plan_type: planType,
       starts_at: dates.starts_at,
       ends_at: dates.ends_at,
+      status: newStatus,
     };
 
     if (payload.max_products !== undefined) subscriptionPatch.max_products = payload.max_products;
@@ -176,7 +180,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     await syncRestaurantFromSubscription(auth.admin, restaurantId, {
       ends_at: dates.ends_at,
-      status: existing.subscription.status,
+      status: newStatus,
     });
 
     const refreshed = await fetchMasterRestaurantById(auth.admin, restaurantId);
