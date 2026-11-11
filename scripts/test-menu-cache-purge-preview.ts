@@ -90,10 +90,19 @@ async function main() {
     console.log("Fiyat değişti, yenilemeden önce:", before.cache, "fiyat", seenBefore, "(eski önbellek bekleniyor:", originalPrice, ")");
 
     console.log("cache-refresh:", await refresh(token));
-    const after = await getMenu();
-    const seenAfter = after.body.products?.find((p) => p.id === product.id)?.price;
-    console.log("Yenilemeden sonra:", after.cache, "fiyat", seenAfter);
-    const pass = Number(seenAfter) === testPrice;
+    const started = Date.now();
+    let pass = false;
+    // Purge küresel olarak ~300 ms'de yayılır; 15 sn'ye kadar yokla (s-maxage 60 sn, yani TTL'den önce).
+    while (Date.now() - started < 15_000) {
+      const after = await getMenu();
+      const seenAfter = after.body.products?.find((p) => p.id === product.id)?.price;
+      console.log(`+${Date.now() - started}ms:`, after.cache, "fiyat", seenAfter);
+      if (Number(seenAfter) === testPrice) {
+        pass = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     console.log(pass ? "SONUÇ: ANINDA GÜNCELLENDİ ✅" : "SONUÇ: GÜNCELLENMEDİ ❌");
     process.exitCode = pass ? 0 : 1;
   } finally {
