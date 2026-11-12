@@ -74,3 +74,18 @@ export function publicMenuUrl(
 export function canonicalMenuUrl(slug: string): string {
   return `https://${PRODUCTION_HOST_SET.menu}/${encodeSlug(slug)}`;
 }
+
+/** Ürün detay adresi: menü adresinin altında /p/{ürün-id} (Faz 2.2). */
+export function publicProductUrl(
+  slug: string,
+  productId: string,
+  currentHost: string | null | undefined,
+  currentOrigin?: string | null
+): string {
+  return `${publicMenuUrl(slug, currentHost, currentOrigin)}/p/${encodeURIComponent(productId)}`;
+}
+
+/** Arama motorlarına bildirilen asıl ürün adresi. */
+export function canonicalProductUrl(slug: string, productId: string): string {
+  return `${canonicalMenuUrl(slug)}/p/${encodeURIComponent(productId)}`;
+}
