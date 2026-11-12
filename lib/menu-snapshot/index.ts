@@ -178,6 +178,11 @@ function chunk<T>(items: T[], size = INSERT_CHUNK): T[][] {
   return out;
 }
 
+/** parent_id'si olmayan kategoriler önce (sıra kendi içinde korunur). */
+export function parentsFirst(rows: Row[]): Row[] {
+  return [...rows.filter((r) => !r.parent_id), ...rows.filter((r) => Boolean(r.parent_id))];
+}
+
 async function writeRows(
   admin: SupabaseClient,
   table: string,
@@ -259,7 +264,8 @@ export async function restoreMenuSnapshot(
   }
 
   const steps: Array<[string, Row[], "insert" | "upsert-ignore", string?]> = [
-    ["categories", data.categories, "insert"],
+    // Üst kategoriler önce: parçalı yazımda alt kategori, üstünden önce eklenmesin (Faz 2.2).
+    ["categories", parentsFirst(data.categories), "insert"],
     ["menu_collections", data.menu_collections ?? [], "upsert-ignore", "id"],
     ["category_menu_collections", data.category_menu_collections ?? [], "upsert-ignore", "category_id,menu_collection_id"],
     ["products", data.products, "insert"],

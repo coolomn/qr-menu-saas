@@ -1,3 +1,4 @@
+import { dropHiddenSubcategories } from "@/lib/public-menu/category-tree";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PublicProductVariant } from "@/lib/admin-menu/product-variants";
 import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
@@ -66,6 +67,11 @@ export type PublicCategoryPayload = {
   main_group_ru: string | null;
   sort_order: number | null;
   menu_collection_ids: string[];
+  /** Faz 2.2: alt kategoriyse üst kategorinin id'si. */
+  parent_id?: string | null;
+  note?: string | null;
+  note_en?: string | null;
+  note_ru?: string | null;
 };
 
 type CategoryRow = {
@@ -77,6 +83,10 @@ type CategoryRow = {
   main_group_en: string | null;
   main_group_ru: string | null;
   sort_order: number | null;
+  parent_id?: string | null;
+  note?: string | null;
+  note_en?: string | null;
+  note_ru?: string | null;
 };
 
 type ProductRow = {
@@ -168,6 +178,9 @@ const CATEGORY_COLUMNS = [
   "main_group_ru",
   "sort_order",
 ].join(",");
+
+/** Faz 2.2 kolonları (alt kategori + kategori notu); migration yoksa bunlarsız tekrar denenir. */
+const CATEGORY_STRUCTURE_COLUMNS = ["parent_id", "note", "note_en", "note_ru"].join(",");
 
 const PRODUCT_COLUMNS_BASE = [
   "id",
@@ -366,10 +379,19 @@ async function loadCategoryRows(
 ): Promise<CategoryRow[]> {
   let { data: categories, error: categoriesError } = await supabase
     .from("categories")
-    .select(CATEGORY_COLUMNS)
+    .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS].join(","))
     .eq("restaurant_id", restaurantId)
     .neq("is_active", false)
     .order("sort_order");
+
+  if (categoriesError && isMissingColumn(categoriesError)) {
+    ({ data: categories, error: categoriesError } = await supabase
+      .from("categories")
+      .select(CATEGORY_COLUMNS)
+      .eq("restaurant_id", restaurantId)
+      .neq("is_active", false)
+      .order("sort_order"));
+  }
 
   if (categoriesError && isMissingColumn(categoriesError)) {
     const retry = await supabase
@@ -385,7 +407,7 @@ async function loadCategoryRows(
     throw categoriesError;
   }
 
-  return toCategoryRows(categories);
+  return dropHiddenSubcategories(toCategoryRows(categories));
 }
 
 async function loadProductRows(

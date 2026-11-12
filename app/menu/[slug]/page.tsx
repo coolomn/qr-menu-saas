@@ -20,6 +20,7 @@ import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slid
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
 import { MenuFilterBar } from "@/app/menu/[slug]/_components/menu-filter-bar";
+import { childrenByParent, isTopLevelCategory } from "@/lib/public-menu/category-tree";
 import {
   applyMenuFilter,
   availableFilterOptions,
@@ -446,21 +447,28 @@ export default function CustomerMenu() {
     });
   }, [products, filterByMenuCollection, selectedMenuCollectionId, categoryById]);
 
+  const subcategoriesByParent = useMemo(() => childrenByParent(categories), [categories]);
+
+  /** Sekmelerde yalnız üst kategoriler; alt kategoriler üst kategorinin sayfasında listelenir. */
   const menuCategories = useMemo(() => {
-    let list = categories;
+    let list = categories.filter(isTopLevelCategory);
     if (menuMainGroup != null) {
       list = list.filter((c) => categoryGroupKey(c) === menuMainGroup);
     }
     if (filterByMenuCollection && selectedMenuCollectionId) {
-      list = list.filter((c) => categoryBelongsToMenuCollection(c, selectedMenuCollectionId));
+      const withSubs = (c: PublicCategory) => [c, ...(subcategoriesByParent.get(c.id) ?? [])];
+      list = list.filter((c) =>
+        withSubs(c).some((x) => categoryBelongsToMenuCollection(x, selectedMenuCollectionId))
+      );
       const categoriesWithProducts = new Set(
         productsInSelectedMenu.map((p: { category_id: string }) => p.category_id)
       );
-      list = list.filter((c) => categoriesWithProducts.has(c.id));
+      list = list.filter((c) => withSubs(c).some((x) => categoriesWithProducts.has(x.id)));
     }
     return list;
   }, [
     categories,
+    subcategoriesByParent,
     menuMainGroup,
     filterByMenuCollection,
     selectedMenuCollectionId,
@@ -479,6 +487,19 @@ export default function CustomerMenu() {
         menuCategoryIds.has(p.category_id) && p.category_id === activeCategory
     );
   }, [productsInSelectedMenu, activeCategory, menuCategoryIds]);
+
+  /** Etkin üst kategorinin alt kategorileri ve ürünleri (ürünü olmayan alt kategori gösterilmez). */
+  const visibleSubsections = useMemo(() => {
+    if (!activeCategory || !menuCategoryIds.has(activeCategory)) return [];
+    return (subcategoriesByParent.get(activeCategory) ?? [])
+      .map((sub) => ({
+        category: sub,
+        products: productsInSelectedMenu.filter(
+          (p: { category_id: string }) => p.category_id === sub.id
+        ),
+      }))
+      .filter((section) => section.products.length > 0);
+  }, [activeCategory, menuCategoryIds, subcategoriesByParent, productsInSelectedMenu]);
 
   const filterOptions = useMemo(
     () => availableFilterOptions(productsInSelectedMenu),
@@ -583,7 +604,7 @@ export default function CustomerMenu() {
     return getText({ ...sample, main_group: trLabel }, "main_group");
   };
 
-  const groupedCategories = categories.reduce(
+  const groupedCategories = categories.filter(isTopLevelCategory).reduce(
     (acc, cat) => {
       const group = cat.main_group || "DİĞER";
       if (!acc[group]) acc[group] = [];
@@ -773,6 +794,17 @@ export default function CustomerMenu() {
   const shownProducts = applyMenuFilter(visibleProducts, menuFilter, (product) =>
     getText(product, "name")
   );
+  const shownSubsections = visibleSubsections
+    .map((section) => ({
+      ...section,
+      products: applyMenuFilter(section.products, menuFilter, (product) => getText(product, "name")),
+    }))
+    .filter((section) => section.products.length > 0);
+  const activeCategoryRow = activeCategory ? categoryById.get(activeCategory) : undefined;
+  const activeCategoryNote = activeCategoryRow ? getText(activeCategoryRow, "note") : "";
+  const hasAnyTabProducts =
+    visibleProducts.length > 0 || visibleSubsections.length > 0;
+  const hasAnyShownProducts = shownProducts.length > 0 || shownSubsections.length > 0;
 
   return wrapWithMenuFonts(
     <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
@@ -860,7 +892,12 @@ export default function CustomerMenu() {
             )}
           </div>
         )}
-        {menuCategories.length > 0 && visibleProducts.length > 0 && (
+        {activeCategoryNote ? (
+          <p className={`${tc.emptyStateText} whitespace-pre-line font-medium italic`}>
+            {activeCategoryNote}
+          </p>
+        ) : null}
+        {menuCategories.length > 0 && hasAnyTabProducts && (
           <MenuFilterBar
             value={menuFilter}
             onChange={setMenuFilter}
@@ -869,7 +906,7 @@ export default function CustomerMenu() {
             language={language}
           />
         )}
-        {visibleProducts.length > 0 && shownProducts.length === 0 && (
+        {hasAnyTabProducts && !hasAnyShownProducts && (
           <div className="text-center py-10 px-4 space-y-3">
             <p className={tc.emptyStateText}>
               {language === "en"
@@ -896,6 +933,33 @@ export default function CustomerMenu() {
             language={language}
           />
         ))}
+        {shownSubsections.map((section) => {
+          const note = getText(section.category, "note");
+          return (
+            <section key={section.category.id} className="space-y-3 pt-3" aria-label={getText(section.category, "name")}>
+              <div className="space-y-1">
+                <h2
+                  className={`${tc.fontHeading} text-base font-black uppercase tracking-wide`}
+                  style={{ color: themeColor }}
+                >
+                  {getText(section.category, "name")}
+                </h2>
+                {note ? (
+                  <p className={`${tc.emptyStateText} whitespace-pre-line font-medium italic`}>{note}</p>
+                ) : null}
+              </div>
+              {section.products.map((product) => (
+                <PublicProductCard
+                  key={product.id}
+                  product={product}
+                  theme={menuTheme}
+                  getText={getText}
+                  language={language}
+                />
+              ))}
+            </section>
+          );
+        })}
       </main>
       <PublicPriceDateNote
         products={products}

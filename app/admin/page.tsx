@@ -47,6 +47,7 @@ import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
 import { type ThemeId } from "@/lib/public-menu/themes/ids";
 import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
 import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
+import { CategoryStructureFields } from "@/app/admin/_components/categories/CategoryStructureFields";
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
@@ -169,6 +170,30 @@ function buildCategoryProductPreview(
   };
 }
 
+const EMPTY_CATEGORY_FORM = {
+  name: "",
+  main_group: "",
+  name_en: "",
+  name_ru: "",
+  main_group_en: "",
+  main_group_ru: "",
+  // Faz 2.2: alt kategori + kategori notu
+  parent_id: "",
+  note: "",
+  note_en: "",
+  note_ru: "",
+};
+
+/** Kayıttaki kategori satırından formun Faz 2.2 alanları. */
+function categoryStructureFromRow(c: any) {
+  return {
+    parent_id: typeof c?.parent_id === "string" ? c.parent_id : "",
+    note: typeof c?.note === "string" ? c.note : "",
+    note_en: typeof c?.note_en === "string" ? c.note_en : "",
+    note_ru: typeof c?.note_ru === "string" ? c.note_ru : "",
+  };
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const menuUrlFor = usePublicMenuUrl();
@@ -235,14 +260,7 @@ export default function AdminDashboard() {
   const [productDragOverId, setProductDragOverId] = useState<string | null>(null);
   const [productReorderBusy, setProductReorderBusy] = useState(false);
 
-  const [newCategory, setNewCategory] = useState({
-    name: "",
-    main_group: "",
-    name_en: "",
-    name_ru: "",
-    main_group_en: "",
-    main_group_ru: "",
-  });
+  const [newCategory, setNewCategory] = useState({ ...EMPTY_CATEGORY_FORM });
 
   const [restaurantMenus, setRestaurantMenus] = useState<
     { id: string; name: string; is_active: boolean; sort_order: number }[]
@@ -1372,7 +1390,15 @@ export default function AdminDashboard() {
     }
     setCategoryMenuError(null);
 
-    const mainGroup = (newCategory.main_group || "DİĞER").toLocaleUpperCase("tr-TR");
+    // Alt kategori, üst kategorisinin ana grubunda durur (menüde aynı yerde görünsün).
+    const parentCategory = newCategory.parent_id
+      ? categories.find((c: any) => c.id === newCategory.parent_id)
+      : null;
+    const mainGroup = (
+      (parentCategory?.main_group as string | undefined) ||
+      newCategory.main_group ||
+      "DİĞER"
+    ).toLocaleUpperCase("tr-TR");
 
     const withI18n = {
       name: newCategory.name,
@@ -1388,12 +1414,23 @@ export default function AdminDashboard() {
       main_group: mainGroup,
     };
 
+    const withStructure = {
+      ...withI18n,
+      parent_id: parentCategory ? parentCategory.id : null,
+      note: newCategory.note.trim() || null,
+      note_en: newCategory.note_en.trim() || null,
+      note_ru: newCategory.note_ru.trim() || null,
+    };
+
     const schemaMismatch = (err: { message?: string; code?: string } | null) =>
       err &&
       (/column|schema cache|does not exist|42703/i.test(err.message || "") || err.code === "42703");
 
     if (editingCategoryId) {
-      let { data, error } = await supabase.from("categories").update(withI18n).eq("id", editingCategoryId).select().single();
+      let { data, error } = await supabase.from("categories").update(withStructure).eq("id", editingCategoryId).select().single();
+      if (error && schemaMismatch(error)) {
+        ({ data, error } = await supabase.from("categories").update(withI18n).eq("id", editingCategoryId).select().single());
+      }
       if (error && schemaMismatch(error)) {
         ({ data, error } = await supabase.from("categories").update(base).eq("id", editingCategoryId).select().single());
         if (!error && data) {
@@ -1407,7 +1444,7 @@ export default function AdminDashboard() {
         if (!synced) return;
         setCategories(categories.map((c: any) => (c.id === editingCategoryId ? data : c)));
         setProducts(products.map((p: any) => (p.category_id === editingCategoryId ? { ...p, categories: data } : p)));
-        setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+        setNewCategory({ ...EMPTY_CATEGORY_FORM });
         setEditingCategoryId(null);
         setCategoryMenuSelectedIds([]);
         setIsCategoryModalOpen(false);
@@ -1430,7 +1467,22 @@ export default function AdminDashboard() {
       main_group_ru: withI18n.main_group_ru,
       is_active: true,
     };
-    let { data, error } = await supabase.from("categories").insert([insertWithI18n]).select().single();
+    let { data, error } = await supabase
+      .from("categories")
+      .insert([
+        {
+          ...insertWithI18n,
+          parent_id: withStructure.parent_id,
+          note: withStructure.note,
+          note_en: withStructure.note_en,
+          note_ru: withStructure.note_ru,
+        },
+      ])
+      .select()
+      .single();
+    if (error && schemaMismatch(error)) {
+      ({ data, error } = await supabase.from("categories").insert([insertWithI18n]).select().single());
+    }
     if (error && schemaMismatch(error)) {
       ({ data, error } = await supabase.from("categories").insert([insertBase]).select().single());
       if (!error && data) {
@@ -1448,7 +1500,7 @@ export default function AdminDashboard() {
         return;
       }
       setCategories([...categories, data]);
-      setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+      setNewCategory({ ...EMPTY_CATEGORY_FORM });
       setEditingCategoryId(null);
       setCategoryMenuSelectedIds([]);
       setIsCategoryModalOpen(false);
@@ -1459,7 +1511,7 @@ export default function AdminDashboard() {
 
   const openNewCategoryModal = () => {
     setEditingCategoryId(null);
-    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+    setNewCategory({ ...EMPTY_CATEGORY_FORM });
     prepareNewCategoryMenuSelection();
     setIsCategoryModalOpen(true);
   };
@@ -1473,6 +1525,7 @@ export default function AdminDashboard() {
       name_ru: c.name_ru != null ? String(c.name_ru) : "",
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      ...categoryStructureFromRow(c),
     });
     setIsCategoryModalOpen(true);
     if (getActiveRestaurantMenus().length >= 2) {
@@ -1485,7 +1538,7 @@ export default function AdminDashboard() {
   const closeCategoryModal = () => {
     setIsCategoryModalOpen(false);
     setEditingCategoryId(null);
-    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+    setNewCategory({ ...EMPTY_CATEGORY_FORM });
     setCategoryMenuSelectedIds([]);
     setCategoryMenuPickerMenus([]);
     setCategoryMenuError(null);
@@ -1501,6 +1554,7 @@ export default function AdminDashboard() {
       name_ru: c.name_ru != null ? String(c.name_ru) : "",
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      ...categoryStructureFromRow(c),
     });
     const active = getActiveRestaurantMenus();
     const sourceIds = categoryMenuLinksMap[c.id] || [];
@@ -2672,6 +2726,14 @@ export default function AdminDashboard() {
                                 Gizli
                               </span>
                             )}
+                            {c.parent_id && (
+                              <span
+                                className="text-[9px] font-bold bg-emerald-50 border border-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md truncate max-w-[10rem]"
+                                title="Bu kategori müşteri menüsünde üst kategorinin içinde başlık olarak görünür"
+                              >
+                                ↳ {categories.find((x: any) => x.id === c.parent_id)?.name ?? "Üst kategori"} içinde
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-0.5 pt-1 mt-0.5 border-t border-gray-200/80">
                             <button
@@ -3404,6 +3466,13 @@ export default function AdminDashboard() {
                       <input placeholder="Название" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold outline-none" value={newCategory.name_ru} onChange={e => setNewCategory({...newCategory, name_ru: e.target.value})} />
                     </div>
                   </div>
+
+                  <CategoryStructureFields
+                    value={newCategory}
+                    onChange={(patch) => setNewCategory((prev) => ({ ...prev, ...patch }))}
+                    categories={categories}
+                    editingCategoryId={editingCategoryId}
+                  />
 
                   {getActiveRestaurantMenus().length >= 2 && (
                     categoryMenuPickerLoading ? (
