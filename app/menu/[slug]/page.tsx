@@ -19,6 +19,13 @@ import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-resta
 import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slider";
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
+import { MenuFilterBar } from "@/app/menu/[slug]/_components/menu-filter-bar";
+import {
+  applyMenuFilter,
+  availableFilterOptions,
+  EMPTY_MENU_FILTER,
+  type MenuFilterState,
+} from "@/lib/public-menu/menu-filters";
 import {
   PublicPriceDateNote,
   PublicVenueActions,
@@ -282,6 +289,7 @@ export default function CustomerMenu() {
 
   const [language, setLanguage] = useState("tr");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [menuFilter, setMenuFilter] = useState<MenuFilterState>(EMPTY_MENU_FILTER);
 
   const [view, setView] = useState<"welcome" | "menu">("welcome");
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
@@ -471,6 +479,11 @@ export default function CustomerMenu() {
         menuCategoryIds.has(p.category_id) && p.category_id === activeCategory
     );
   }, [productsInSelectedMenu, activeCategory, menuCategoryIds]);
+
+  const filterOptions = useMemo(
+    () => availableFilterOptions(productsInSelectedMenu),
+    [productsInSelectedMenu]
+  );
 
   useEffect(() => {
     if (view !== "menu") return;
@@ -757,6 +770,10 @@ export default function CustomerMenu() {
     return <MenuLoadingScreen />;
   }
 
+  const shownProducts = applyMenuFilter(visibleProducts, menuFilter, (product) =>
+    getText(product, "name")
+  );
+
   return wrapWithMenuFonts(
     <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
       <header className={tc.header}>
@@ -843,7 +860,34 @@ export default function CustomerMenu() {
             )}
           </div>
         )}
-        {visibleProducts.map((product) => (
+        {menuCategories.length > 0 && visibleProducts.length > 0 && (
+          <MenuFilterBar
+            value={menuFilter}
+            onChange={setMenuFilter}
+            options={filterOptions}
+            theme={menuTheme}
+            language={language}
+          />
+        )}
+        {visibleProducts.length > 0 && shownProducts.length === 0 && (
+          <div className="text-center py-10 px-4 space-y-3">
+            <p className={tc.emptyStateText}>
+              {language === "en"
+                ? "No items in this category match your filters."
+                : language === "ru"
+                  ? "В этой категории нет блюд по выбранным фильтрам."
+                  : "Bu kategoride filtrenize uyan ürün yok."}
+            </p>
+            <button
+              type="button"
+              onClick={() => setMenuFilter({ ...EMPTY_MENU_FILTER, sort: menuFilter.sort })}
+              className={tc.emptyStateLink}
+            >
+              {language === "en" ? "Clear filters" : language === "ru" ? "Сбросить фильтры" : "Filtreyi temizle"}
+            </button>
+          </div>
+        )}
+        {shownProducts.map((product) => (
           <PublicProductCard
             key={product.id}
             product={product}

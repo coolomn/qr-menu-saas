@@ -18,6 +18,7 @@ import { ProductImageLightbox } from "@/app/menu/[slug]/_components/ProductImage
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
 import { resolvePublicProductCardImageSrc } from "@/lib/public-menu/product-image-urls";
 import { pickLang, resolveProductBadges } from "@/lib/public-menu/venue-info";
+import { variantPriceRangeRaw } from "@/lib/public-menu/menu-filters";
 
 type PublicProductCardProps = {
   product: PublicProduct;
@@ -95,6 +96,7 @@ export function PublicProductCard({
   const cardImageUrl = resolvePublicProductCardImageSrc(product);
   const soldOut = product.is_sold_out === true;
   const badges = resolveProductBadges(product.badges, language);
+  const priceRange = showVariants ? variantPriceRangeRaw(product) : null;
 
   return (
     <>
@@ -134,6 +136,13 @@ export function PublicProductCard({
                 theme={resolvedTheme}
                 size="product"
               />
+            )}
+            {priceRange && (
+              <span className="shrink-0 whitespace-nowrap" aria-label="Fiyat aralığı">
+                <PublicMenuPrice raw={priceRange.min} theme={resolvedTheme} size="variant" />
+                <span style={{ color: resolvedTheme.priceColor }}> – </span>
+                <PublicMenuPrice raw={priceRange.max} theme={resolvedTheme} size="variant" />
+              </span>
             )}
           </div>
 

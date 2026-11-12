@@ -63,7 +63,7 @@ function readOptionalMeta(record: Record<string, unknown>): { label: string; val
   return out;
 }
 
-function lightboxCardClasses(appearance: ThemeId): string {
+export function lightboxCardClasses(appearance: ThemeId): string {
   if (appearance === "dark") {
     return "bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/50 ring-1 ring-zinc-800";
   }
@@ -89,7 +89,7 @@ function lightboxImageAreaClasses(appearance: ThemeId): string {
   return "bg-gray-100";
 }
 
-function lightboxCloseButtonClasses(appearance: ThemeId): string {
+export function lightboxCloseButtonClasses(appearance: ThemeId): string {
   if (appearance === "dark") {
     return "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 border-zinc-700";
   }
