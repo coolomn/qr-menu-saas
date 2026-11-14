@@ -5,7 +5,7 @@ import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import {
   assertImportStoragePath,
-  resolveImportDownloadTarget,
+  MENU_IMPORTS_BUCKET,
 } from "@/lib/menu-import/paths";
 import { cleanupImportFile } from "@/lib/menu-import/cleanup-import-file";
 import { isImageMime, isPdfMime, isExcelMime, isExcelFileName } from "@/lib/menu-import/mime";
@@ -202,8 +202,9 @@ async function handleAnalyzePost(request: Request): Promise<NextResponse> {
       );
     }
 
-    const { bucket, path: downloadPath } = resolveImportDownloadTarget(storagePath, user.id);
-    const { data: blob, error: dlErr } = await cleanup.admin.storage.from(bucket).download(downloadPath);
+    const { data: blob, error: dlErr } = await cleanup.admin.storage
+      .from(MENU_IMPORTS_BUCKET)
+      .download(storagePath);
     if (dlErr || !blob) {
       throw new Error(dlErr?.message || "Dosya indirilemedi.");
     }

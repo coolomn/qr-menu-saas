@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isLegacyImportPath, isOwnImportFilePath, MENU_IMPORTS_BUCKET } from "./paths";
+import { isOwnImportFilePath, MENU_IMPORTS_BUCKET } from "./paths";
 
 /**
  * Import dosyasını siler. Yalnızca restaurants/{restaurantId}/imports/{userId}/{dosya}
@@ -11,9 +11,6 @@ export async function cleanupImportFile(
   restaurantId: string,
   userId: string
 ): Promise<void> {
-  if (isLegacyImportPath(storagePath, userId)) {
-    return;
-  }
   if (!isOwnImportFilePath(storagePath, restaurantId, userId)) {
     console.error("Import file cleanup skipped: path outside restaurant/user import folder");
     return;

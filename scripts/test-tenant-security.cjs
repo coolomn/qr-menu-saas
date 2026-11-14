@@ -370,6 +370,28 @@ async function main() {
       record("active owner CAN upload image", !upErr, upErr ? upErr.message : "");
     }
 
+    // 13) Girişli owner eski menu-images kovasına (imports/{uid}/) dosya koyamamalı (bulgu #6)
+    {
+      const { data: legacyBucket } = await admin.storage.getBucket("menu-images");
+      if (!legacyBucket) {
+        record("owner cannot upload to legacy menu-images/imports", true, "bucket yok, kontrol uygulanamadı");
+      } else {
+        const legacyPath = `imports/${userId}/legacy-${suffix}.html`;
+        const { error } = await owner.storage
+          .from("menu-images")
+          .upload(legacyPath, Buffer.from("<h1>x</h1>"), { contentType: "text/html" });
+        if (!error) uploadedImagePaths.push(legacyPath);
+        record("owner cannot upload to legacy menu-images/imports", !!error, error ? "rejected" : "UPLOADED");
+
+        const legacyImg = `imports/${userId}/legacy-${suffix}.png`;
+        const { error: imgErr } = await owner.storage
+          .from("menu-images")
+          .upload(legacyImg, Buffer.from("x"), { contentType: "image/png" });
+        if (!imgErr) uploadedImagePaths.push(legacyImg);
+        record("owner cannot upload image to legacy menu-images/imports", !!imgErr, imgErr ? "rejected" : "UPLOADED");
+      }
+    }
+
     // 4) Owner yeni restoran açamamalı
     {
       const { data, error } = await owner
