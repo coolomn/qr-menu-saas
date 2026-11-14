@@ -2,3 +2,9 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+
+# Güvenlik (denetim 2026-11-14): aynı ana sürüm içinde yamalı alt bağımlılıklara zorla.
+overrides:
+  browserslist: ^4.28.7
+  baseline-browser-mapping: ^2.11.0
+  "@vercel/cli-config>zod": ^4.6.7
