@@ -10,6 +10,7 @@ import {
 import { putProductMenuCollectionsSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
@@ -94,6 +95,11 @@ export async function PUT(request: Request, context: RouteContext) {
     }
 
     const { product } = productResult;
+    const tenant = await requireActiveOwnedRestaurant(admin, { userId: user.id, restaurantId: product.restaurant_id });
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+    }
+
     const validation = await validateProductMenuCollectionIdsForCategory(
       admin,
       product.restaurant_id,

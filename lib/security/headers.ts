@@ -26,6 +26,8 @@ function originOf(url: string | undefined): string | null {
 export function buildContentSecurityPolicy(params: {
   supabaseUrl?: string;
   isDev?: boolean;
+  /** true → sayfa hiçbir yerde iframe'e gömülemez (admin paneli). */
+  denyFraming?: boolean;
 }): string {
   const supabase = originOf(params.supabaseUrl);
   const supabaseHosts = [supabase, "https://*.supabase.co"].filter(Boolean).join(" ");
@@ -46,6 +48,7 @@ export function buildContentSecurityPolicy(params: {
     // İhlaller Vercel loglarına düşer (app/api/csp-report/route.ts).
     "report-uri": CSP_REPORT_PATH,
   };
+  if (params.denyFraming) directives["frame-ancestors"] = "'none'";
 
   return Object.entries(directives)
     .map(([k, v]) => `${k} ${v}`)
@@ -74,10 +77,16 @@ export function buildSecurityHeaderRules(params: {
     },
     {
       // "/admin/:path*" hem /admin hem alt sayfaları kapsar.
+      // Next.js aynı başlık anahtarında son eşleşen kuralı kullanır (birleştirmez); bu yüzden
+      // burada tam CSP + frame-ancestors verilir. Yalnızca "frame-ancestors" yazmak genel CSP'yi
+      // ezip admin sayfalarını script/connect kısıtsız bırakırdı (güvenlik denetimi 2026-11-14, #2).
       source: "/admin/:path*",
       headers: [
         { key: "X-Frame-Options", value: "DENY" },
-        { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+        {
+          key: "Content-Security-Policy",
+          value: buildContentSecurityPolicy({ ...params, denyFraming: true }),
+        },
       ],
     },
   ];

@@ -12,6 +12,7 @@ import { tryRemoveMenuCollectionCardImageFiles } from "@/lib/admin-menu/product-
 import { patchMenuCollectionSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
@@ -54,6 +55,11 @@ export async function PATCH(request: Request, context: RouteContext) {
     const existing = await getMenuCollectionForOwner(admin, user.id, id);
     if ("error" in existing) {
       return NextResponse.json({ error: existing.error }, { status: existing.status });
+    }
+
+    const tenant = await requireActiveOwnedRestaurant(admin, { userId: user.id, restaurantId: existing.restaurantId });
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     if (parsed.data.is_active === false && existing.row.is_active) {
@@ -114,6 +120,11 @@ export async function DELETE(_request: Request, context: RouteContext) {
     const existing = await getMenuCollectionForOwner(admin, user.id, id);
     if ("error" in existing) {
       return NextResponse.json({ error: existing.error }, { status: existing.status });
+    }
+
+    const tenant = await requireActiveOwnedRestaurant(admin, { userId: user.id, restaurantId: existing.restaurantId });
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const deleteGuard = await assertCanDeleteMenuCollection(
