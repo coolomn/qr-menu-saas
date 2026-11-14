@@ -9,6 +9,7 @@ import {
 import { createMenuCollectionSchema } from "@/lib/admin-menu/validation";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
@@ -76,6 +77,10 @@ export async function POST(request: Request) {
     const owner = await getOwnerRestaurant(admin, user.id, restaurantId);
     if ("error" in owner) {
       return NextResponse.json({ error: owner.error }, { status: owner.status });
+    }
+    const tenant = await requireActiveOwnedRestaurant(admin, { userId: user.id, restaurantId: restaurantId });
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const sort_order =

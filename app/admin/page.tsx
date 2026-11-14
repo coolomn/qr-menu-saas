@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight } from "lucide-react";
+import { ConfirmDialog } from "@/app/admin/_components/ConfirmDialog";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
 import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
@@ -265,6 +266,7 @@ export default function AdminDashboard() {
   const [productPriceEmptyOnly, setProductPriceEmptyOnly] = useState(false);
   const [productViewMode, setProductViewMode] = useState<"cards" | "pricing">("cards");
   const [productDeletingId, setProductDeletingId] = useState<string | null>(null);
+  const [productToDelete, setProductToDelete] = useState<{ id: string; name: string } | null>(null);
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({});
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [bulkMenuSelectedIds, setBulkMenuSelectedIds] = useState<string[]>([]);
@@ -637,15 +639,14 @@ export default function AdminDashboard() {
     }));
   };
 
-  const handleDeleteProduct = async (product: { id: string; name?: string | null }) => {
-    const label = (product.name || "").trim() || "Bu ürün";
-    if (
-      !window.confirm(
-        `${label} kalıcı olarak silinecek. Bu işlem geri alınamaz.\n\nDevam etmek istiyor musunuz?`
-      )
-    ) {
-      return;
-    }
+  // Silme önce uygulama içi onay penceresini açar (window.confirm sayfayı dondurduğu için kaldırıldı).
+  const handleDeleteProduct = (product: { id: string; name?: string | null }) => {
+    setProductToDelete({ id: product.id, name: (product.name || "").trim() || "Bu ürün" });
+  };
+
+  const confirmDeleteProduct = async () => {
+    const product = productToDelete;
+    if (!product) return;
 
     setProductDeletingId(product.id);
     try {
@@ -689,6 +690,7 @@ export default function AdminDashboard() {
       alert("Bağlantı hatası. Lütfen tekrar deneyin.");
     } finally {
       setProductDeletingId(null);
+      setProductToDelete(null);
     }
   };
 
@@ -2517,7 +2519,7 @@ export default function AdminDashboard() {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => void handleDeleteProduct(p)}
+                                      onClick={() => handleDeleteProduct(p)}
                                       title="Sil"
                                       aria-label="Sil"
                                       disabled={productDeletingId === p.id}
@@ -3429,6 +3431,14 @@ export default function AdminDashboard() {
             </div>
         </div>
       )}
+      <ConfirmDialog
+        open={productToDelete !== null}
+        title={productToDelete ? `${productToDelete.name} silinsin mi?` : ""}
+        message="Ürün kalıcı olarak silinecek. Bu işlem geri alınamaz."
+        busy={productDeletingId !== null}
+        onConfirm={() => void confirmDeleteProduct()}
+        onCancel={() => setProductToDelete(null)}
+      />
     </div>
   );
 }
