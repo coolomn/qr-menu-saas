@@ -7,6 +7,8 @@ import {
   type PublicProductVariant,
 } from "@/lib/admin-menu/product-variants";
 
+import { parseSchedule, type Schedule } from "@/lib/public-menu/schedule";
+
 export { hasProductVariants };
 export type { PublicProductVariant };
 
@@ -107,6 +109,8 @@ export type PublicProduct = {
   carbs_g?: number | null;
   fat_g?: number | null;
   price_updated_at?: string | null;
+  /** Faz 2.3 zamanlaması; yok/null = her zaman. */
+  schedule?: Schedule | null;
 };
 
 function isPublicProductVariant(value: unknown): value is PublicProductVariant {
@@ -155,6 +159,7 @@ export function normalizePublicProduct(raw: unknown): PublicProduct | null {
     carbs_g: typeof row.carbs_g === "number" ? row.carbs_g : null,
     fat_g: typeof row.fat_g === "number" ? row.fat_g : null,
     price_updated_at: typeof row.price_updated_at === "string" ? row.price_updated_at : null,
+    schedule: parseSchedule(row.schedule),
   };
 
   return variants ? { ...base, variants } : base;

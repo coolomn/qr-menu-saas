@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sanitizeScheduleForSave } from "@/lib/public-menu/schedule";
 
 const optionalText = (max: number) =>
   z
@@ -16,6 +17,28 @@ const optionalTime = z
     if (v == null || v === "") return null;
     return v;
   });
+
+/**
+ * PATCH için: gövdede ALAN YOKSA undefined kalır (mevcut değere dokunulmaz); alan varsa
+ * boş/null → null, dolu → değer. (optionalText/optionalTime yokluğu null'a çevirir; PATCH'te
+ * bu, yalnızca {is_active} gönderildiğinde bile çeviri/açıklama/saat/görseli silerdi.)
+ */
+function keepAbsent<T extends z.ZodType>(schema: T) {
+  return schema.optional().transform((v) => {
+    if (v === undefined) return undefined;
+    if (v === null || v === "") return null;
+    return v as Exclude<z.output<T>, undefined>;
+  });
+}
+
+const patchText = (max: number) =>
+  keepAbsent(z.union([z.string().trim().max(max), z.literal(""), z.null()]));
+
+const patchTime = keepAbsent(z.union([z.string().trim().max(16), z.literal(""), z.null()]));
+
+/** Zamanlama: geçersiz/boş → null ("her zaman"); PATCH'te alan yoksa dokunulmaz. */
+const createScheduleField = z.unknown().optional().transform((v) => sanitizeScheduleForSave(v));
+const patchScheduleField = z.unknown().optional().transform((v) => (v === undefined ? undefined : sanitizeScheduleForSave(v)));
 
 /**
  * Menü kartı görseli yalnızca bizim Supabase Storage'ımızdan (https, public object yolu) gelebilir.
@@ -40,21 +63,20 @@ export function isAllowedStorageImageUrl(
   );
 }
 
-const storageImageUrl = z
-  .union([
-    z
-      .string()
-      .trim()
-      .max(2000)
-      .refine((v) => isAllowedStorageImageUrl(v), "Görsel adresi geçersiz."),
-    z.literal(""),
-    z.null(),
-  ])
-  .optional()
-  .transform((v) => {
-    if (v == null || v === "") return null;
-    return v;
-  });
+const storageImageUrlInput = z.union([
+  z
+    .string()
+    .trim()
+    .max(2000)
+    .refine((v) => isAllowedStorageImageUrl(v), "Görsel adresi geçersiz."),
+  z.literal(""),
+  z.null(),
+]);
+
+const storageImageUrl = storageImageUrlInput.optional().transform((v) => {
+  if (v == null || v === "") return null;
+  return v;
+});
 
 const cardVisualType = z.enum(["icon", "image", "none"]);
 
@@ -69,6 +91,7 @@ const menuCollectionFields = {
   sort_order: z.number().int().min(0).max(9999).optional(),
   card_visual_type: cardVisualType.optional().default("icon"),
   card_image_url: storageImageUrl,
+  schedule: createScheduleField,
 };
 
 export const createMenuCollectionSchema = z.object({
@@ -79,17 +102,18 @@ export const createMenuCollectionSchema = z.object({
 export const patchMenuCollectionSchema = z
   .object({
     name: z.string().trim().min(1, "Menü adı zorunlu.").max(120).optional(),
-    name_en: optionalText(120),
-    name_ru: optionalText(120),
-    description: optionalText(500),
-    start_time: optionalTime,
-    end_time: optionalTime,
+    name_en: patchText(120),
+    name_ru: patchText(120),
+    description: patchText(500),
+    start_time: patchTime,
+    end_time: patchTime,
     is_active: z.boolean().optional(),
     sort_order: z.number().int().min(0).max(9999).optional(),
     card_visual_type: cardVisualType.optional(),
-    card_image_url: storageImageUrl,
+    card_image_url: keepAbsent(storageImageUrlInput),
+    schedule: patchScheduleField,
   })
-  .refine((data) => Object.keys(data).length > 0, {
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
     message: "Güncellenecek alan belirtilmedi.",
   });
 

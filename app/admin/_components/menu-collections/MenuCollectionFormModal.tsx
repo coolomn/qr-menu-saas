@@ -13,6 +13,8 @@ import {
   validateImageSourceFile,
 } from "@/lib/images/crop-image";
 import { ImageCropModal } from "@/app/admin/_components/images/ImageCropModal";
+import { ScheduleEditor } from "@/app/admin/_components/schedule/ScheduleEditor";
+import { emptyScheduleDraft, type Schedule } from "@/lib/public-menu/schedule";
 
 export type MenuCollectionFormValues = {
   name: string;
@@ -29,6 +31,8 @@ export type MenuCollectionFormValues = {
   card_image_file: File | null;
   /** When true on save, clear card_image_url even without a new file. */
   remove_card_image: boolean;
+  /** Faz 2.3 servis zamanı; null = her zaman. */
+  schedule: Schedule | null;
 };
 
 export function emptyMenuCollectionForm(): MenuCollectionFormValues {
@@ -44,6 +48,7 @@ export function emptyMenuCollectionForm(): MenuCollectionFormValues {
     card_image_url: null,
     card_image_file: null,
     remove_card_image: false,
+    schedule: null,
   };
 }
 
@@ -60,6 +65,7 @@ export function formValuesFromItem(item: AdminMenuCollectionListItem): MenuColle
     card_image_url: item.card_image_url || null,
     card_image_file: null,
     remove_card_image: false,
+    schedule: item.schedule ?? null,
   };
 }
 
@@ -267,30 +273,38 @@ export function MenuCollectionFormModal({
               />
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  Başlangıç
-                </span>
-                <input
-                  type="time"
-                  value={values.start_time}
-                  onChange={(e) => set({ start_time: e.target.value })}
-                  className="mt-1 w-full max-w-full min-w-0 min-h-11 border-2 border-gray-100 rounded-xl px-4 py-3 font-medium outline-none focus:border-blue-500"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  Bitiş
-                </span>
-                <input
-                  type="time"
-                  value={values.end_time}
-                  onChange={(e) => set({ end_time: e.target.value })}
-                  className="mt-1 w-full max-w-full min-w-0 min-h-11 border-2 border-gray-100 rounded-xl px-4 py-3 font-medium outline-none focus:border-blue-500"
-                />
-              </label>
-            </div>
+            {values.start_time && values.end_time && !values.schedule && (
+              <div className="rounded-2xl border-2 border-gray-100 bg-gray-50 p-3 space-y-2">
+                <p className="text-xs font-bold text-gray-600 leading-relaxed">
+                  Eski saat bilgisi: <b>{values.start_time} – {values.end_time}</b>. Bu yalnızca menü kartında yazı olarak
+                  görünüyor, menüyü saate göre açıp kapatmıyor.
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    set({
+                      schedule: {
+                        ...emptyScheduleDraft(),
+                        windows: [
+                          { days: [0, 1, 2, 3, 4, 5, 6], start: values.start_time, end: values.end_time },
+                        ],
+                      },
+                      start_time: "",
+                      end_time: "",
+                    })
+                  }
+                  className="min-h-11 rounded-xl bg-white border-2 border-gray-100 px-3 py-2 text-xs font-black text-blue-700 hover:border-blue-200"
+                >
+                  Bu saatleri servis zamanı olarak uygula
+                </button>
+              </div>
+            )}
+
+            <ScheduleEditor
+              subject="menü"
+              value={values.schedule}
+              onChange={(schedule) => set({ schedule })}
+            />
 
             <div className="p-3 md:p-4 rounded-2xl border border-violet-100 bg-violet-50/50 space-y-3">
               <div>

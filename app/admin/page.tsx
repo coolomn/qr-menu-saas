@@ -9,6 +9,8 @@ import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEd
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
 import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
 import { ProductBasicsFields } from "@/app/admin/_components/products/ProductBasicsFields";
+import { ScheduleEditor } from "@/app/admin/_components/schedule/ScheduleEditor";
+import { describeSchedule, parseSchedule, sanitizeScheduleForSave, type Schedule } from "@/lib/public-menu/schedule";
 import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSettings";
 import {
   normalizeBadgeIds,
@@ -243,6 +245,7 @@ export default function AdminDashboard() {
     name_ru: "",
     main_group_en: "",
     main_group_ru: "",
+    schedule: null as Schedule | null,
   });
 
   const [restaurantMenus, setRestaurantMenus] = useState<
@@ -281,6 +284,7 @@ export default function AdminDashboard() {
     allergens: [] as string[],
     is_sold_out: false,
     badges: [] as string[],
+    schedule: null as Schedule | null,
     calories: "", protein_g: "", carbs_g: "", fat_g: "",
     pricing_mode: "single" as PricingMode,
     variants: [] as EditableProductVariant[],
@@ -799,6 +803,7 @@ export default function AdminDashboard() {
       allergens: product.allergens || [],
       is_sold_out: product.is_sold_out === true,
       badges: normalizeBadgeIds(product.badges),
+      schedule: parseSchedule(product.schedule),
       calories: product.calories != null ? String(product.calories) : "",
       protein_g: product.protein_g != null ? String(product.protein_g) : "",
       carbs_g: product.carbs_g != null ? String(product.carbs_g) : "",
@@ -836,6 +841,7 @@ export default function AdminDashboard() {
       allergens: [],
       is_sold_out: false,
       badges: [],
+      schedule: null,
       calories: "", protein_g: "", carbs_g: "", fat_g: "",
       pricing_mode: "single",
       variants: [],
@@ -958,6 +964,7 @@ export default function AdminDashboard() {
         price: resolvedPrice, image_url: imageUrl, thumbnail_url: thumbnailUrl, allergens: newProduct.allergens,
         is_sold_out: newProduct.is_sold_out,
         badges: normalizeBadgeIds(newProduct.badges),
+        schedule: sanitizeScheduleForSave(newProduct.schedule),
         calories, protein_g: protein, carbs_g: carbs, fat_g: fat,
         ...(variantPricesChanged ? { price_updated_at: new Date().toISOString() } : {}),
       };
@@ -1383,6 +1390,7 @@ export default function AdminDashboard() {
       name_ru: newCategory.name_ru.trim() || null,
       main_group_en: newCategory.main_group_en.trim() || null,
       main_group_ru: newCategory.main_group_ru.trim() || null,
+      schedule: sanitizeScheduleForSave(newCategory.schedule),
     };
 
     const base = {
@@ -1409,7 +1417,7 @@ export default function AdminDashboard() {
         if (!synced) return;
         setCategories(categories.map((c: any) => (c.id === editingCategoryId ? data : c)));
         setProducts(products.map((p: any) => (p.category_id === editingCategoryId ? { ...p, categories: data } : p)));
-        setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+        setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
         setEditingCategoryId(null);
         setCategoryMenuSelectedIds([]);
         setIsCategoryModalOpen(false);
@@ -1430,6 +1438,7 @@ export default function AdminDashboard() {
       name_ru: withI18n.name_ru,
       main_group_en: withI18n.main_group_en,
       main_group_ru: withI18n.main_group_ru,
+      schedule: withI18n.schedule,
       is_active: true,
     };
     let { data, error } = await supabase.from("categories").insert([insertWithI18n]).select().single();
@@ -1450,7 +1459,7 @@ export default function AdminDashboard() {
         return;
       }
       setCategories([...categories, data]);
-      setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+      setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
       setEditingCategoryId(null);
       setCategoryMenuSelectedIds([]);
       setIsCategoryModalOpen(false);
@@ -1461,7 +1470,7 @@ export default function AdminDashboard() {
 
   const openNewCategoryModal = () => {
     setEditingCategoryId(null);
-    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
     prepareNewCategoryMenuSelection();
     setIsCategoryModalOpen(true);
   };
@@ -1475,6 +1484,7 @@ export default function AdminDashboard() {
       name_ru: c.name_ru != null ? String(c.name_ru) : "",
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      schedule: parseSchedule(c.schedule),
     });
     setIsCategoryModalOpen(true);
     if (getActiveRestaurantMenus().length >= 2) {
@@ -1487,7 +1497,7 @@ export default function AdminDashboard() {
   const closeCategoryModal = () => {
     setIsCategoryModalOpen(false);
     setEditingCategoryId(null);
-    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "" });
+    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
     setCategoryMenuSelectedIds([]);
     setCategoryMenuPickerMenus([]);
     setCategoryMenuError(null);
@@ -1503,6 +1513,7 @@ export default function AdminDashboard() {
       name_ru: c.name_ru != null ? String(c.name_ru) : "",
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      schedule: parseSchedule(c.schedule),
     });
     const active = getActiveRestaurantMenus();
     const sourceIds = categoryMenuLinksMap[c.id] || [];
@@ -2444,8 +2455,19 @@ export default function AdminDashboard() {
                                         </span>
                                       )}
                                       {!p.is_active && (
-                                        <span className="text-[9px] font-black bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-md uppercase">
-                                          Menüde gizli
+                                        <span
+                                          className="text-[9px] font-black bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-md uppercase"
+                                          title="Taslak: müşteriye görünmez. Yayınlamak için sağdaki düğmeyi kullanın."
+                                        >
+                                          Taslak
+                                        </span>
+                                      )}
+                                      {describeSchedule(parseSchedule(p.schedule), "tr") && (
+                                        <span
+                                          className="text-[9px] font-bold bg-amber-50 border border-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md truncate max-w-[14rem]"
+                                          title={describeSchedule(parseSchedule(p.schedule), "tr")}
+                                        >
+                                          ⏰ {describeSchedule(parseSchedule(p.schedule), "tr")}
                                         </span>
                                       )}
                                       {p.is_sold_out === true && (
@@ -2502,8 +2524,8 @@ export default function AdminDashboard() {
                                     <button
                                       type="button"
                                       onClick={() => handleToggleActive(p.id, p.is_active)}
-                                      title={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
-                                      aria-label={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
+                                      title={p.is_active ? "Taslağa al (müşteriden gizle)" : "Yayınla"}
+                                      aria-label={p.is_active ? "Taslağa al" : "Yayınla"}
                                       disabled={productDeletingId === p.id}
                                       className={`p-2 rounded-lg transition-colors ${
                                         p.is_active
@@ -2670,8 +2692,19 @@ export default function AdminDashboard() {
                               </span>
                             )}
                             {menuHidden && (
-                              <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md uppercase tracking-wide">
-                                Gizli
+                              <span
+                                className="text-[9px] font-black bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md uppercase tracking-wide"
+                                title="Taslak: müşteriye görünmez. Yayınlamak için göz düğmesini kullanın."
+                              >
+                                Taslak
+                              </span>
+                            )}
+                            {describeSchedule(parseSchedule(c.schedule), "tr") && (
+                              <span
+                                className="text-[9px] font-bold bg-amber-50 border border-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md truncate max-w-[12rem]"
+                                title={describeSchedule(parseSchedule(c.schedule), "tr")}
+                              >
+                                ⏰ {describeSchedule(parseSchedule(c.schedule), "tr")}
                               </span>
                             )}
                           </div>
@@ -2679,8 +2712,8 @@ export default function AdminDashboard() {
                             <button
                               type="button"
                               onClick={() => void handleToggleCategoryMenuVisible(c)}
-                              title={menuHidden ? "Önizle" : "Menüden gizle"}
-                              aria-label={menuHidden ? "Önizle" : "Menüden gizle"}
+                              title={menuHidden ? "Yayınla" : "Taslağa al (müşteriden gizle)"}
+                              aria-label={menuHidden ? "Yayınla" : "Taslağa al"}
                               className={`p-1.5 rounded-lg transition-colors ${
                                 menuHidden
                                   ? "text-amber-700 bg-amber-100 hover:bg-amber-200"
@@ -3132,6 +3165,12 @@ export default function AdminDashboard() {
                       />
                     </div>
 
+                    <ScheduleEditor
+                      subject="ürün"
+                      value={newProduct.schedule}
+                      onChange={(schedule) => setNewProduct((prev) => ({ ...prev, schedule }))}
+                    />
+
                     <div className="p-3 md:p-5 border-2 border-gray-50 rounded-2xl space-y-3">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-wide">Alerjenler</span>
@@ -3406,6 +3445,12 @@ export default function AdminDashboard() {
                       <input placeholder="Название" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold outline-none" value={newCategory.name_ru} onChange={e => setNewCategory({...newCategory, name_ru: e.target.value})} />
                     </div>
                   </div>
+
+                  <ScheduleEditor
+                    subject="kategori"
+                    value={newCategory.schedule}
+                    onChange={(schedule) => setNewCategory({ ...newCategory, schedule })}
+                  />
 
                   {getActiveRestaurantMenus().length >= 2 && (
                     categoryMenuPickerLoading ? (

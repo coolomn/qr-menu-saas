@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MenuCollectionCardVisualType } from "@/lib/admin-menu/types";
 import { normalizeMenuCollectionCardVisualType } from "@/lib/admin-menu/types";
+import { parseSchedule, type Schedule } from "@/lib/public-menu/schedule";
 
 export type PublicMenuCollection = {
   id: string;
@@ -13,6 +14,8 @@ export type PublicMenuCollection = {
   sort_order: number;
   card_visual_type: MenuCollectionCardVisualType;
   card_image_url: string | null;
+  /** Faz 2.3 zamanlaması; yok/null = her zaman. */
+  schedule?: Schedule | null;
 };
 
 export type PublicMenuPicker = {
@@ -31,6 +34,7 @@ type MenuCollectionRow = {
   sort_order: number | null;
   card_visual_type?: string | null;
   card_image_url?: string | null;
+  schedule?: unknown;
 };
 
 type JunctionRow = {
@@ -75,6 +79,7 @@ function toPublicMenuCollection(row: MenuCollectionRow): PublicMenuCollection {
     sort_order: typeof row.sort_order === "number" ? row.sort_order : 0,
     card_visual_type: normalizeMenuCollectionCardVisualType(row.card_visual_type),
     card_image_url: row.card_image_url?.trim() || null,
+    schedule: parseSchedule(row.schedule),
   };
 }
 
@@ -90,6 +95,9 @@ export type ActiveMenuCollectionsData = MenuCollectionsPayload & {
 
 const MENU_COLLECTION_COLUMNS =
   "id, name, name_en, name_ru, description, start_time, end_time, sort_order, card_visual_type, card_image_url";
+
+/** Faz 2.3 kolonu; migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
+const MENU_COLLECTION_COLUMNS_WITH_SCHEDULE = `${MENU_COLLECTION_COLUMNS}, schedule`;
 
 /** Legacy select when new card visual columns are not migrated yet. */
 const MENU_COLLECTION_COLUMNS_LEGACY =
@@ -108,37 +116,34 @@ export async function loadActiveMenuCollections(
   restaurantId: string
 ): Promise<ActiveMenuCollectionsData> {
   let menuRows: unknown = null;
-  const primary = await supabase
-    .from("menu_collections")
-    .select(MENU_COLLECTION_COLUMNS)
-    .eq("restaurant_id", restaurantId)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
+  // En yeni kolon setinden eskiye doğru dene; kolon yoksa (migration henüz uygulanmamış) bir önceki sete düş.
+  const columnSets = [
+    MENU_COLLECTION_COLUMNS_WITH_SCHEDULE,
+    MENU_COLLECTION_COLUMNS,
+    MENU_COLLECTION_COLUMNS_LEGACY,
+  ];
 
-  if (primary.error) {
-    if (isDbSchemaError(primary.error)) {
-      const legacy = await supabase
-        .from("menu_collections")
-        .select(MENU_COLLECTION_COLUMNS_LEGACY)
-        .eq("restaurant_id", restaurantId)
-        .eq("is_active", true)
-        .order("sort_order", { ascending: true });
+  for (const columns of columnSets) {
+    const result = await supabase
+      .from("menu_collections")
+      .select(columns)
+      .eq("restaurant_id", restaurantId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
 
-      if (legacy.error) {
-        if (isDbSchemaError(legacy.error)) {
-          console.warn("menu_collections unavailable for public menu:", legacy.error.message);
-          return EMPTY_MENU_COLLECTIONS;
-        }
-        console.error(legacy.error);
+    if (!result.error) {
+      menuRows = result.data;
+      break;
+    }
+    if (isDbSchemaError(result.error)) {
+      if (columns === MENU_COLLECTION_COLUMNS_LEGACY) {
+        console.warn("menu_collections unavailable for public menu:", result.error.message);
         return EMPTY_MENU_COLLECTIONS;
       }
-      menuRows = legacy.data;
-    } else {
-      console.error(primary.error);
-      return EMPTY_MENU_COLLECTIONS;
+      continue;
     }
-  } else {
-    menuRows = primary.data;
+    console.error(result.error);
+    return EMPTY_MENU_COLLECTIONS;
   }
 
   const activeMenus = toMenuCollectionRows(menuRows).map(toPublicMenuCollection);

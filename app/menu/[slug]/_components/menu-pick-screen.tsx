@@ -25,6 +25,8 @@ type MenuPickScreenProps = {
   language: string;
   onLanguageChange: (lang: string) => void;
   menuCollections: PublicMenuCollection[];
+  /** Menü id → "Şu an servis dışı · …" notu (yalnızca servis dışı olanlar). */
+  serviceNotes?: Record<string, string>;
   onSelectCollection: (menuCollectionId: string) => void;
   instagramCtx: InstagramContext;
   onInstagramClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
@@ -47,6 +49,7 @@ export function MenuPickScreen({
   language,
   onLanguageChange,
   menuCollections,
+  serviceNotes,
   onSelectCollection,
   instagramCtx,
   onInstagramClick,
@@ -92,12 +95,13 @@ export function MenuPickScreen({
           const title = getMenuCollectionTitle(collection, language);
           const subtitle = getMenuCollectionSubtitle(collection, language);
           const visual = resolveMenuCollectionCardVisual(collection);
+          const outsideNote = serviceNotes?.[collection.id] ?? null;
           return (
             <button
               key={collection.id}
               type="button"
               onClick={() => onSelectCollection(collection.id)}
-              className="group w-full text-left rounded-2xl border border-white/30 bg-white/12 backdrop-blur-xl px-5 py-5 sm:py-6 shadow-[0_8px_32px_rgba(0,0,0,0.18)] transition-all duration-300 hover:bg-white/20 hover:border-white/45 hover:shadow-[0_12px_40px_rgba(0,0,0,0.22)] active:scale-[0.98] animate-in fade-in slide-in-from-bottom-3 fill-mode-both"
+              className={`group w-full text-left rounded-2xl border border-white/30 bg-white/12 backdrop-blur-xl px-5 py-5 sm:py-6 shadow-[0_8px_32px_rgba(0,0,0,0.18)] transition-all duration-300 hover:bg-white/20 hover:border-white/45 hover:shadow-[0_12px_40px_rgba(0,0,0,0.22)] active:scale-[0.98] animate-in fade-in slide-in-from-bottom-3 fill-mode-both ${outsideNote ? "opacity-80" : ""}`}
               style={{ animationDelay: `${120 + index * 80}ms`, animationDuration: "500ms" }}
             >
               <div className="flex items-center gap-4">
@@ -136,6 +140,11 @@ export function MenuPickScreen({
                       {getAllDayLabel(language)}
                     </span>
                   )}
+                  {outsideNote ? (
+                    <span className="mt-2 inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
+                      {outsideNote}
+                    </span>
+                  ) : null}
                 </div>
                 <span
                   className="text-white/50 text-xl font-light shrink-0 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-white/80"

@@ -21,6 +21,10 @@ type PublicProductCardProps = {
   product: PublicProduct;
   theme: ResolvedMenuPresentation;
   getText: (item: Record<string, unknown>, field: string) => string;
+  /** Faz 2.3: şu an servis dışı (soluk gösterilir, ürün yine de okunur). */
+  outOfService?: boolean;
+  /** Ürünün kendi zamanlamasından gelen not ("Şu an servis dışı · 11:00'de başlar"). */
+  serviceNote?: string | null;
 };
 
 function getVariantLabel(
@@ -44,6 +48,8 @@ export function PublicProductCard({
   theme,
   getText,
   language = "tr",
+  outOfService = false,
+  serviceNote = null,
 }: PublicProductCardProps & { language?: string }) {
   const [detailOpen, setDetailOpen] = useState(false);
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
@@ -56,6 +62,7 @@ export function PublicProductCard({
   const description = getText(productRecord, "description");
   const cardImageUrl = resolvePublicProductCardImageSrc(product);
   const soldOut = product.is_sold_out === true;
+  const faded = soldOut || outOfService;
   const badges = resolveProductBadges(product.badges, language);
 
   return (
@@ -71,7 +78,7 @@ export function PublicProductCard({
             <img
               src={cardImageUrl}
               alt=""
-              className={`w-full h-full object-cover ${soldOut ? "grayscale opacity-50" : ""}`}
+              className={`w-full h-full object-cover ${soldOut ? "grayscale opacity-50" : outOfService ? "opacity-70" : ""}`}
               loading="lazy"
               decoding="async"
               draggable={false}
@@ -84,7 +91,7 @@ export function PublicProductCard({
               showVariants ? "mb-1.5" : "mb-1"
             }`}
           >
-            <h3 className={`${c.fontHeading} ${c.productTitle} ${soldOut ? "opacity-60" : ""}`}>{productName}</h3>
+            <h3 className={`${c.fontHeading} ${c.productTitle} ${faded ? "opacity-60" : ""}`}>{productName}</h3>
             {!showVariants && (
               <PublicMenuPrice
                 raw={product.price}
@@ -115,6 +122,12 @@ export function PublicProductCard({
             </ul>
           )}
 
+          {serviceNote && (
+            <p className="mb-1 inline-block self-start rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900">
+              {serviceNote}
+            </p>
+          )}
+
           {(soldOut || badges.length > 0) && (
             <div className="mb-1 flex flex-wrap gap-1">
               {soldOut && (
@@ -134,7 +147,7 @@ export function PublicProductCard({
           )}
 
           {description && (
-            <p className={`${c.productDescription} ${soldOut ? "opacity-60" : ""}`}>{description}</p>
+            <p className={`${c.productDescription} ${faded ? "opacity-60" : ""}`}>{description}</p>
           )}
 
           {typeof product.calories === "number" && (

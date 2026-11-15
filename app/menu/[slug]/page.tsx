@@ -20,6 +20,14 @@ import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slid
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
 import {
+  effectiveMenuPicker,
+  menuServiceNotes,
+  resolveCategoryService,
+  resolveProductService,
+  serviceNote,
+  visibleMenuCollections,
+} from "@/lib/public-menu/service-view";
+import {
   PublicPriceDateNote,
   PublicVenueActions,
 } from "@/app/menu/[slug]/_components/public-venue-info";
@@ -289,8 +297,24 @@ export default function CustomerMenu() {
   const [selectedMenuCollectionId, setSelectedMenuCollectionId] = useState<string | null>(null);
   const [menuViewEntered, setMenuViewEntered] = useState(false);
 
+  // Faz 2.3: zamanlama müşteri saatine değil mekan saatine (İstanbul) göre, dakikada bir yenilenir.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const visibleCollections = useMemo(
+    () => visibleMenuCollections(menuCollections, now),
+    [menuCollections, now]
+  );
+  const effectivePicker = useMemo(
+    () => effectiveMenuPicker(menuPicker, visibleCollections),
+    [menuPicker, visibleCollections]
+  );
+
   const useCollectionFlow = MULTI_MENU_PROTOTYPE_ENABLED;
-  const showMenuPicker = useCollectionFlow && Boolean(menuPicker?.enabled);
+  const showMenuPicker = useCollectionFlow && Boolean(effectivePicker?.enabled);
 
   const loadMenuContent = useCallback(async (): Promise<boolean> => {
     const slugValue = Array.isArray(slug) ? slug[0] : slug;
@@ -401,13 +425,19 @@ export default function CustomerMenu() {
     void loadBootstrap();
   }, [slug, useCollectionFlow, loadMenuContent]);
 
+  // "Gizle" modundaki menüler yüzünden seçim ekranı kalktıysa içerik önceden yüklenmemiş olabilir.
   useEffect(() => {
-    if (!menuDataLoaded || !menuPicker) return;
-    if (useCollectionFlow && !menuPicker.enabled) {
-      setSelectedMenuCollectionId(menuPicker.default_menu_collection_id);
+    if (!useCollectionFlow || !effectivePicker || effectivePicker.enabled) return;
+    void loadMenuContent();
+  }, [useCollectionFlow, effectivePicker, loadMenuContent]);
+
+  useEffect(() => {
+    if (!menuDataLoaded || !effectivePicker) return;
+    if (useCollectionFlow && !effectivePicker.enabled) {
+      setSelectedMenuCollectionId(effectivePicker.default_menu_collection_id);
       setView("menu");
     }
-  }, [menuDataLoaded, menuPicker, useCollectionFlow]);
+  }, [menuDataLoaded, effectivePicker, useCollectionFlow]);
 
   useEffect(() => {
     if (!menuDataLoaded || !pendingNavigation) return;
@@ -430,19 +460,34 @@ export default function CustomerMenu() {
     return map;
   }, [categories]);
 
+  const selectedMenu = useMemo(
+    () =>
+      selectedMenuCollectionId
+        ? (menuCollections.find((m) => m.id === selectedMenuCollectionId) ?? null)
+        : null,
+    [menuCollections, selectedMenuCollectionId]
+  );
+
   const productsInSelectedMenu = useMemo(() => {
-    if (!filterByMenuCollection || !selectedMenuCollectionId) return products;
-    return products.filter((p: { category_id: string; menu_collection_ids?: string[] }) => {
-      const cat = categoryById.get(p.category_id);
-      return productBelongsToMenuCollection(p, selectedMenuCollectionId, cat);
-    });
-  }, [products, filterByMenuCollection, selectedMenuCollectionId, categoryById]);
+    const inMenu =
+      !filterByMenuCollection || !selectedMenuCollectionId
+        ? products
+        : products.filter((p: { category_id: string; menu_collection_ids?: string[] }) => {
+            const cat = categoryById.get(p.category_id);
+            return productBelongsToMenuCollection(p, selectedMenuCollectionId, cat);
+          });
+    // Faz 2.3: "servis dışında gizle" seçilmiş menü/kategori/ürünler listeden çıkar.
+    return inMenu.filter(
+      (p) => resolveProductService(p, categoryById.get(p.category_id), selectedMenu, now).visible
+    );
+  }, [products, filterByMenuCollection, selectedMenuCollectionId, categoryById, selectedMenu, now]);
 
   const menuCategories = useMemo(() => {
     let list = categories;
     if (menuMainGroup != null) {
       list = list.filter((c) => categoryGroupKey(c) === menuMainGroup);
     }
+    list = list.filter((c) => resolveCategoryService(c, selectedMenu, now).visible);
     if (filterByMenuCollection && selectedMenuCollectionId) {
       list = list.filter((c) => categoryBelongsToMenuCollection(c, selectedMenuCollectionId));
       const categoriesWithProducts = new Set(
@@ -457,6 +502,8 @@ export default function CustomerMenu() {
     filterByMenuCollection,
     selectedMenuCollectionId,
     productsInSelectedMenu,
+    selectedMenu,
+    now,
   ]);
 
   const menuCategoryIds = useMemo(
@@ -471,6 +518,15 @@ export default function CustomerMenu() {
         menuCategoryIds.has(p.category_id) && p.category_id === activeCategory
     );
   }, [productsInSelectedMenu, activeCategory, menuCategoryIds]);
+
+  const activeCategoryServiceNote = useMemo(() => {
+    if (!activeCategory) return null;
+    return serviceNote(
+      resolveCategoryService(categoryById.get(activeCategory), selectedMenu, now),
+      language,
+      now
+    );
+  }, [activeCategory, categoryById, selectedMenu, now, language]);
 
   useEffect(() => {
     if (view !== "menu") return;
@@ -523,7 +579,7 @@ export default function CustomerMenu() {
 
   const waitingForInitialMenuData =
     useCollectionFlow &&
-    Boolean(menuPicker && !menuPicker.enabled) &&
+    Boolean(effectivePicker && !effectivePicker.enabled) &&
     !menuDataLoaded &&
     !menuDataError;
 
@@ -603,7 +659,8 @@ export default function CustomerMenu() {
           welcomeBgUrl={restaurant.welcome_bg_url}
           language={language}
           onLanguageChange={setLanguage}
-          menuCollections={menuCollections}
+          menuCollections={visibleCollections}
+          serviceNotes={menuServiceNotes(visibleCollections, language, now)}
           onSelectCollection={openMenuCollection}
           instagramCtx={instagramCtx}
           instagramLabel={instagramFollowLabel}
@@ -843,15 +900,33 @@ export default function CustomerMenu() {
             )}
           </div>
         )}
-        {visibleProducts.map((product) => (
-          <PublicProductCard
-            key={product.id}
-            product={product}
-            theme={menuTheme}
-            getText={getText}
-            language={language}
-          />
-        ))}
+        {activeCategoryServiceNote && (
+          <p
+            role="status"
+            className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900"
+          >
+            {activeCategoryServiceNote}
+          </p>
+        )}
+        {visibleProducts.map((product) => {
+          const service = resolveProductService(
+            product,
+            categoryById.get(product.category_id),
+            selectedMenu,
+            now
+          );
+          return (
+            <PublicProductCard
+              key={product.id}
+              product={product}
+              theme={menuTheme}
+              getText={getText}
+              language={language}
+              outOfService={service.outside !== null}
+              serviceNote={service.outside?.level === "product" ? serviceNote(service, language, now) : null}
+            />
+          );
+        })}
       </main>
       <PublicPriceDateNote
         products={products}
