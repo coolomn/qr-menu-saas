@@ -51,12 +51,12 @@ describe("assertImportStoragePath", () => {
     assert.throws(() => assertImportStoragePath(`restaurants/${R}/imports/${U}/sub/a.pdf`, R, U));
   });
 
-  it("allows own path and legacy path", () => {
+  it("allows own path", () => {
     assert.doesNotThrow(() => assertImportStoragePath(`restaurants/${R}/imports/${U}/a.pdf`, R, U));
-    assert.doesNotThrow(() => assertImportStoragePath(`imports/${U}/a.pdf`, R, U));
   });
 
-  it("rejects traversal in legacy paths", () => {
+  it("rejects legacy menu-images import paths (public bucket, no limits)", () => {
+    assert.throws(() => assertImportStoragePath(`imports/${U}/a.pdf`, R, U));
     assert.throws(() => assertImportStoragePath(`imports/${U}/../x.pdf`, R, U));
   });
 });

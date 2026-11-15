@@ -4,7 +4,7 @@ import { pdfProgressMessage, type MenuImportJobRow } from "./import-job";
 import { optimizeImageForAnalyze } from "./image-optimize";
 import { structureMenuFromImageBase64 } from "./openai-menu";
 import { mergeImportMenuPayloads } from "./payload-merge";
-import { assertImportStoragePath, resolveImportDownloadTarget } from "./paths";
+import { assertImportStoragePath, MENU_IMPORTS_BUCKET } from "./paths";
 import { assertPdfMagicBytes } from "./pdf-meta";
 import { loadPdfDocument, renderPdfPageToPngBuffer } from "./pdf-render";
 import type { ImportMenuPayload } from "./schema";
@@ -166,11 +166,9 @@ export async function continuePdfImportJob(
     // DB satırındaki yol değiştirilmiş olabilir: indirmeden önce işin kendi restoran+kullanıcısına ait olduğunu doğrula.
     // (Erişim yetkisi loadImportJobForOwner'da restoran sahipliğiyle kontrol edilir.)
     assertImportStoragePath(workingJob.storage_path, workingJob.restaurant_id, workingJob.user_id);
-    const { bucket, path: downloadPath } = resolveImportDownloadTarget(
-      workingJob.storage_path,
-      workingJob.user_id
-    );
-    const { data: blob, error: dlErr } = await admin.storage.from(bucket).download(downloadPath);
+    const { data: blob, error: dlErr } = await admin.storage
+      .from(MENU_IMPORTS_BUCKET)
+      .download(workingJob.storage_path);
     if (dlErr || !blob) {
       throw new Error(dlErr?.message || "Dosya indirilemedi.");
     }
