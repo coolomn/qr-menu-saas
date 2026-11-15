@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getProductForOwner, mapDbErrorMessage } from "@/lib/admin-menu/helpers";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
 import { tryCreateServiceSupabase } from "@/lib/supabase/service";
+import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 import { purgePublicMenuCache } from "@/lib/public-menu/cache-purge";
 
 export const runtime = "nodejs";
@@ -29,6 +30,10 @@ export async function DELETE(_request: Request, context: RouteContext) {
     const productResult = await getProductForOwner(admin, user.id, productId);
     if ("error" in productResult) {
       return NextResponse.json({ error: productResult.error }, { status: productResult.status });
+    }
+    const tenant = await requireActiveOwnedRestaurant(admin, { userId: user.id, restaurantId: productResult.product.restaurant_id });
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const { error: deleteErr } = await admin.from("products").delete().eq("id", productId);

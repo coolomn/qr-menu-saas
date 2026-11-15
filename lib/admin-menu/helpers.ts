@@ -6,9 +6,10 @@ import type {
   MenuCollectionCardVisualType,
 } from "@/lib/admin-menu/types";
 import { normalizeMenuCollectionCardVisualType } from "@/lib/admin-menu/types";
+import { parseSchedule } from "@/lib/public-menu/schedule";
 
 export const MENU_COLLECTION_ADMIN_SELECT =
-  "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, created_at, updated_at";
+  "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, schedule, created_at, updated_at";
 
 type DbMenuRow = {
   id: string;
@@ -23,6 +24,7 @@ type DbMenuRow = {
   sort_order: number | null;
   card_visual_type?: string | null;
   card_image_url?: string | null;
+  schedule?: unknown;
   created_at?: string;
   updated_at?: string;
 };
@@ -127,6 +129,7 @@ export function toListItem(
     sort_order: typeof row.sort_order === "number" ? row.sort_order : 0,
     card_visual_type: visual.card_visual_type,
     card_image_url: visual.card_image_url,
+    schedule: parseSchedule(row.schedule),
     created_at: row.created_at,
     updated_at: row.updated_at,
     category_count: categoryCount,
@@ -675,6 +678,7 @@ export function toAdminMenuCollection(row: DbMenuRow): AdminMenuCollection {
     sort_order: typeof row.sort_order === "number" ? row.sort_order : 0,
     card_visual_type: visual.card_visual_type,
     card_image_url: visual.card_image_url,
+    schedule: parseSchedule(row.schedule),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };

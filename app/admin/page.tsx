@@ -4,10 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight } from "lucide-react";
+import { ConfirmDialog } from "@/app/admin/_components/ConfirmDialog";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
 import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
 import { ProductBasicsFields } from "@/app/admin/_components/products/ProductBasicsFields";
+import { ScheduleEditor } from "@/app/admin/_components/schedule/ScheduleEditor";
+import { describeSchedule, parseSchedule, sanitizeScheduleForSave, type Schedule } from "@/lib/public-menu/schedule";
 import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSettings";
 import {
   normalizeBadgeIds,
@@ -182,6 +185,8 @@ const EMPTY_CATEGORY_FORM = {
   note: "",
   note_en: "",
   note_ru: "",
+  // Faz 2.3: servis zamanı (null = her zaman)
+  schedule: null as Schedule | null,
 };
 
 /** Kayıttaki kategori satırından formun Faz 2.2 alanları. */
@@ -283,6 +288,7 @@ export default function AdminDashboard() {
   const [productPriceEmptyOnly, setProductPriceEmptyOnly] = useState(false);
   const [productViewMode, setProductViewMode] = useState<"cards" | "pricing">("cards");
   const [productDeletingId, setProductDeletingId] = useState<string | null>(null);
+  const [productToDelete, setProductToDelete] = useState<{ id: string; name: string } | null>(null);
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({});
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [bulkMenuSelectedIds, setBulkMenuSelectedIds] = useState<string[]>([]);
@@ -297,6 +303,7 @@ export default function AdminDashboard() {
     allergens: [] as string[],
     is_sold_out: false,
     badges: [] as string[],
+    schedule: null as Schedule | null,
     calories: "", protein_g: "", carbs_g: "", fat_g: "",
     pricing_mode: "single" as PricingMode,
     variants: [] as EditableProductVariant[],
@@ -655,15 +662,14 @@ export default function AdminDashboard() {
     }));
   };
 
-  const handleDeleteProduct = async (product: { id: string; name?: string | null }) => {
-    const label = (product.name || "").trim() || "Bu ürün";
-    if (
-      !window.confirm(
-        `${label} kalıcı olarak silinecek. Bu işlem geri alınamaz.\n\nDevam etmek istiyor musunuz?`
-      )
-    ) {
-      return;
-    }
+  // Silme önce uygulama içi onay penceresini açar (window.confirm sayfayı dondurduğu için kaldırıldı).
+  const handleDeleteProduct = (product: { id: string; name?: string | null }) => {
+    setProductToDelete({ id: product.id, name: (product.name || "").trim() || "Bu ürün" });
+  };
+
+  const confirmDeleteProduct = async () => {
+    const product = productToDelete;
+    if (!product) return;
 
     setProductDeletingId(product.id);
     try {
@@ -707,6 +713,7 @@ export default function AdminDashboard() {
       alert("Bağlantı hatası. Lütfen tekrar deneyin.");
     } finally {
       setProductDeletingId(null);
+      setProductToDelete(null);
     }
   };
 
@@ -815,6 +822,7 @@ export default function AdminDashboard() {
       allergens: product.allergens || [],
       is_sold_out: product.is_sold_out === true,
       badges: normalizeBadgeIds(product.badges),
+      schedule: parseSchedule(product.schedule),
       calories: product.calories != null ? String(product.calories) : "",
       protein_g: product.protein_g != null ? String(product.protein_g) : "",
       carbs_g: product.carbs_g != null ? String(product.carbs_g) : "",
@@ -852,6 +860,7 @@ export default function AdminDashboard() {
       allergens: [],
       is_sold_out: false,
       badges: [],
+      schedule: null,
       calories: "", protein_g: "", carbs_g: "", fat_g: "",
       pricing_mode: "single",
       variants: [],
@@ -974,6 +983,7 @@ export default function AdminDashboard() {
         price: resolvedPrice, image_url: imageUrl, thumbnail_url: thumbnailUrl, allergens: newProduct.allergens,
         is_sold_out: newProduct.is_sold_out,
         badges: normalizeBadgeIds(newProduct.badges),
+        schedule: sanitizeScheduleForSave(newProduct.schedule),
         calories, protein_g: protein, carbs_g: carbs, fat_g: fat,
         ...(variantPricesChanged ? { price_updated_at: new Date().toISOString() } : {}),
       };
@@ -1407,6 +1417,7 @@ export default function AdminDashboard() {
       name_ru: newCategory.name_ru.trim() || null,
       main_group_en: newCategory.main_group_en.trim() || null,
       main_group_ru: newCategory.main_group_ru.trim() || null,
+      schedule: sanitizeScheduleForSave(newCategory.schedule),
     };
 
     const base = {
@@ -1465,6 +1476,7 @@ export default function AdminDashboard() {
       name_ru: withI18n.name_ru,
       main_group_en: withI18n.main_group_en,
       main_group_ru: withI18n.main_group_ru,
+      schedule: withI18n.schedule,
       is_active: true,
     };
     let { data, error } = await supabase
@@ -1526,6 +1538,7 @@ export default function AdminDashboard() {
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
       ...categoryStructureFromRow(c),
+      schedule: parseSchedule(c.schedule),
     });
     setIsCategoryModalOpen(true);
     if (getActiveRestaurantMenus().length >= 2) {
@@ -1555,6 +1568,7 @@ export default function AdminDashboard() {
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
       ...categoryStructureFromRow(c),
+      schedule: parseSchedule(c.schedule),
     });
     const active = getActiveRestaurantMenus();
     const sourceIds = categoryMenuLinksMap[c.id] || [];
@@ -2496,8 +2510,19 @@ export default function AdminDashboard() {
                                         </span>
                                       )}
                                       {!p.is_active && (
-                                        <span className="text-[9px] font-black bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-md uppercase">
-                                          Menüde gizli
+                                        <span
+                                          className="text-[9px] font-black bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-md uppercase"
+                                          title="Taslak: müşteriye görünmez. Yayınlamak için sağdaki düğmeyi kullanın."
+                                        >
+                                          Taslak
+                                        </span>
+                                      )}
+                                      {describeSchedule(parseSchedule(p.schedule), "tr") && (
+                                        <span
+                                          className="text-[9px] font-bold bg-amber-50 border border-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md truncate max-w-[14rem]"
+                                          title={describeSchedule(parseSchedule(p.schedule), "tr")}
+                                        >
+                                          ⏰ {describeSchedule(parseSchedule(p.schedule), "tr")}
                                         </span>
                                       )}
                                       {p.is_sold_out === true && (
@@ -2554,8 +2579,8 @@ export default function AdminDashboard() {
                                     <button
                                       type="button"
                                       onClick={() => handleToggleActive(p.id, p.is_active)}
-                                      title={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
-                                      aria-label={p.is_active ? "Satıştan kaldır" : "Satışa aç"}
+                                      title={p.is_active ? "Taslağa al (müşteriden gizle)" : "Yayınla"}
+                                      aria-label={p.is_active ? "Taslağa al" : "Yayınla"}
                                       disabled={productDeletingId === p.id}
                                       className={`p-2 rounded-lg transition-colors ${
                                         p.is_active
@@ -2571,7 +2596,7 @@ export default function AdminDashboard() {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => void handleDeleteProduct(p)}
+                                      onClick={() => handleDeleteProduct(p)}
                                       title="Sil"
                                       aria-label="Sil"
                                       disabled={productDeletingId === p.id}
@@ -2722,8 +2747,19 @@ export default function AdminDashboard() {
                               </span>
                             )}
                             {menuHidden && (
-                              <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md uppercase tracking-wide">
-                                Gizli
+                              <span
+                                className="text-[9px] font-black bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md uppercase tracking-wide"
+                                title="Taslak: müşteriye görünmez. Yayınlamak için göz düğmesini kullanın."
+                              >
+                                Taslak
+                              </span>
+                            )}
+                            {describeSchedule(parseSchedule(c.schedule), "tr") && (
+                              <span
+                                className="text-[9px] font-bold bg-amber-50 border border-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md truncate max-w-[12rem]"
+                                title={describeSchedule(parseSchedule(c.schedule), "tr")}
+                              >
+                                ⏰ {describeSchedule(parseSchedule(c.schedule), "tr")}
                               </span>
                             )}
                             {c.parent_id && (
@@ -2739,8 +2775,8 @@ export default function AdminDashboard() {
                             <button
                               type="button"
                               onClick={() => void handleToggleCategoryMenuVisible(c)}
-                              title={menuHidden ? "Önizle" : "Menüden gizle"}
-                              aria-label={menuHidden ? "Önizle" : "Menüden gizle"}
+                              title={menuHidden ? "Yayınla" : "Taslağa al (müşteriden gizle)"}
+                              aria-label={menuHidden ? "Yayınla" : "Taslağa al"}
                               className={`p-1.5 rounded-lg transition-colors ${
                                 menuHidden
                                   ? "text-amber-700 bg-amber-100 hover:bg-amber-200"
@@ -3192,6 +3228,12 @@ export default function AdminDashboard() {
                       />
                     </div>
 
+                    <ScheduleEditor
+                      subject="ürün"
+                      value={newProduct.schedule}
+                      onChange={(schedule) => setNewProduct((prev) => ({ ...prev, schedule }))}
+                    />
+
                     <div className="p-3 md:p-5 border-2 border-gray-50 rounded-2xl space-y-3">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-wide">Alerjenler</span>
@@ -3474,6 +3516,12 @@ export default function AdminDashboard() {
                     editingCategoryId={editingCategoryId}
                   />
 
+                  <ScheduleEditor
+                    subject="kategori"
+                    value={newCategory.schedule}
+                    onChange={(schedule) => setNewCategory((prev) => ({ ...prev, schedule }))}
+                  />
+
                   {getActiveRestaurantMenus().length >= 2 && (
                     categoryMenuPickerLoading ? (
                       <p className="text-xs font-bold text-violet-600 px-1">Menü bağlantıları yükleniyor…</p>
@@ -3498,6 +3546,14 @@ export default function AdminDashboard() {
             </div>
         </div>
       )}
+      <ConfirmDialog
+        open={productToDelete !== null}
+        title={productToDelete ? `${productToDelete.name} silinsin mi?` : ""}
+        message="Ürün kalıcı olarak silinecek. Bu işlem geri alınamaz."
+        busy={productDeletingId !== null}
+        onConfirm={() => void confirmDeleteProduct()}
+        onCancel={() => setProductToDelete(null)}
+      />
     </div>
   );
 }

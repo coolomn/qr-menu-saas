@@ -1,3 +1,5 @@
+import type { Schedule } from "@/lib/public-menu/schedule";
+
 export type MenuCollectionCardVisualType = "icon" | "image" | "none";
 
 export const MENU_COLLECTION_CARD_VISUAL_TYPES = ["icon", "image", "none"] as const;
@@ -22,6 +24,8 @@ export type AdminMenuCollection = {
   sort_order: number;
   card_visual_type: MenuCollectionCardVisualType;
   card_image_url: string | null;
+  /** Faz 2.3 zamanlaması; null = her zaman. */
+  schedule: Schedule | null;
   created_at?: string;
   updated_at?: string;
 };

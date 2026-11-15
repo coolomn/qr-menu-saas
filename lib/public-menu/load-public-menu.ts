@@ -18,6 +18,7 @@ import {
   buildActivePublicVariantsMap,
   type PublicProduct,
 } from "@/lib/public-menu/product-variants";
+import { parseSchedule, type Schedule } from "@/lib/public-menu/schedule";
 import { isPublicMenuBlocked } from "@/lib/public-menu/subscription-gate";
 import { normalizeLogoDisplayMode } from "@/lib/public-menu/logo-display";
 import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
@@ -72,6 +73,8 @@ export type PublicCategoryPayload = {
   note?: string | null;
   note_en?: string | null;
   note_ru?: string | null;
+  /** Faz 2.3 zamanlaması; yok/null = her zaman. */
+  schedule?: Schedule | null;
 };
 
 type CategoryRow = {
@@ -87,6 +90,7 @@ type CategoryRow = {
   note?: string | null;
   note_en?: string | null;
   note_ru?: string | null;
+  schedule?: Schedule | null;
 };
 
 type ProductRow = {
@@ -112,6 +116,7 @@ type ProductRow = {
   carbs_g?: number | null;
   fat_g?: number | null;
   price_updated_at?: string | null;
+  schedule?: Schedule | null;
 };
 
 export type PublicMenuBootstrapPayload = {
@@ -182,6 +187,9 @@ const CATEGORY_COLUMNS = [
 /** Faz 2.2 kolonları (alt kategori + kategori notu); migration yoksa bunlarsız tekrar denenir. */
 const CATEGORY_STRUCTURE_COLUMNS = ["parent_id", "note", "note_en", "note_ru"].join(",");
 
+/** Faz 2.3 kolonu (kategori + ürün); migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
+const SCHEDULE_COLUMN = "schedule";
+
 const PRODUCT_COLUMNS_BASE = [
   "id",
   "category_id",
@@ -231,14 +239,19 @@ function isProductRow(value: unknown): value is ProductRow {
   return typeof row.id === "string" && typeof row.category_id === "string" && typeof row.name === "string";
 }
 
+/** DB'den gelen ham `schedule` değerini doğrulanmış biçime çevirir (geçersiz → null = her zaman). */
+function withParsedSchedule<T extends { schedule?: unknown }>(row: T): T & { schedule: Schedule | null } {
+  return { ...row, schedule: parseSchedule(row.schedule) };
+}
+
 function toCategoryRows(value: unknown): CategoryRow[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(isCategoryRow);
+  return value.filter(isCategoryRow).map(withParsedSchedule);
 }
 
 function toProductRows(value: unknown): ProductRow[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(isProductRow);
+  return value.filter(isProductRow).map(withParsedSchedule);
 }
 
 export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicRestaurantPayload {
@@ -379,10 +392,20 @@ async function loadCategoryRows(
 ): Promise<CategoryRow[]> {
   let { data: categories, error: categoriesError } = await supabase
     .from("categories")
-    .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS].join(","))
+    .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS, SCHEDULE_COLUMN].join(","))
     .eq("restaurant_id", restaurantId)
     .neq("is_active", false)
     .order("sort_order");
+
+  // Kademeli geri düşüş: önce yalnız zamanlama (2.3), sonra alt kategori (2.2) kolonları olmadan dene.
+  if (categoriesError && isMissingColumn(categoriesError)) {
+    ({ data: categories, error: categoriesError } = await supabase
+      .from("categories")
+      .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS].join(","))
+      .eq("restaurant_id", restaurantId)
+      .neq("is_active", false)
+      .order("sort_order"));
+  }
 
   if (categoriesError && isMissingColumn(categoriesError)) {
     ({ data: categories, error: categoriesError } = await supabase
@@ -418,11 +441,21 @@ async function loadProductRows(
 
   let { data: productRows, error: productsError } = await supabase
     .from("products")
-    .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS].join(","))
+    .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS, SCHEDULE_COLUMN].join(","))
     .in("category_id", categoryIds)
     .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
+
+  if (productsError && isMissingColumn(productsError)) {
+    ({ data: productRows, error: productsError } = await supabase
+      .from("products")
+      .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS].join(","))
+      .in("category_id", categoryIds)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }));
+  }
 
   if (productsError && isMissingColumn(productsError)) {
     ({ data: productRows, error: productsError } = await supabase

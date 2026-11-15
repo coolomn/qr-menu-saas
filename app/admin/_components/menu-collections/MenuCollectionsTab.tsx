@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Edit3, LayoutGrid, Loader2, Plus, Power, PowerOff, Trash2, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { describeSchedule, sanitizeScheduleForSave } from "@/lib/public-menu/schedule";
 import type { AdminMenuCollectionListItem } from "@/lib/admin-menu/types";
 import {
   uploadMenuCollectionCardImage,
@@ -22,6 +23,8 @@ type MenuCollectionsTabProps = {
 };
 
 function formatHours(item: AdminMenuCollectionListItem): string | null {
+  const scheduled = describeSchedule(item.schedule ?? null, "tr");
+  if (scheduled) return scheduled;
   if (item.start_time && item.end_time) {
     const start = item.start_time.slice(0, 5);
     const end = item.end_time.slice(0, 5);
@@ -162,6 +165,7 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
         is_active: formValues.is_active,
         card_visual_type: cardVisualType,
         card_image_url: cardImageUrl,
+        schedule: sanitizeScheduleForSave(formValues.schedule),
       };
 
       if (editingId) {
@@ -339,7 +343,7 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
                       : "bg-amber-100 text-amber-800"
                   }`}
                 >
-                  {item.is_active ? "Aktif" : "Pasif"}
+                  {item.is_active ? "Yayında" : "Taslak"}
                 </span>
               </div>
 
@@ -373,7 +377,7 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
                   ) : (
                     <Power size={14} />
                   )}
-                  {item.is_active ? "Pasifleştir" : "Aktifleştir"}
+                  {item.is_active ? "Taslağa al" : "Yayınla"}
                 </button>
                 <button
                   type="button"

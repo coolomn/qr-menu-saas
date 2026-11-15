@@ -23,7 +23,16 @@ describe("security headers", () => {
   it("blocks framing of the admin panel", () => {
     const h = headersFor("/admin/:path*");
     assert.equal(h["X-Frame-Options"], "DENY");
-    assert.equal(h["Content-Security-Policy"], "frame-ancestors 'none'");
+    assert.match(h["Content-Security-Policy"], /frame-ancestors 'none'/);
+  });
+
+  it("keeps the full CSP on the admin panel (the admin rule overrides the global one)", () => {
+    const admin = headersFor("/admin/:path*")["Content-Security-Policy"];
+    const global = headersFor("/:path*")["Content-Security-Policy"];
+    for (const directive of ["default-src 'self'", "script-src", "connect-src", "object-src 'none'", "base-uri 'self'", "form-action 'self'"]) {
+      assert.ok(admin.includes(directive), `admin CSP has ${directive}`);
+    }
+    assert.equal(admin, `${global}; frame-ancestors 'none'`);
   });
 
   it("allows the configured Supabase origin for images and API calls", () => {

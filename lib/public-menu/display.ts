@@ -1,4 +1,5 @@
 import type { PublicMenuCollection } from "@/lib/public-menu/menu-collections";
+import { describeSchedule } from "@/lib/public-menu/schedule";
 
 export function getMenuCollectionTitle(
   collection: PublicMenuCollection,
@@ -13,6 +14,8 @@ export function getMenuCollectionSubtitle(
   collection: PublicMenuCollection,
   language: string
 ): string | null {
+  const scheduled = describeSchedule(collection.schedule ?? null, language);
+  if (scheduled) return scheduled;
   if (collection.start_time && collection.end_time) {
     return `${formatTimeLabel(collection.start_time)} — ${formatTimeLabel(collection.end_time)}`;
   }

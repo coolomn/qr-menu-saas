@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import {
   isSafeAdminNextPath,
   setPasswordUrlPreservingAuthParams,
@@ -13,6 +14,11 @@ import { resolvePostLoginDestination } from "@/lib/admin-auth/resolve-owner-post
 const supabase = getBrowserSupabase();
 
 const LOGIN_ERROR_MESSAGE = "E-posta/kullanıcı adı veya şifre hatalı.";
+
+function formatRetryAfter(seconds: number): string {
+  if (seconds < 90) return `${Math.max(1, Math.ceil(seconds))} saniye`;
+  return `${Math.ceil(seconds / 60)} dakika`;
+}
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
@@ -53,37 +59,67 @@ export default function LoginPage() {
     setLoading(true);
 
     const trimmedIdentifier = identifier.trim();
-    let loginEmail = trimmedIdentifier;
     let preferredRestaurantId: string | null = null;
+    let session: Session | null = null;
 
-    if (!trimmedIdentifier.includes("@")) {
+    if (trimmedIdentifier.includes("@")) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: trimmedIdentifier,
+        password,
+      });
+      if (error) {
+        setError(LOGIN_ERROR_MESSAGE);
+        setLoading(false);
+        return;
+      }
+      session = data.session;
+    } else {
+      // Kullanıcı adıyla giriş sunucuda doğrulanır; sahibin e-postası tarayıcıya gelmez.
       try {
-        const resolveRes = await fetch("/api/admin/auth/resolve-login-email", {
+        const loginRes = await fetch("/api/admin/auth/login-username", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: trimmedIdentifier }),
+          body: JSON.stringify({ username: trimmedIdentifier, password }),
         });
-        if (resolveRes.status === 429) {
-          const retryAfter = Number(resolveRes.headers.get("Retry-After")) || 60;
+        if (loginRes.status === 429) {
+          const retryAfter = Number(loginRes.headers.get("Retry-After")) || 60;
           setError(
-            `Çok fazla giriş denemesi yapıldı. Lütfen ${retryAfter} saniye sonra tekrar deneyin veya e-posta adresinizle giriş yapın.`
+            `Çok fazla giriş denemesi yapıldı. Lütfen ${formatRetryAfter(retryAfter)} sonra tekrar deneyin veya e-posta adresinizle giriş yapın.`
           );
           setLoading(false);
           return;
         }
-        if (!resolveRes.ok) {
+        if (loginRes.status >= 500) {
+          setError("Giriş hizmetine şu an ulaşılamıyor. Lütfen birazdan tekrar deneyin.");
+          setLoading(false);
+          return;
+        }
+        if (!loginRes.ok) {
           setError(LOGIN_ERROR_MESSAGE);
           setLoading(false);
           return;
         }
-        const resolveJson = (await resolveRes.json()) as { email?: string; restaurantId?: string };
-        if (!resolveJson.email) {
+        const loginJson = (await loginRes.json()) as {
+          access_token?: string;
+          refresh_token?: string;
+          restaurantId?: string;
+        };
+        if (!loginJson.access_token || !loginJson.refresh_token) {
           setError(LOGIN_ERROR_MESSAGE);
           setLoading(false);
           return;
         }
-        loginEmail = resolveJson.email;
-        preferredRestaurantId = resolveJson.restaurantId?.trim() || null;
+        const { data, error } = await supabase.auth.setSession({
+          access_token: loginJson.access_token,
+          refresh_token: loginJson.refresh_token,
+        });
+        if (error) {
+          setError("Oturum oluşturulamadı. Tekrar deneyin.");
+          setLoading(false);
+          return;
+        }
+        session = data.session;
+        preferredRestaurantId = loginJson.restaurantId?.trim() || null;
       } catch {
         setError(LOGIN_ERROR_MESSAGE);
         setLoading(false);
@@ -91,18 +127,6 @@ export default function LoginPage() {
       }
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password,
-    });
-
-    if (error) {
-      setError(LOGIN_ERROR_MESSAGE);
-      setLoading(false);
-      return;
-    }
-
-    const session = data.session;
     if (!session?.access_token) {
       setError("Oturum oluşturulamadı. Tekrar deneyin.");
       setLoading(false);
