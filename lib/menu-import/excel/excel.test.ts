@@ -4,8 +4,21 @@ import { parseExcelPrice, splitNameAndPrice, normalizeTurkishNumber } from "./pr
 import { isExcelVariantLabel, formatVariantLabel } from "./variants";
 import { detectHorizontalBlocks } from "./blocks";
 import { extractCandidatesFromSheet } from "./extract";
+import { detectHeaderMapping, findHeaderRow, normalizeHeaderCell } from "./headers";
 import { candidatesToImportPayload } from "./to-payload";
 import type { ExcelSheetGrid } from "./types";
+
+const FORU_HEADER = [
+  "Ürün Kodu",
+  "Kategori",
+  "Ürün Adı",
+  "Açıklama",
+  "Fiyat (TL)",
+  "Boy / Porsiyon",
+  "Stok Durumu",
+  "Görünürlük",
+  "Alerjenler",
+];
 
 describe("excel price", () => {
   it("parses plain and TL prices", () => {
@@ -44,6 +57,35 @@ describe("excel variants", () => {
     assert.equal(isExcelVariantLabel("70 cl"), true);
     assert.equal(isExcelVariantLabel("Şişe"), true);
     assert.equal(formatVariantLabel(35), "35 cl");
+  });
+});
+
+describe("excel headers", () => {
+  it("normalizes Turkish header text", () => {
+    assert.equal(normalizeHeaderCell("Ürün Adı"), "urun adi");
+    assert.equal(normalizeHeaderCell("Fiyat (TL)"), "fiyat tl");
+    assert.equal(normalizeHeaderCell("Boy / Porsiyon"), "boy porsiyon");
+    assert.equal(normalizeHeaderCell("Açıklama"), "aciklama");
+    assert.equal(normalizeHeaderCell(12), "");
+  });
+
+  it("maps the FORU header columns", () => {
+    const m = detectHeaderMapping(FORU_HEADER);
+    assert.ok(m);
+    assert.equal(m!.code, 0);
+    assert.equal(m!.category, 1);
+    assert.equal(m!.name, 2);
+    assert.equal(m!.description, 3);
+    assert.equal(m!.price, 4);
+    assert.equal(m!.variant, 5);
+  });
+
+  it("does not treat product rows or lone words as headers", () => {
+    assert.equal(detectHeaderMapping(["Espresso", 90]), null);
+    assert.equal(detectHeaderMapping(["Kahveler", null]), null);
+    // ad sütunu yoksa eşleme güvenilir değil
+    assert.equal(detectHeaderMapping(["Kategori", "Fiyat"]), null);
+    assert.equal(findHeaderRow([["RAKILAR", null, null], ["Yeni Rakı", "Tek", 290]]), null);
   });
 });
 
@@ -114,6 +156,111 @@ describe("excel blocks and extract", () => {
     const payload = candidatesToImportPayload(extractCandidatesFromSheet(grid));
     assert.equal(payload.categories.length, 1);
     assert.equal(payload.categories[0].products.length, 2);
+  });
+
+  it("reads names from the 'Ürün Adı' column, not the code column", () => {
+    const grid: ExcelSheetGrid = {
+      sheetName: "QR Menü Test",
+      rowCount: 4,
+      colCount: 9,
+      rows: [
+        FORU_HEADER,
+        ["FORU-001", "Kahve", "Espresso", "Yoğun aromalı tek shot espresso", 85, "Tek", "Var", "Aktif", "Yok"],
+        ["FORU-002", "Kahve", "Double Espresso", "Çift shot espresso", 105, "Çift", "Var", "Aktif", "Yok"],
+        ["FORU-011", "Çay", "Demleme Siyah Çay", null, "55", "Bardak", "Var", "Aktif", "Yok"],
+      ],
+    };
+    const candidates = extractCandidatesFromSheet(grid);
+    assert.deepEqual(
+      candidates.map((c) => c.name),
+      ["Espresso", "Double Espresso", "Demleme Siyah Çay"]
+    );
+    assert.deepEqual(
+      candidates.map((c) => c.category),
+      ["Kahve", "Kahve", "Çay"]
+    );
+    assert.deepEqual(
+      candidates.map((c) => c.price),
+      ["85", "105", "55"]
+    );
+    assert.equal(candidates[0].description, "Yoğun aromalı tek shot espresso");
+    assert.equal(candidates[2].description, null);
+    // Başlık satırı ve kod değerleri ürün olmaz
+    assert.ok(!candidates.some((c) => /FORU-|Ürün Kodu/.test(c.name)));
+    // Tek satırlık üründe "Tek"/"Bardak" varyant olmaz
+    assert.ok(candidates.every((c) => c.variant == null));
+    assert.ok(candidates.every((c) => !c.reviewRequired));
+
+    const payload = candidatesToImportPayload(candidates);
+    assert.equal(payload.categories.length, 2);
+    assert.equal(payload.categories[0].products[0].price, "85");
+  });
+
+  it("turns repeated product names with size labels into variants", () => {
+    const grid: ExcelSheetGrid = {
+      sheetName: "S",
+      rowCount: 4,
+      colCount: 4,
+      rows: [
+        ["Kategori", "Ürün Adı", "Fiyat", "Boy"],
+        ["Kahve", "Latte", 110, "Küçük"],
+        ["Kahve", "Latte", 130, "Büyük"],
+        ["Kahve", "Filtre Kahve", 90, null],
+      ],
+    };
+    const payload = candidatesToImportPayload(extractCandidatesFromSheet(grid));
+    const products = payload.categories[0].products;
+    const latte = products.find((p) => p.name === "Latte");
+    assert.ok(latte?.variants && latte.variants.length === 2);
+    assert.equal(latte!.variants![0].label, "Küçük");
+    assert.equal(latte!.variants![1].price, "130");
+    assert.equal(products.find((p) => p.name === "Filtre Kahve")?.price, "90");
+  });
+
+  it("finds a header below a title row and accepts '50' / 7.5 in the price column", () => {
+    const grid: ExcelSheetGrid = {
+      sheetName: "S",
+      rowCount: 4,
+      colCount: 3,
+      rows: [
+        ["Kafe Menü 2026", null, null],
+        ["Ürün Adı", "Kategori", "Fiyat"],
+        ["Su", "İçecek", "50"],
+        ["Çekirdek", "Atıştırmalık", 7.5],
+      ],
+    };
+    const candidates = extractCandidatesFromSheet(grid);
+    assert.deepEqual(
+      candidates.map((c) => [c.name, c.price]),
+      [
+        ["Su", "50"],
+        ["Çekirdek", "7.50"],
+      ]
+    );
+  });
+
+  it("flags rows without price or category; blank category continues the previous one", () => {
+    const grid: ExcelSheetGrid = {
+      sheetName: "S",
+      rowCount: 4,
+      colCount: 3,
+      rows: [
+        ["Ürün Adı", "Kategori", "Fiyat"],
+        ["Ayran", null, 30],
+        ["Çorba", "Başlangıç", null],
+        ["Salata", null, 70],
+      ],
+    };
+    const [ayran, corba, salata] = extractCandidatesFromSheet(grid);
+    // İlk satırda kategori yok → inceleme gerekir
+    assert.equal(ayran.category, null);
+    assert.equal(ayran.reviewRequired, true);
+    // Fiyatsız → inceleme gerekir
+    assert.equal(corba.price, null);
+    assert.equal(corba.reviewRequired, true);
+    // Boş kategori hücresi (birleştirilmiş hücre) bir öncekini sürdürür
+    assert.equal(salata.category, "Başlangıç");
+    assert.equal(salata.reviewRequired, false);
   });
 
   it("ignores empty sheet content via empty candidates", () => {
