@@ -7,19 +7,21 @@ export type OwnerLoginRateLimitDecision =
 
 export type OwnerLoginRateLimitDeps = {
   getIpLimiter: () => RateLimiterLike | null;
+  getIpUsernameLimiter: () => RateLimiterLike | null;
   getUsernameLimiter: () => RateLimiterLike | null;
   checkLimit: typeof checkLimit;
 };
 
 const defaultDeps: OwnerLoginRateLimitDeps = {
   getIpLimiter: () => tryGetLimiter("ownerLoginIp"),
+  getIpUsernameLimiter: () => tryGetLimiter("ownerLoginIpUsername"),
   getUsernameLimiter: () => tryGetLimiter("ownerLoginUsername"),
   checkLimit,
 };
 
 /**
- * Önce IP, sonra normalize edilmiş username bazlı limit kontrol edilir.
- * Fail-open: limiter yoksa veya Upstash'e erişilemezse istek normal akışına devam eder —
+ * Sıra: IP → IP+kullanıcı adı → kullanıcı adı (üst sınır). İlk aşılan limitte durur.
+ * Fail-open: limiter yoksa veya Upstash'e erişilemezse istek devam eder —
  * kullanıcı adıyla giriş (login-username) erişilebilir kalmalı; arkada Supabase Auth'un kendi
  * IP başına giriş limiti (Sb-Forwarded-For ile müşteri IP'si) yedek koruma olarak durur.
  */
@@ -28,39 +30,30 @@ export async function evaluateOwnerLoginRateLimit(
   username: string,
   deps: OwnerLoginRateLimitDeps = defaultDeps
 ): Promise<OwnerLoginRateLimitDecision> {
-  const ipLimiter = deps.getIpLimiter();
-  if (!ipLimiter) {
-    console.warn("[rate-limit] owner-login: IP limiter unavailable, failing open");
-  } else {
-    const ipResult = await deps.checkLimit(ipLimiter, ip);
-    if (ipResult.state === "unavailable") {
-      console.warn(
-        "[rate-limit] owner-login: IP check unavailable, failing open",
-        ipResult.reason
-      );
-    } else if (ipResult.state === "limited") {
-      return { allowed: false, retryAfterSeconds: ipResult.retryAfterSeconds };
-    }
-  }
-
   const normalizedUsername = username.trim().toLowerCase();
+  const checks: Array<{ label: string; getLimiter: () => RateLimiterLike | null; identifier: string }> = [
+    { label: "IP", getLimiter: deps.getIpLimiter, identifier: ip },
+    { label: "IP+username", getLimiter: deps.getIpUsernameLimiter, identifier: `${ip}|${normalizedUsername}` },
+    { label: "username", getLimiter: deps.getUsernameLimiter, identifier: normalizedUsername },
+  ];
 
-  const usernameLimiter = deps.getUsernameLimiter();
-  if (!usernameLimiter) {
-    console.warn("[rate-limit] owner-login: username limiter unavailable, failing open");
-    return { allowed: true };
-  }
-
-  const usernameResult = await deps.checkLimit(usernameLimiter, normalizedUsername);
-  if (usernameResult.state === "unavailable") {
-    console.warn(
-      "[rate-limit] owner-login: username check unavailable, failing open",
-      usernameResult.reason
-    );
-    return { allowed: true };
-  }
-  if (usernameResult.state === "limited") {
-    return { allowed: false, retryAfterSeconds: usernameResult.retryAfterSeconds };
+  for (const check of checks) {
+    const limiter = check.getLimiter();
+    if (!limiter) {
+      console.warn(`[rate-limit] owner-login: ${check.label} limiter unavailable, failing open`);
+      continue;
+    }
+    const result = await deps.checkLimit(limiter, check.identifier);
+    if (result.state === "unavailable") {
+      console.warn(
+        `[rate-limit] owner-login: ${check.label} check unavailable, failing open`,
+        result.reason
+      );
+      continue;
+    }
+    if (result.state === "limited") {
+      return { allowed: false, retryAfterSeconds: result.retryAfterSeconds };
+    }
   }
 
   return { allowed: true };

@@ -15,6 +15,11 @@ const supabase = getBrowserSupabase();
 
 const LOGIN_ERROR_MESSAGE = "E-posta/kullanıcı adı veya şifre hatalı.";
 
+function formatRetryAfter(seconds: number): string {
+  if (seconds < 90) return `${Math.max(1, Math.ceil(seconds))} saniye`;
+  return `${Math.ceil(seconds / 60)} dakika`;
+}
+
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -79,12 +84,12 @@ export default function LoginPage() {
         if (loginRes.status === 429) {
           const retryAfter = Number(loginRes.headers.get("Retry-After")) || 60;
           setError(
-            `Çok fazla giriş denemesi yapıldı. Lütfen ${retryAfter} saniye sonra tekrar deneyin veya e-posta adresinizle giriş yapın.`
+            `Çok fazla giriş denemesi yapıldı. Lütfen ${formatRetryAfter(retryAfter)} sonra tekrar deneyin veya e-posta adresinizle giriş yapın.`
           );
           setLoading(false);
           return;
         }
-        if (loginRes.status === 503) {
+        if (loginRes.status >= 500) {
           setError("Giriş hizmetine şu an ulaşılamıyor. Lütfen birazdan tekrar deneyin.");
           setLoading(false);
           return;

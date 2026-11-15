@@ -4,6 +4,7 @@ import { RATE_LIMIT_CONFIG, envScopedPrefix, tryGetLimiter, type RateLimitName }
 
 const EXPECTED_NAMES: RateLimitName[] = [
   "ownerLoginIp",
+  "ownerLoginIpUsername",
   "ownerLoginUsername",
   "allergenSuggestShort",
   "allergenSuggestDaily",
@@ -32,9 +33,15 @@ describe("RATE_LIMIT_CONFIG", () => {
       window: "15 m",
       prefix: "ratelimit:owner-login:ip",
     });
-    assert.deepEqual(RATE_LIMIT_CONFIG.ownerLoginUsername, {
+    assert.deepEqual(RATE_LIMIT_CONFIG.ownerLoginIpUsername, {
       algorithm: "slidingWindow",
       tokens: 10,
+      window: "15 m",
+      prefix: "ratelimit:owner-login:ip-username",
+    });
+    assert.deepEqual(RATE_LIMIT_CONFIG.ownerLoginUsername, {
+      algorithm: "slidingWindow",
+      tokens: 50,
       window: "15 m",
       prefix: "ratelimit:owner-login:username",
     });

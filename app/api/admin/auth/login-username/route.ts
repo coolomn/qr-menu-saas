@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  isEmailIdentifier,
-  isValidLoginUsername,
-  normalizeLoginUsername,
-} from "@/lib/admin-auth/login-username";
+import { handleLoginUsername } from "@/lib/admin-auth/login-username-handler";
 import { resolveOwnerEmailByLoginUsername } from "@/lib/admin-auth/resolve-owner-email-by-username";
 import {
   getClientIpFromHeaders,
@@ -16,85 +12,55 @@ import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 
 export const runtime = "nodejs";
 
-const MAX_PASSWORD_LENGTH = 200;
 const NO_STORE = { "Cache-Control": "no-store" };
-
-type Body = {
-  username?: unknown;
-  password?: unknown;
-};
-
-/** Kullanıcı adı yok / şifre yanlış / geçersiz istek: hepsi aynı cevap (kullanıcı adı taranamasın). */
-function invalidCredentials() {
-  return NextResponse.json({ error: "invalid_credentials" }, { status: 401, headers: NO_STORE });
-}
-
-function unavailable() {
-  return NextResponse.json({ error: "service_unavailable" }, { status: 503, headers: NO_STORE });
-}
 
 let warnedMissingSecretKey = false;
 
+function warnMissingSecretKey() {
+  if (warnedMissingSecretKey) return;
+  warnedMissingSecretKey = true;
+  const message =
+    "[owner-login] SUPABASE_SECRET_KEY (sb_secret_) yok: anon anahtarla giriş yapılıyor, Supabase IP limiti Vercel IP'leri arasında paylaşılır";
+  if (process.env.VERCEL_ENV === "production") console.error(message);
+  else console.warn(message);
+}
+
 export async function POST(request: Request) {
-  let body: Body;
+  let body: unknown = null;
   try {
-    body = (await request.json()) as Body;
+    body = await request.json();
   } catch {
-    return invalidCredentials();
+    body = null;
   }
 
-  const raw = typeof body.username === "string" ? body.username.trim() : "";
-  const password = typeof body.password === "string" ? body.password : "";
-  if (!raw || isEmailIdentifier(raw) || !password || password.length > MAX_PASSWORD_LENGTH) {
-    return invalidCredentials();
-  }
-
-  const username = normalizeLoginUsername(raw);
-  if (!isValidLoginUsername(username)) {
-    return invalidCredentials();
-  }
-
-  const clientIp = getClientIpFromHeaders(request.headers);
-  const rateLimit = await evaluateOwnerLoginRateLimit(clientIp ?? "unknown", username);
-  if (!rateLimit.allowed) {
-    return rateLimitedResponse(rateLimit.retryAfterSeconds);
-  }
-
-  const signInConfig = resolveServerSignInConfig();
-  const svc = tryCreateServiceSupabase();
-  if (!signInConfig || !svc.ok) {
-    return unavailable();
-  }
-  if (!signInConfig.forwardClientIp && !warnedMissingSecretKey) {
-    warnedMissingSecretKey = true;
-    console.warn(
-      "[owner-login] SUPABASE_SECRET_KEY (sb_secret_) yok: anon anahtarla giriş yapılıyor, Supabase IP limiti Vercel IP'leri arasında paylaşılır"
-    );
-  }
-
-  const resolved = await resolveOwnerEmailByLoginUsername(svc.client, username);
-  if (!resolved) {
-    return invalidCredentials();
-  }
-
-  const result = await signInWithPasswordOnServer(
-    signInConfig,
-    { email: resolved.email, password },
-    clientIp
-  );
-
-  if (!result.ok) {
-    if (result.reason === "rate_limited") return rateLimitedResponse(60);
-    if (result.reason === "unavailable") return unavailable();
-    return invalidCredentials();
-  }
-
-  return NextResponse.json(
-    {
-      access_token: result.session.access_token,
-      refresh_token: result.session.refresh_token,
-      restaurantId: resolved.restaurantId,
+  const outcome = await handleLoginUsername(body, getClientIpFromHeaders(request.headers), {
+    evaluateRateLimit: evaluateOwnerLoginRateLimit,
+    getSignInConfig: () => resolveServerSignInConfig(),
+    resolveOwner: async (username) => {
+      const svc = tryCreateServiceSupabase();
+      if (!svc.ok) return "unavailable";
+      return resolveOwnerEmailByLoginUsername(svc.client, username);
     },
-    { headers: NO_STORE }
-  );
+    signIn: (config, credentials, clientIp) =>
+      signInWithPasswordOnServer(config, credentials, clientIp),
+    onMissingSecretKey: warnMissingSecretKey,
+  });
+
+  switch (outcome.kind) {
+    case "ok":
+      return NextResponse.json(
+        {
+          access_token: outcome.access_token,
+          refresh_token: outcome.refresh_token,
+          restaurantId: outcome.restaurantId,
+        },
+        { headers: NO_STORE }
+      );
+    case "rate_limited":
+      return rateLimitedResponse(outcome.retryAfterSeconds);
+    case "unavailable":
+      return NextResponse.json({ error: "service_unavailable" }, { status: 503, headers: NO_STORE });
+    default:
+      return NextResponse.json({ error: "invalid_credentials" }, { status: 401, headers: NO_STORE });
+  }
 }

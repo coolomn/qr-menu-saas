@@ -4,6 +4,7 @@ import { tryGetRedisClient } from "./client";
 
 export type RateLimitName =
   | "ownerLoginIp"
+  | "ownerLoginIpUsername"
   | "ownerLoginUsername"
   | "allergenSuggestShort"
   | "allergenSuggestDaily"
@@ -36,9 +37,18 @@ export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
     window: "15 m",
     prefix: "ratelimit:owner-login:ip",
   },
-  ownerLoginUsername: {
+  // Aynı IP'den aynı kullanıcı adına: tek saldırganın şifre denemesini keser.
+  ownerLoginIpUsername: {
     algorithm: "slidingWindow",
     tokens: 10,
+    window: "15 m",
+    prefix: "ratelimit:owner-login:ip-username",
+  },
+  // Kullanıcı adı başına üst sınır (dağıtık deneme). Yüksek tutuldu: tek bir saldırgan
+  // (≤30/IP) sahibi kullanıcı adı girişinden kilitleyemesin; e-postayla giriş her zaman açık.
+  ownerLoginUsername: {
+    algorithm: "slidingWindow",
+    tokens: 50,
     window: "15 m",
     prefix: "ratelimit:owner-login:username",
   },
