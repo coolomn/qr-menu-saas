@@ -43,6 +43,27 @@ describe("excel workbook", () => {
     assert.ok(payload.categories.length >= 1);
   });
 
+  it("analyzes a header table end-to-end and skips a notes sheet", async () => {
+    const buf = buildXlsxBuffer({
+      "QR Menü Test": [
+        ["Ürün Kodu", "Kategori", "Ürün Adı", "Açıklama", "Fiyat (TL)", "Boy / Porsiyon"],
+        ["FORU-001", "Kahve", "Espresso", "Tek shot", 85, "Tek"],
+        ["FORU-002", "Kahve", "Double Espresso", null, 105, "Çift"],
+        ["FORU-031", "Tatlı", "Brownie", null, 175, "Dilim"],
+      ],
+      "Kullanım Notları": [
+        ["Kullanım Notları", null],
+        ["Alerjenler", "Alerjen bilgisi boş bırakılabilir"],
+        ["Görünürlük", "Aktif veya Pasif yazın"],
+      ],
+    });
+    const { payload, summary } = await analyzeExcelBuffer(buf, { enableAi: false });
+    const names = payload.categories.flatMap((c) => c.products.map((p) => p.name));
+    assert.deepEqual(names.sort(), ["Brownie", "Double Espresso", "Espresso"]);
+    assert.equal(summary.productCount, 3);
+    assert.equal(summary.reviewRequiredCount, 0);
+  });
+
   it("does not scan a huge declared range (DoS guard)", () => {
     // Gerçekte 2 satırlık ama Excel'in en büyük alanını (1M satır × 16K sütun) bildiren sayfa.
     const sheet: XLSX.WorkSheet = {
