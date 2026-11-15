@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import { checkLimit, type RateLimiterLike } from "./client";
 import {
-  evaluateResolveLoginEmailRateLimit,
-  type ResolveLoginEmailRateLimitDeps,
-} from "./resolve-login-email";
+  evaluateOwnerLoginRateLimit,
+  type OwnerLoginRateLimitDeps,
+} from "./owner-login";
 
 function fakeLimiter(
   response: { success: boolean; limit: number; remaining: number; reset: number }
@@ -15,8 +15,8 @@ function fakeLimiter(
 }
 
 function makeDeps(
-  overrides: Partial<ResolveLoginEmailRateLimitDeps>
-): ResolveLoginEmailRateLimitDeps {
+  overrides: Partial<OwnerLoginRateLimitDeps>
+): OwnerLoginRateLimitDeps {
   return {
     getIpLimiter: () =>
       fakeLimiter({ success: true, limit: 10, remaining: 9, reset: Date.now() + 60_000 }),
@@ -27,9 +27,9 @@ function makeDeps(
   };
 }
 
-describe("evaluateResolveLoginEmailRateLimit", () => {
+describe("evaluateOwnerLoginRateLimit", () => {
   it("allows the request when neither limit is exceeded", async () => {
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", makeDeps({}));
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", makeDeps({}));
     assert.deepEqual(result, { allowed: true });
   });
 
@@ -38,7 +38,7 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
     const deps = makeDeps({
       getIpLimiter: () => fakeLimiter({ success: false, limit: 10, remaining: 0, reset }),
     });
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
 
     assert.equal(result.allowed, false);
     if (result.allowed) return;
@@ -50,7 +50,7 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
     const deps = makeDeps({
       getUsernameLimiter: () => fakeLimiter({ success: false, limit: 5, remaining: 0, reset }),
     });
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
 
     assert.equal(result.allowed, false);
     if (result.allowed) return;
@@ -67,7 +67,7 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
         return fakeLimiter({ success: true, limit: 5, remaining: 4, reset: Date.now() + 60_000 });
       },
     });
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
 
     assert.equal(result.allowed, false);
     assert.equal(usernameLimiterCalled, false);
@@ -75,7 +75,7 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
 
   it("fails open when the IP limiter is unavailable (missing Upstash env)", async () => {
     const deps = makeDeps({ getIpLimiter: () => null });
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
 
     assert.deepEqual(result, { allowed: true });
   });
@@ -88,14 +88,14 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
         },
       }),
     });
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
 
     assert.deepEqual(result, { allowed: true });
   });
 
   it("fails open when the username limiter is unavailable (missing Upstash env)", async () => {
     const deps = makeDeps({ getUsernameLimiter: () => null });
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
 
     assert.deepEqual(result, { allowed: true });
   });
@@ -108,7 +108,7 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
         },
       }),
     });
-    const result = await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+    const result = await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
 
     assert.deepEqual(result, { allowed: true });
   });
@@ -121,7 +121,7 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
     };
     const deps = makeDeps({ checkLimit: trackingCheckLimit });
 
-    await evaluateResolveLoginEmailRateLimit("1.2.3.4", "  SomeUser  ", deps);
+    await evaluateOwnerLoginRateLimit("1.2.3.4", "  SomeUser  ", deps);
 
     assert.deepEqual(seenIdentifiers, ["1.2.3.4", "someuser"]);
   });
@@ -130,7 +130,7 @@ describe("evaluateResolveLoginEmailRateLimit", () => {
     const warnSpy = mock.method(console, "warn", () => {});
     try {
       const deps = makeDeps({ getIpLimiter: () => null });
-      await evaluateResolveLoginEmailRateLimit("1.2.3.4", "someuser", deps);
+      await evaluateOwnerLoginRateLimit("1.2.3.4", "someuser", deps);
       assert.ok(warnSpy.mock.calls.length >= 1);
     } finally {
       warnSpy.mock.restore();

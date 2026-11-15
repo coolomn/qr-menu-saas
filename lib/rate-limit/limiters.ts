@@ -3,8 +3,8 @@ import type { Redis } from "@upstash/redis";
 import { tryGetRedisClient } from "./client";
 
 export type RateLimitName =
-  | "resolveLoginEmailIp"
-  | "resolveLoginEmailUsername"
+  | "ownerLoginIp"
+  | "ownerLoginUsername"
   | "allergenSuggestShort"
   | "allergenSuggestDaily"
   | "menuImportAnalyze"
@@ -30,17 +30,17 @@ export type RateLimitConfig =
  * Route entegrasyonları: lib/rate-limit/*.ts (endpoint başına fail-open/fail-closed politikası).
  */
 export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
-  resolveLoginEmailIp: {
+  ownerLoginIp: {
     algorithm: "slidingWindow",
-    tokens: 10,
-    window: "1 m",
-    prefix: "ratelimit:resolve-login-email:ip",
+    tokens: 30,
+    window: "15 m",
+    prefix: "ratelimit:owner-login:ip",
   },
-  resolveLoginEmailUsername: {
+  ownerLoginUsername: {
     algorithm: "slidingWindow",
     tokens: 10,
-    window: "1 m",
-    prefix: "ratelimit:resolve-login-email:username",
+    window: "15 m",
+    prefix: "ratelimit:owner-login:username",
   },
   allergenSuggestShort: {
     algorithm: "tokenBucket",
