@@ -3,8 +3,9 @@ import { describe, it } from "node:test";
 import { RATE_LIMIT_CONFIG, envScopedPrefix, tryGetLimiter, type RateLimitName } from "./limiters";
 
 const EXPECTED_NAMES: RateLimitName[] = [
-  "resolveLoginEmailIp",
-  "resolveLoginEmailUsername",
+  "ownerLoginIp",
+  "ownerLoginIpUsername",
+  "ownerLoginUsername",
   "allergenSuggestShort",
   "allergenSuggestDaily",
   "menuImportAnalyze",
@@ -25,18 +26,24 @@ describe("RATE_LIMIT_CONFIG", () => {
     assert.equal(new Set(prefixes).size, prefixes.length);
   });
 
-  it("matches the approved limit table for resolve-login-email", () => {
-    assert.deepEqual(RATE_LIMIT_CONFIG.resolveLoginEmailIp, {
+  it("matches the approved limit table for owner username login", () => {
+    assert.deepEqual(RATE_LIMIT_CONFIG.ownerLoginIp, {
       algorithm: "slidingWindow",
-      tokens: 10,
-      window: "1 m",
-      prefix: "ratelimit:resolve-login-email:ip",
+      tokens: 30,
+      window: "15 m",
+      prefix: "ratelimit:owner-login:ip",
     });
-    assert.deepEqual(RATE_LIMIT_CONFIG.resolveLoginEmailUsername, {
+    assert.deepEqual(RATE_LIMIT_CONFIG.ownerLoginIpUsername, {
       algorithm: "slidingWindow",
       tokens: 10,
-      window: "1 m",
-      prefix: "ratelimit:resolve-login-email:username",
+      window: "15 m",
+      prefix: "ratelimit:owner-login:ip-username",
+    });
+    assert.deepEqual(RATE_LIMIT_CONFIG.ownerLoginUsername, {
+      algorithm: "slidingWindow",
+      tokens: 50,
+      window: "15 m",
+      prefix: "ratelimit:owner-login:username",
     });
   });
 

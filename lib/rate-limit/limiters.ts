@@ -3,8 +3,9 @@ import type { Redis } from "@upstash/redis";
 import { tryGetRedisClient } from "./client";
 
 export type RateLimitName =
-  | "resolveLoginEmailIp"
-  | "resolveLoginEmailUsername"
+  | "ownerLoginIp"
+  | "ownerLoginIpUsername"
+  | "ownerLoginUsername"
   | "allergenSuggestShort"
   | "allergenSuggestDaily"
   | "menuImportAnalyze"
@@ -30,17 +31,26 @@ export type RateLimitConfig =
  * Route entegrasyonları: lib/rate-limit/*.ts (endpoint başına fail-open/fail-closed politikası).
  */
 export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
-  resolveLoginEmailIp: {
+  ownerLoginIp: {
     algorithm: "slidingWindow",
-    tokens: 10,
-    window: "1 m",
-    prefix: "ratelimit:resolve-login-email:ip",
+    tokens: 30,
+    window: "15 m",
+    prefix: "ratelimit:owner-login:ip",
   },
-  resolveLoginEmailUsername: {
+  // Aynı IP'den aynı kullanıcı adına: tek saldırganın şifre denemesini keser.
+  ownerLoginIpUsername: {
     algorithm: "slidingWindow",
     tokens: 10,
-    window: "1 m",
-    prefix: "ratelimit:resolve-login-email:username",
+    window: "15 m",
+    prefix: "ratelimit:owner-login:ip-username",
+  },
+  // Kullanıcı adı başına üst sınır (dağıtık deneme). Yüksek tutuldu: tek bir saldırgan
+  // (≤30/IP) sahibi kullanıcı adı girişinden kilitleyemesin; e-postayla giriş her zaman açık.
+  ownerLoginUsername: {
+    algorithm: "slidingWindow",
+    tokens: 50,
+    window: "15 m",
+    prefix: "ratelimit:owner-login:username",
   },
   allergenSuggestShort: {
     algorithm: "tokenBucket",
