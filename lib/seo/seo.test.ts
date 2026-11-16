@@ -10,6 +10,7 @@ import {
 } from "./json-ld";
 import { isSeoVisible, shouldNoIndex, toMenuSeoInfo, type MenuSeoResult } from "./menu-seo";
 import { isMissingColumnError } from "./db-errors";
+import { renderSitemapXml } from "./sitemap-xml";
 import { buildSeoHeaderRules, SITEMAP_CACHE_CONTROL } from "./headers";
 import { isSitemapRestaurant, loadMenuSitemapEntries, SitemapDataError } from "./sitemap-data";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -225,14 +226,28 @@ describe("isMissingColumnError", () => {
 });
 
 describe("buildSeoHeaderRules", () => {
-  it("caches the qr sitemap and marks API responses noindex", () => {
-    const rules = buildSeoHeaderRules();
-    const sitemap = rules.find((r) => r.source === "/sitemap.xml");
-    assert.ok(sitemap);
-    assert.deepEqual(sitemap.has, [{ type: "host", value: "qr\\.tapmenu\\.com\\.tr" }]);
-    assert.equal(sitemap.headers[0].value, SITEMAP_CACHE_CONTROL);
-    const api = rules.find((r) => r.source === "/api/:path*");
+  it("marks API responses noindex", () => {
+    const api = buildSeoHeaderRules().find((r) => r.source === "/api/:path*");
     assert.equal(api?.headers[0].key, "X-Robots-Tag");
+    assert.equal(api?.headers[0].value, "noindex, nofollow");
+  });
+
+  it("exposes a CDN cache policy for the sitemap route", () => {
+    assert.match(SITEMAP_CACHE_CONTROL, /s-maxage=3600/);
+  });
+});
+
+describe("renderSitemapXml", () => {
+  it("renders urls and escapes XML special characters", () => {
+    const xml = renderSitemapXml(["https://qr.tapmenu.com.tr/a&b", "https://qr.tapmenu.com.tr/x"]);
+    assert.ok(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+    assert.ok(xml.includes("<loc>https://qr.tapmenu.com.tr/a&amp;b</loc>"));
+    assert.equal((xml.match(/<url>/g) ?? []).length, 2);
+  });
+
+  it("renders a valid empty urlset", () => {
+    assert.ok(renderSitemapXml([]).includes("<urlset"));
+    assert.ok(!renderSitemapXml([]).includes("<url>"));
   });
 });
 
