@@ -14,10 +14,20 @@ import { pickLang } from "@/lib/i18n/languages";
 import { localizedText } from "@/lib/i18n/translations";
 import { useMenuLanguage } from "@/lib/i18n/use-menu-language";
 import { LanguageSwitcher } from "@/app/menu/[slug]/_components/language-switcher";
+import {
+  CurrencyNote,
+  CurrencySelect,
+  MenuCurrencyProvider,
+  useMenuCurrency,
+} from "@/app/menu/[slug]/_components/menu-currency";
 
 export function ProductPageClient({ slug, data }: { slug: string; data: PublicProductPageData }) {
   const { restaurant, category, product } = data;
   const { language, setLanguage, languages } = useMenuLanguage(restaurant.menu_languages);
+  const { rates: currencyRates, rate: currencyRate, setCurrency } = useMenuCurrency(
+    restaurant.currency_rates,
+    language
+  );
   const menuUrl = usePublicMenuUrl()(slug);
   const productUrlOf = usePublicProductUrl();
   const shareUrl = productUrlOf(slug, product.id);
@@ -81,6 +91,7 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
         </header>
 
         <main className="mx-auto flex w-full max-w-[420px] flex-col items-center gap-4 px-4 py-6">
+          <MenuCurrencyProvider rate={currencyRate} language={language}>
           <ProductExtrasProvider groups={data.modifierGroups} products={data.pairingProducts}>
             <ProductDetailCard
               product={product}
@@ -92,6 +103,21 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
               pairingHref={(id) => productUrlOf(slug, id)}
             />
           </ProductExtrasProvider>
+          {currencyRates.length > 0 ? (
+            <div className="flex w-full flex-col items-center gap-2 text-center">
+              <CurrencySelect
+                rates={currencyRates}
+                value={currencyRate}
+                onChange={setCurrency}
+                language={language}
+                className="rounded-full border border-current/20 bg-transparent px-3 py-1.5 text-xs font-bold"
+              />
+              <div className={tc.emptyStateText}>
+                <CurrencyNote />
+              </div>
+            </div>
+          ) : null}
+          </MenuCurrencyProvider>
           <Link href={menuUrl} className={tc.emptyStateLink}>
             {pickLang(language, {
               tr: "Tüm menüyü gör",

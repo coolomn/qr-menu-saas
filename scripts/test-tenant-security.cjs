@@ -287,6 +287,40 @@ async function main() {
       );
     }
 
+    // 3a) Faz 2.5c: owner döviz ayarlarını kaydedebilmeli; geçersiz döviz DB'de reddedilmeli
+    //     (migration uygulanmamış ortamda kolon yok → atlanır).
+    {
+      const { error } = await owner
+        .from("restaurants")
+        .update({ display_currencies: ["EUR", "USD"], fixed_exchange_rates: { EUR: 50.5 } })
+        .eq("id", activeRestaurantId);
+      if (error && /display_currencies|fixed_exchange_rates|column/i.test(error.message)) {
+        console.log("SKIP  owner currency settings (migration yok)");
+      } else {
+        const { data: after } = await admin
+          .from("restaurants")
+          .select("display_currencies, fixed_exchange_rates")
+          .eq("id", activeRestaurantId)
+          .single();
+        record(
+          "active owner CAN save currency settings",
+          !error &&
+            JSON.stringify(after.display_currencies) === '["EUR","USD"]' &&
+            after.fixed_exchange_rates.EUR === 50.5,
+          error ? error.message : ""
+        );
+        const { error: badErr } = await owner
+          .from("restaurants")
+          .update({ display_currencies: ["XXX"], fixed_exchange_rates: { EUR: -1 } })
+          .eq("id", activeRestaurantId);
+        record("invalid currency settings are rejected", !!badErr, badErr ? badErr.code : "ACCEPTED");
+        const { error: rateErr } = await owner
+          .from("exchange_rates")
+          .upsert({ currency: "EUR", try_per_unit: 1, rate_date: "2026-01-01" });
+        record("owner cannot write exchange_rates", !!rateErr, rateErr ? rateErr.code : "WRITTEN");
+      }
+    }
+
     // 3b) AKTİF restoranda da slug/abonelik alanları değiştirilememeli (tetikleyici, kilitten bağımsız)
     {
       const { error: slugErr } = await owner

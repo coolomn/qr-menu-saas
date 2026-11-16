@@ -35,6 +35,13 @@ import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
 import { normalizeMenuLanguages, type MenuLanguage } from "@/lib/i18n/languages";
 import { withCompactTranslations, type TranslationMap } from "@/lib/i18n/translations";
+import {
+  normalizeDisplayCurrencies,
+  normalizeFixedRates,
+  resolvePublicCurrencyRates,
+  type ExchangeRateRow,
+  type PublicCurrencyRate,
+} from "@/lib/currency/currencies";
 
 export type RestaurantRow = {
   id: string;
@@ -59,16 +66,27 @@ export type RestaurantRow = {
   show_price_date?: boolean | null;
   /** Faz 2.5: müşteri menüsü dilleri; yoksa varsayılan tr/en/ru. */
   menu_languages?: string[] | null;
+  /** Faz 2.5c: "≈" ile gösterilecek dövizler + işletmenin sabit kuru; yoksa döviz gösterimi kapalı. */
+  display_currencies?: string[] | null;
+  fixed_exchange_rates?: unknown;
 };
 
 export type PublicRestaurantPayload = Omit<
   RestaurantRow,
-  "id" | "logo_display_mode" | "theme_id" | "font_style_id" | "menu_languages"
+  | "id"
+  | "logo_display_mode"
+  | "theme_id"
+  | "font_style_id"
+  | "menu_languages"
+  | "display_currencies"
+  | "fixed_exchange_rates"
 > & {
   logo_display_mode: ReturnType<typeof normalizeLogoDisplayMode>;
   theme_id: ThemeId;
   font_style_id: FontStyleId;
   menu_languages: MenuLanguage[];
+  /** Faz 2.5c: gösterilebilir kurlar (işletme sırası; eski/eksik kur atılmış). Boş = döviz gösterimi yok. */
+  currency_rates?: PublicCurrencyRate[];
 };
 
 export type PublicCategoryPayload = {
@@ -173,6 +191,9 @@ const RESTAURANT_COLUMNS = [
   "tenant_status",
   "subscription_ends_at",
 ].join(",");
+
+/** Faz 2.5c kolonları; migration uygulanmadıysa sorgu bunlarsız tekrarlanır. */
+const RESTAURANT_CURRENCY_COLUMNS = ["display_currencies", "fixed_exchange_rates"].join(",");
 
 /** Faz 2.1 kolonları; migration uygulanmadıysa sorgu bunlarsız tekrarlanır. */
 const RESTAURANT_VENUE_COLUMNS = [
@@ -303,7 +324,10 @@ function toProductRows(value: unknown): ProductRow[] {
     );
 }
 
-export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicRestaurantPayload {
+export function toPublicRestaurantPayload(
+  restaurantRow: RestaurantRow,
+  currencyRates: PublicCurrencyRate[] = []
+): PublicRestaurantPayload {
   const {
     id: _restaurantId,
     tenant_status: _tenantStatus,
@@ -312,6 +336,8 @@ export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicR
     theme_id: rawThemeId,
     font_style_id: rawFontStyleId,
     menu_languages: rawMenuLanguages,
+    display_currencies: _displayCurrencies,
+    fixed_exchange_rates: _fixedExchangeRates,
     ...publicRestaurant
   } = restaurantRow;
 
@@ -321,7 +347,37 @@ export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicR
     theme_id: normalizeThemeId(rawThemeId),
     font_style_id: normalizeFontStyleId(rawFontStyleId),
     menu_languages: normalizeMenuLanguages(rawMenuLanguages),
+    currency_rates: currencyRates,
   };
+}
+
+/**
+ * Faz 2.5c: işletmenin açtığı dövizlerin gösterilebilir kurları. Döviz seçilmemişse sorgu yok.
+ * Kur okunamazsa menü yine açılır (yalnız sabit kurlar gösterilir).
+ */
+export async function loadPublicCurrencyRates(
+  supabase: SupabaseClient,
+  restaurantRow: RestaurantRow,
+  now: Date = new Date()
+): Promise<PublicCurrencyRate[]> {
+  const displayCurrencies = normalizeDisplayCurrencies(restaurantRow.display_currencies);
+  if (displayCurrencies.length === 0) return [];
+  const fixedRates = normalizeFixedRates(restaurantRow.fixed_exchange_rates);
+  const needLive = displayCurrencies.filter((code) => fixedRates[code] === undefined);
+
+  let liveRates: ExchangeRateRow[] = [];
+  if (needLive.length > 0) {
+    const { data, error } = await supabase
+      .from("exchange_rates")
+      .select("currency,try_per_unit,rate_date,fetched_at")
+      .in("currency", needLive);
+    if (error) {
+      console.error("[public-menu] exchange_rates", error.message);
+    } else {
+      liveRates = (data ?? []) as ExchangeRateRow[];
+    }
+  }
+  return resolvePublicCurrencyRates({ displayCurrencies, fixedRates, liveRates, now });
 }
 
 export type LoadRestaurantResult =
@@ -334,9 +390,18 @@ export async function loadPublicMenuRestaurantBySlug(
 ): Promise<LoadRestaurantResult> {
   let { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
-    .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS, "menu_languages"].join(","))
+    .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS, "menu_languages", RESTAURANT_CURRENCY_COLUMNS].join(","))
     .eq("slug", normalizedSlug)
     .maybeSingle();
+
+  // Faz 2.5c kolonları yoksa (migration uygulanmadı) bir önceki tam sorgu.
+  if (restaurantError && isMissingColumn(restaurantError)) {
+    ({ data: restaurant, error: restaurantError } = await supabase
+      .from("restaurants")
+      .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS, "menu_languages"].join(","))
+      .eq("slug", normalizedSlug)
+      .maybeSingle());
+  }
 
   // Faz 2.5 kolonu yoksa (migration uygulanmadı) bir önceki tam sorgu.
   if (restaurantError && isMissingColumn(restaurantError)) {
@@ -437,10 +502,13 @@ export async function buildPublicMenuBootstrap(
   supabase: SupabaseClient,
   restaurantRow: RestaurantRow
 ): Promise<PublicMenuBootstrapPayload> {
-  const menuData = await loadActiveMenuCollections(supabase, restaurantRow.id);
+  const [menuData, currencyRates] = await Promise.all([
+    loadActiveMenuCollections(supabase, restaurantRow.id),
+    loadPublicCurrencyRates(supabase, restaurantRow),
+  ]);
 
   return {
-    restaurant: toPublicRestaurantPayload(restaurantRow),
+    restaurant: toPublicRestaurantPayload(restaurantRow, currencyRates),
     menu_collections: menuData.menu_collections,
     menu_picker: menuData.menu_picker,
   };
@@ -700,9 +768,12 @@ export async function buildPublicMenuFull(
   supabase: SupabaseClient,
   restaurantRow: RestaurantRow
 ): Promise<PublicMenuFullPayload> {
-  const catalog = await loadPublicMenuCatalog(supabase, restaurantRow);
+  const [catalog, currencyRates] = await Promise.all([
+    loadPublicMenuCatalog(supabase, restaurantRow),
+    loadPublicCurrencyRates(supabase, restaurantRow),
+  ]);
   return {
-    restaurant: toPublicRestaurantPayload(restaurantRow),
+    restaurant: toPublicRestaurantPayload(restaurantRow, currencyRates),
     menu_collections: catalog.menu_collections,
     menu_picker: catalog.menu_picker,
     categories: catalog.categories,
