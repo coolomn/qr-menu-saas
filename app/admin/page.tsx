@@ -23,6 +23,7 @@ import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSet
 import { AnnouncementCard } from "@/app/admin/_components/settings/AnnouncementCard";
 import { SeoVisibilityCard } from "@/app/admin/_components/settings/SeoVisibilityCard";
 import { MenuHealthPanel } from "@/app/admin/_components/health/MenuHealthPanel";
+import { LogoColorSuggest } from "@/app/admin/_components/settings/LogoColorSuggest";
 import { MenuTemplatePicker } from "@/app/admin/_components/templates/MenuTemplatePicker";
 import { parseAnnouncement } from "@/lib/public-menu/announcement";
 import {
@@ -2977,6 +2978,15 @@ export default function AdminDashboard() {
                     {settings.logo_url && !logoFile && (<div className="mb-4 bg-gray-50 p-4 rounded-2xl inline-block border-2 border-gray-100 w-full text-center md:text-left"><img src={settings.logo_url} alt="Logo" className="h-12 md:h-16 object-contain mx-auto md:mx-0" /></div>)}
                     <input type="file" accept={PRODUCT_IMAGE_ACCEPT} onChange={e => setLogoFile(e.target.files ? e.target.files[0] : null)} className="w-full text-[10px] md:text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 outline-none" />
                   </div>
+
+                  <LogoColorSuggest
+                    key={`${logoFile?.name ?? ""}:${logoFile?.lastModified ?? ""}:${settings.logo_url || ""}`}
+                    logoFile={logoFile}
+                    logoUrl={settings.logo_url || ""}
+                    themeId={settings.theme_id}
+                    currentColor={settings.primary_color || ""}
+                    onPick={(hex) => setSettings({ ...settings, primary_color: hex })}
+                  />
 
                   <div className="p-4 md:p-6 border-2 border-indigo-100 rounded-3xl bg-indigo-50/30 space-y-4">
                     <div>
