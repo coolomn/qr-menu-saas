@@ -23,6 +23,7 @@ import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSet
 import { AnnouncementCard } from "@/app/admin/_components/settings/AnnouncementCard";
 import { SeoVisibilityCard } from "@/app/admin/_components/settings/SeoVisibilityCard";
 import { MenuHealthPanel } from "@/app/admin/_components/health/MenuHealthPanel";
+import { MenuTemplatePicker } from "@/app/admin/_components/templates/MenuTemplatePicker";
 import { parseAnnouncement } from "@/lib/public-menu/announcement";
 import {
   normalizeBadgeIds,
@@ -310,6 +311,8 @@ export default function AdminDashboard() {
   const [productMenuFilter, setProductMenuFilter] = useState("all");
   const [productPriceEmptyOnly, setProductPriceEmptyOnly] = useState(false);
   const [productViewMode, setProductViewMode] = useState<"cards" | "pricing">("cards");
+  // Faz 2.11c: şablon yüklendikten sonra gösterilen "sıradaki adımlar" kutusu.
+  const [templateNotice, setTemplateNotice] = useState<{ title: string; categories: number; products: number } | null>(null);
   const [productDeletingId, setProductDeletingId] = useState<string | null>(null);
   const [productToDelete, setProductToDelete] = useState<{ id: string; name: string } | null>(null);
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({});
@@ -2397,6 +2400,41 @@ export default function AdminDashboard() {
                   </p>
                 )}
 
+                {templateNotice && products.some((p: any) => isProductPriceEmpty(p.price, productVariantsMap[p.id])) && (
+                  <div
+                    id="template-notice"
+                    tabIndex={-1}
+                    role="status"
+                    className="mx-3 md:mx-4 mt-3 space-y-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-bold text-blue-900"
+                  >
+                    <p>
+                      &quot;{templateNotice.title}&quot; şablonu yüklendi: {templateNotice.categories} kategori,{" "}
+                      {templateNotice.products} ürün. Ürünler şu an fiyatsız ve müşteri menüsünde görünüyor. Sıradaki adımlar:
+                    </p>
+                    <ol className="list-decimal space-y-0.5 pl-5 font-medium">
+                      <li>Fiyatları girin (aşağıdaki düğme ile fiyat görünümüne geçin).</li>
+                      <li>Menünüzde olmayan ürün ve kategorileri silin.</li>
+                      <li>Fotoğraf ve alerjen bilgilerini ekleyin; ilerlemeyi &quot;Menü Sağlığı&quot; sekmesinden izleyin.</li>
+                    </ol>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setProductViewMode("pricing")}
+                        className="min-h-11 rounded-xl bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-700"
+                      >
+                        Fiyatları girmeye başla
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateNotice(null)}
+                        className="min-h-11 rounded-xl px-4 text-xs font-black text-blue-700 hover:bg-blue-100"
+                      >
+                        Kapat
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {productViewMode === "pricing" ? (
                   <div className="p-3 md:p-4">
                     <BulkPriceEditPanel
@@ -2430,7 +2468,23 @@ export default function AdminDashboard() {
                       success={bulkMenuSuccess}
                     />
                   )}
-                  {groupedFilteredProducts.length === 0 ? (
+                  {groupedFilteredProducts.length === 0 && products.length === 0 && categories.length === 0 && restaurant?.id ? (
+                    <MenuTemplatePicker
+                      restaurantId={restaurant.id}
+                      activeMenuCount={getActiveRestaurantMenus().length}
+                      onApplied={({ categories: newCategories, products: newProducts, template }) => {
+                        setCategories(newCategories as typeof categories);
+                        setProducts(sortProductsByOrder(newProducts as typeof products));
+                        setTemplateNotice({
+                          title: template.title,
+                          categories: newCategories.length,
+                          products: newProducts.length,
+                        });
+                        // Picker kaybolunca odak sayfa köküne düşmesin: bilgi kutusuna taşı.
+                        window.setTimeout(() => document.getElementById("template-notice")?.focus(), 0);
+                      }}
+                    />
+                  ) : groupedFilteredProducts.length === 0 ? (
                     <div className="py-12 text-center text-sm font-medium text-gray-500">
                       {products.length === 0
                         ? "Henüz ürün yok. Yeni ürün ekleyin."
@@ -2659,6 +2713,20 @@ export default function AdminDashboard() {
                     <Plus size={18} /> Yeni Kategori
                   </button>
                 </div>
+                {categories.length === 0 && products.length === 0 && (
+                  <div className="mb-3 flex flex-col gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs font-bold text-blue-900">
+                      Menünüz boş. Kafe, restoran veya otel için hazır şablonla kategorileri ve örnek ürünleri tek tıkla ekleyebilirsiniz.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("products")}
+                      className="min-h-11 shrink-0 rounded-xl bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-700"
+                    >
+                      Hazır şablonları gör
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setActiveTab("languages")}
