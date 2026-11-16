@@ -18,13 +18,13 @@ import {
   type MenuSort,
 } from "@/lib/public-menu/menu-filters";
 import type { ResolvedMenuPresentation } from "@/lib/public-menu/themes/resolve";
-import { pickLang } from "@/lib/public-menu/venue-info";
+import { pickLang, type LocalizedString } from "@/lib/i18n/languages";
 
-const SORT_LABELS: Record<MenuSort, { tr: string; en: string; ru: string }> = {
-  default: { tr: "Önerilen sıra", en: "Recommended", ru: "Рекомендуемые" },
-  price_asc: { tr: "Fiyat: artan", en: "Price: low to high", ru: "Цена: по возрастанию" },
-  price_desc: { tr: "Fiyat: azalan", en: "Price: high to low", ru: "Цена: по убыванию" },
-  name: { tr: "Ada göre (A-Z)", en: "Name (A-Z)", ru: "По названию (А-Я)" },
+const SORT_LABELS: Record<MenuSort, LocalizedString> = {
+  default: { tr: "Önerilen sıra", en: "Recommended", ru: "Рекомендуемые", de: "Empfohlen", fr: "Recommandé", es: "Recomendado", it: "Consigliati", uk: "Рекомендовані", zh: "推荐排序", az: "Tövsiyə olunan" },
+  price_asc: { tr: "Fiyat: artan", en: "Price: low to high", ru: "Цена: по возрастанию", de: "Preis: aufsteigend", fr: "Prix : croissant", es: "Precio: de menor a mayor", it: "Prezzo: crescente", uk: "Ціна: за зростанням", zh: "价格：从低到高", az: "Qiymət: artan" },
+  price_desc: { tr: "Fiyat: azalan", en: "Price: high to low", ru: "Цена: по убыванию", de: "Preis: absteigend", fr: "Prix : décroissant", es: "Precio: de mayor a menor", it: "Prezzo: decrescente", uk: "Ціна: за спаданням", zh: "价格：从高到低", az: "Qiymət: azalan" },
+  name: { tr: "Ada göre (A-Z)", en: "Name (A-Z)", ru: "По названию (А-Я)", de: "Name (A-Z)", fr: "Nom (A-Z)", es: "Nombre (A-Z)", it: "Nome (A-Z)", uk: "За назвою (А-Я)", zh: "按名称排序", az: "Ada görə (A-Z)" },
 };
 
 type MenuFilterBarProps = {
@@ -74,12 +74,12 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
             aria-haspopup="dialog"
           >
             <SlidersHorizontal size={14} aria-hidden />
-            {pickLang(language, { tr: "Filtrele", en: "Filter", ru: "Фильтр" })}
+            {pickLang(language, { tr: "Filtrele", en: "Filter", ru: "Фильтр", de: "Filtern", fr: "Filtrer", es: "Filtrar", it: "Filtra", uk: "Фільтр", zh: "筛选", az: "Filtrlə" })}
             {count > 0 ? ` (${count})` : ""}
           </button>
         )}
         <label className="sr-only" htmlFor="menu-sort">
-          {pickLang(language, { tr: "Sırala", en: "Sort", ru: "Сортировка" })}
+          {pickLang(language, { tr: "Sırala", en: "Sort", ru: "Сортировка", de: "Sortieren", fr: "Trier", es: "Ordenar", it: "Ordina", uk: "Сортування", zh: "排序", az: "Sırala" })}
         </label>
         <select
           id="menu-sort"
@@ -102,7 +102,7 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
             className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 sm:items-center"
             role="dialog"
             aria-modal="true"
-            aria-label={pickLang(language, { tr: "Filtreler", en: "Filters", ru: "Фильтры" })}
+            aria-label={pickLang(language, { tr: "Filtreler", en: "Filters", ru: "Фильтры", de: "Filter", fr: "Filtres", es: "Filtros", it: "Filtri", uk: "Фільтри", zh: "筛选", az: "Filtrlər" })}
             onClick={() => setOpen(false)}
           >
             <div
@@ -111,13 +111,13 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
             >
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-base font-black">
-                  {pickLang(language, { tr: "Filtreler", en: "Filters", ru: "Фильтры" })}
+                  {pickLang(language, { tr: "Filtreler", en: "Filters", ru: "Фильтры", de: "Filter", fr: "Filtres", es: "Filtros", it: "Filtri", uk: "Фільтри", zh: "筛选", az: "Filtrlər" })}
                 </h2>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
                   className={`flex h-9 w-9 items-center justify-center rounded-full border ${chipBase}`}
-                  aria-label={pickLang(language, { tr: "Kapat", en: "Close", ru: "Закрыть" })}
+                  aria-label={pickLang(language, { tr: "Kapat", en: "Close", ru: "Закрыть", de: "Schließen", fr: "Fermer", es: "Cerrar", it: "Chiudi", uk: "Закрити", zh: "关闭", az: "Bağla" })}
                 >
                   <X size={18} aria-hidden />
                 </button>
@@ -126,7 +126,7 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
               {options.diets.length > 0 && (
                 <section className="mb-5">
                   <h3 className="mb-2 text-xs font-black uppercase tracking-wide opacity-70">
-                    {pickLang(language, { tr: "Tercih", en: "Preference", ru: "Предпочтения" })}
+                    {pickLang(language, { tr: "Tercih", en: "Preference", ru: "Предпочтения", de: "Präferenz", fr: "Préférence", es: "Preferencia", it: "Preferenza", uk: "Уподобання", zh: "偏好", az: "Seçim" })}
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {DIET_FILTERS.filter((d) => options.diets.includes(d.id)).map((d) => {
@@ -155,6 +155,13 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
                       tr: "Bunları içermesin",
                       en: "Exclude allergens",
                       ru: "Исключить аллергены",
+                      de: "Allergene ausschließen",
+                      fr: "Exclure les allergènes",
+                      es: "Excluir alérgenos",
+                      it: "Escludi allergeni",
+                      uk: "Виключити алергени",
+                      zh: "排除过敏原",
+                      az: "Allergenləri çıxar",
                     })}
                   </h3>
                   <div className="flex flex-wrap gap-2">
@@ -183,6 +190,13 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
                       tr: "Alerjen bilgisi işletme tarafından girilir. Ciddi alerjiniz varsa lütfen personele danışın.",
                       en: "Allergen info is provided by the venue. If you have a serious allergy, please ask the staff.",
                       ru: "Информацию об аллергенах указывает заведение. При серьёзной аллергии уточните у персонала.",
+                      de: "Allergeninformationen werden vom Betrieb angegeben. Bei schweren Allergien wenden Sie sich bitte an das Personal.",
+                      fr: "Les informations sur les allergènes sont fournies par l'établissement. En cas d'allergie grave, veuillez demander au personnel.",
+                      es: "La información sobre alérgenos la proporciona el establecimiento. Si tiene una alergia grave, consulte al personal.",
+                      it: "Le informazioni sugli allergeni sono fornite dal locale. In caso di allergie gravi, chiedi al personale.",
+                      uk: "Інформацію про алергени надає заклад. Якщо у вас серйозна алергія, зверніться до персоналу.",
+                      zh: "过敏原信息由商家提供。如有严重过敏，请咨询工作人员。",
+                      az: "Allergen məlumatını müəssisə daxil edir. Ciddi allergiyanız varsa, işçilərə müraciət edin.",
                     })}
                   </p>
                 </section>
@@ -194,7 +208,7 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
                   onClick={() => onChange({ ...EMPTY_MENU_FILTER, sort: value.sort })}
                   className={`flex-1 rounded-full border px-4 py-2.5 text-sm font-bold ${chipBase}`}
                 >
-                  {pickLang(language, { tr: "Temizle", en: "Clear", ru: "Сбросить" })}
+                  {pickLang(language, { tr: "Temizle", en: "Clear", ru: "Сбросить", de: "Zurücksetzen", fr: "Effacer", es: "Borrar", it: "Cancella", uk: "Скинути", zh: "清除", az: "Təmizlə" })}
                 </button>
                 <button
                   type="button"
@@ -202,7 +216,7 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
                   className="flex-1 rounded-full px-4 py-2.5 text-sm font-bold text-white"
                   style={{ backgroundColor: theme.tabActiveColor }}
                 >
-                  {pickLang(language, { tr: "Göster", en: "Show", ru: "Показать" })}
+                  {pickLang(language, { tr: "Göster", en: "Show", ru: "Показать", de: "Anzeigen", fr: "Afficher", es: "Mostrar", it: "Mostra", uk: "Показати", zh: "显示", az: "Göstər" })}
                 </button>
               </div>
             </div>

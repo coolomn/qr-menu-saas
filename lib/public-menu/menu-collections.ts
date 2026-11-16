@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MenuCollectionCardVisualType } from "@/lib/admin-menu/types";
 import { normalizeMenuCollectionCardVisualType } from "@/lib/admin-menu/types";
 import { parseSchedule, type Schedule } from "@/lib/public-menu/schedule";
+import { withCompactTranslations, type TranslationMap } from "@/lib/i18n/translations";
 
 export type PublicMenuCollection = {
   id: string;
@@ -16,6 +17,8 @@ export type PublicMenuCollection = {
   card_image_url: string | null;
   /** Faz 2.3 zamanlaması; yok/null = her zaman. */
   schedule?: Schedule | null;
+  /** Faz 2.5 (name, description). */
+  translations?: TranslationMap;
 };
 
 export type PublicMenuPicker = {
@@ -35,6 +38,7 @@ type MenuCollectionRow = {
   card_visual_type?: string | null;
   card_image_url?: string | null;
   schedule?: unknown;
+  translations?: unknown;
 };
 
 type JunctionRow = {
@@ -68,7 +72,12 @@ function toJunctionRows(value: unknown): JunctionRow[] {
 }
 
 function toPublicMenuCollection(row: MenuCollectionRow): PublicMenuCollection {
+  const { translations } = withCompactTranslations(
+    { translations: row.translations, name_en: row.name_en, name_ru: row.name_ru },
+    ["name"]
+  );
   return {
+    ...(translations ? { translations } : {}),
     id: row.id,
     name: row.name,
     name_en: row.name_en,
@@ -99,6 +108,9 @@ const MENU_COLLECTION_COLUMNS =
 /** Faz 2.3 kolonu; migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
 const MENU_COLLECTION_COLUMNS_WITH_SCHEDULE = `${MENU_COLLECTION_COLUMNS}, schedule`;
 
+/** Faz 2.5 kolonu; migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
+const MENU_COLLECTION_COLUMNS_WITH_TRANSLATIONS = `${MENU_COLLECTION_COLUMNS_WITH_SCHEDULE}, translations`;
+
 /** Legacy select when new card visual columns are not migrated yet. */
 const MENU_COLLECTION_COLUMNS_LEGACY =
   "id, name, name_en, name_ru, description, start_time, end_time, sort_order";
@@ -118,6 +130,7 @@ export async function loadActiveMenuCollections(
   let menuRows: unknown = null;
   // En yeni kolon setinden eskiye doğru dene; kolon yoksa (migration henüz uygulanmamış) bir önceki sete düş.
   const columnSets = [
+    MENU_COLLECTION_COLUMNS_WITH_TRANSLATIONS,
     MENU_COLLECTION_COLUMNS_WITH_SCHEDULE,
     MENU_COLLECTION_COLUMNS,
     MENU_COLLECTION_COLUMNS_LEGACY,

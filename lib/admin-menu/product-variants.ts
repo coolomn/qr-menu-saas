@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatPriceForDisplay } from "@/lib/format-price";
+import { withCompactTranslations, type TranslationMap } from "@/lib/i18n/translations";
 
 export const MAX_PRODUCT_VARIANTS = 20;
 
@@ -23,13 +24,15 @@ export type ProductVariant = {
   sort_order: number;
   is_active: boolean;
   created_at?: string;
+  /** Faz 2.5 ({ "de": { "label": "…" } }); migration yoksa gelmez. */
+  translations?: unknown;
 };
 
 /** Public menü API — müşteriye gösterilecek alanlar (Faz 3+). */
 export type PublicProductVariant = Pick<
   ProductVariant,
   "id" | "label" | "label_en" | "label_ru" | "price" | "sort_order"
->;
+> & { translations?: TranslationMap };
 
 export type ProductVariantSortable = {
   sort_order?: number | null;
@@ -55,7 +58,12 @@ export function sortProductVariantsByOrder<T extends ProductVariantSortable>(var
 }
 
 export function toPublicProductVariant(row: ProductVariant): PublicProductVariant {
+  const { translations } = withCompactTranslations(
+    { translations: row.translations, label_en: row.label_en, label_ru: row.label_ru },
+    ["label"]
+  );
   return {
+    ...(translations ? { translations } : {}),
     id: row.id,
     label: row.label,
     label_en: row.label_en,

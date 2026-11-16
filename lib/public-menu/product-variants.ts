@@ -9,6 +9,11 @@ import {
 
 import { parseSchedule, type Schedule } from "@/lib/public-menu/schedule";
 import { parseRemovableIngredients, type RemovableIngredient } from "@/lib/public-menu/product-extras";
+import {
+  parseTranslations,
+  selectWithOptionalTranslations,
+  type TranslationMap,
+} from "@/lib/i18n/translations";
 
 export { hasProductVariants };
 export type { PublicProductVariant };
@@ -40,13 +45,15 @@ export async function buildActivePublicVariantsMap(
   const empty = new Map<string, PublicProductVariant[]>();
   if (productIds.length === 0) return empty;
 
-  const { data, error } = await supabase
-    .from("product_variants")
-    .select(VARIANT_COLUMNS)
-    .in("product_id", productIds)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
+  const { data, error } = await selectWithOptionalTranslations((translationsColumn) =>
+    supabase
+      .from("product_variants")
+      .select(VARIANT_COLUMNS + translationsColumn)
+      .in("product_id", productIds)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+  );
 
   if (error) {
     if (isDbSchemaError(error)) {
@@ -116,6 +123,8 @@ export type PublicProduct = {
   removable_ingredients?: RemovableIngredient[];
   modifier_group_ids?: string[];
   pairing_ids?: string[];
+  /** Faz 2.5 (name, description). */
+  translations?: TranslationMap;
 };
 
 function stringIds(raw: unknown): string[] | undefined {
@@ -176,8 +185,10 @@ export function normalizePublicProduct(raw: unknown): PublicProduct | null {
   const ingredients = parseRemovableIngredients(row.removable_ingredients);
   const groupIds = stringIds(row.modifier_group_ids);
   const pairingIds = stringIds(row.pairing_ids);
+  const translations = parseTranslations(row.translations);
   return {
     ...base,
+    ...(Object.keys(translations).length > 0 ? { translations } : {}),
     ...(variants ? { variants } : {}),
     ...(ingredients.length > 0 ? { removable_ingredients: ingredients } : {}),
     ...(groupIds ? { modifier_group_ids: groupIds } : {}),

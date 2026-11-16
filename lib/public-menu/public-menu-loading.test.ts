@@ -18,6 +18,7 @@ const sampleBootstrap: PublicMenuBootstrapPayload = {
   restaurant: {
     slug: "demo",
     name: "Demo Restoran",
+    menu_languages: ["tr", "en", "ru"],
     logo_url: "https://cdn.example/logo.webp",
     primary_color: "#2563eb",
     slider_images: ["https://cdn.example/s1.webp"],

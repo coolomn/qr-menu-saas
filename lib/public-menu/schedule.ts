@@ -16,7 +16,7 @@
  * - Tüm saatler mekan saat diliminde (varsayılan Europe/Istanbul) değerlendirilir.
  */
 
-import { pickLang } from "@/lib/public-menu/venue-info";
+import { intlLocale, pickLang, toMenuLanguage, type MenuLanguage } from "@/lib/i18n/languages";
 
 export type ScheduleOutsideMode = "show" | "hide";
 
@@ -282,19 +282,25 @@ export function resolveService(
 }
 
 // ---------------------------------------------------------------------------
-// Metinler (TR / EN / RU)
+// Metinler (10 dil, Faz 2.5)
 // ---------------------------------------------------------------------------
 
-const DAY_NAMES = {
+/** Pazar (0) ile başlayan kısa gün adları. */
+const DAY_NAMES: Record<MenuLanguage, readonly string[]> = {
   tr: ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"],
   en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
   ru: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
-} as const;
+  de: ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"],
+  fr: ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."],
+  es: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
+  it: ["dom", "lun", "mar", "mer", "gio", "ven", "sab"],
+  uk: ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+  zh: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"],
+  az: ["B.", "B.e.", "Ç.a.", "Ç.", "C.a.", "C.", "Ş."],
+};
 
 function dayNames(language: string): readonly string[] {
-  if (language === "en") return DAY_NAMES.en;
-  if (language === "ru") return DAY_NAMES.ru;
-  return DAY_NAMES.tr;
+  return DAY_NAMES[toMenuLanguage(language)];
 }
 
 function sameDays(days: number[], target: number[]): boolean {
@@ -302,9 +308,45 @@ function sameDays(days: number[], target: number[]): boolean {
 }
 
 function describeDays(days: number[], language: string): string {
-  if (days.length === 7) return pickLang(language, { tr: "Her gün", en: "Every day", ru: "Ежедневно" });
-  if (sameDays(days, [1, 2, 3, 4, 5])) return pickLang(language, { tr: "Hafta içi", en: "Weekdays", ru: "По будням" });
-  if (sameDays(days, [0, 6])) return pickLang(language, { tr: "Hafta sonu", en: "Weekends", ru: "По выходным" });
+  if (days.length === 7)
+    return pickLang(language, {
+      tr: "Her gün",
+      en: "Every day",
+      ru: "Ежедневно",
+      de: "Täglich",
+      fr: "Tous les jours",
+      es: "Todos los días",
+      it: "Tutti i giorni",
+      uk: "Щодня",
+      zh: "每天",
+      az: "Hər gün",
+    });
+  if (sameDays(days, [1, 2, 3, 4, 5]))
+    return pickLang(language, {
+      tr: "Hafta içi",
+      en: "Weekdays",
+      ru: "По будням",
+      de: "Werktags",
+      fr: "En semaine",
+      es: "Entre semana",
+      it: "Nei giorni feriali",
+      uk: "У будні",
+      zh: "工作日",
+      az: "Həftə içi",
+    });
+  if (sameDays(days, [0, 6]))
+    return pickLang(language, {
+      tr: "Hafta sonu",
+      en: "Weekends",
+      ru: "По выходным",
+      de: "Am Wochenende",
+      fr: "Le week-end",
+      es: "Fines de semana",
+      it: "Nel fine settimana",
+      uk: "У вихідні",
+      zh: "周末",
+      az: "Həftə sonu",
+    });
   const names = dayNames(language);
   // Pazartesi'den başlayan sıra
   const ordered = [1, 2, 3, 4, 5, 6, 0].filter((d) => days.includes(d));
@@ -313,8 +355,7 @@ function describeDays(days: number[], language: string): string {
 
 function formatDateLabel(date: string, language: string): string {
   const [y, m, d] = date.split("-").map(Number);
-  const locale = language === "en" ? "en-GB" : language === "ru" ? "ru-RU" : "tr-TR";
-  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" }).format(
+  return new Intl.DateTimeFormat(intlLocale(language), { day: "numeric", month: "short", timeZone: "UTC" }).format(
     new Date(Date.UTC(y, m - 1, d))
   );
 }
@@ -328,7 +369,18 @@ export function describeSchedule(schedule: Schedule | null, language: string): s
     const days = describeDays(w.days, language);
     const time =
       w.start === null || w.end === null
-        ? pickLang(language, { tr: "tüm gün", en: "all day", ru: "весь день" })
+        ? pickLang(language, {
+            tr: "tüm gün",
+            en: "all day",
+            ru: "весь день",
+            de: "ganztägig",
+            fr: "toute la journée",
+            es: "todo el día",
+            it: "tutto il giorno",
+            uk: "весь день",
+            zh: "全天",
+            az: "bütün gün",
+          })
         : `${w.start}–${w.end}`;
     parts.push(`${days} ${time}`);
   }
@@ -337,19 +389,39 @@ export function describeSchedule(schedule: Schedule | null, language: string): s
     parts.push(`${formatDateLabel(schedule.starts_on, language)} – ${formatDateLabel(schedule.ends_on, language)}`);
   } else if (schedule.starts_on) {
     parts.push(
-      pickLang(language, {
-        tr: `${formatDateLabel(schedule.starts_on, language)} tarihinden itibaren`,
-        en: `From ${formatDateLabel(schedule.starts_on, language)}`,
-        ru: `С ${formatDateLabel(schedule.starts_on, language)}`,
-      })
+      (() => {
+        const date = formatDateLabel(schedule.starts_on, language);
+        return pickLang(language, {
+          tr: `${date} tarihinden itibaren`,
+          en: `From ${date}`,
+          ru: `С ${date}`,
+          de: `Ab ${date}`,
+          fr: `À partir du ${date}`,
+          es: `Desde el ${date}`,
+          it: `Dal ${date}`,
+          uk: `З ${date}`,
+          zh: `自${date}起`,
+          az: `${date} tarixindən etibarən`,
+        });
+      })()
     );
   } else if (schedule.ends_on) {
     parts.push(
-      pickLang(language, {
-        tr: `${formatDateLabel(schedule.ends_on, language)} tarihine kadar`,
-        en: `Until ${formatDateLabel(schedule.ends_on, language)}`,
-        ru: `До ${formatDateLabel(schedule.ends_on, language)}`,
-      })
+      (() => {
+        const date = formatDateLabel(schedule.ends_on, language);
+        return pickLang(language, {
+          tr: `${date} tarihine kadar`,
+          en: `Until ${date}`,
+          ru: `До ${date}`,
+          de: `Bis ${date}`,
+          fr: `Jusqu'au ${date}`,
+          es: `Hasta el ${date}`,
+          it: `Fino al ${date}`,
+          uk: `До ${date}`,
+          zh: `至${date}`,
+          az: `${date} tarixinədək`,
+        });
+      })()
     );
   }
   return parts.join(" · ");
@@ -372,9 +444,27 @@ export function describeOutside(
     tr: "Şu an servis dışı",
     en: "Not served right now",
     ru: "Сейчас не подаётся",
+    de: "Derzeit nicht erhältlich",
+    fr: "Non servi actuellement",
+    es: "No disponible ahora",
+    it: "Al momento non disponibile",
+    uk: "Зараз не подається",
+    zh: "当前不供应",
+    az: "Hazırda verilmir",
   });
   if (state.ended) {
-    return `${base} · ${pickLang(language, { tr: "Sona erdi", en: "Ended", ru: "Завершено" })}`;
+    return `${base} · ${pickLang(language, {
+      tr: "Sona erdi",
+      en: "Ended",
+      ru: "Завершено",
+      de: "Beendet",
+      fr: "Terminé",
+      es: "Finalizado",
+      it: "Terminato",
+      uk: "Завершено",
+      zh: "已结束",
+      az: "Başa çatıb",
+    })}`;
   }
   if (!state.next) return base;
 
@@ -383,12 +473,30 @@ export function describeOutside(
   const time = formatMinutes(state.next.minutes);
   let when: string;
   if (diff === 0) {
-    when = pickLang(language, { tr: `${time}'de başlar`, en: `starts at ${time}`, ru: `начнётся в ${time}` });
+    when = pickLang(language, {
+      tr: `${time}'de başlar`,
+      en: `starts at ${time}`,
+      ru: `начнётся в ${time}`,
+      de: `ab ${time} Uhr`,
+      fr: `à partir de ${time}`,
+      es: `empieza a las ${time}`,
+      it: `inizia alle ${time}`,
+      uk: `почнеться о ${time}`,
+      zh: `${time}开始`,
+      az: `${time}-da başlayır`,
+    });
   } else if (diff === 1) {
     when = pickLang(language, {
       tr: `Yarın ${time}'de başlar`,
       en: `starts tomorrow at ${time}`,
       ru: `начнётся завтра в ${time}`,
+      de: `morgen ab ${time} Uhr`,
+      fr: `demain à partir de ${time}`,
+      es: `empieza mañana a las ${time}`,
+      it: `inizia domani alle ${time}`,
+      uk: `почнеться завтра о ${time}`,
+      zh: `明天${time}开始`,
+      az: `sabah ${time}-da başlayır`,
     });
   } else if (diff < 7) {
     const day = dayNames(language)[dowOfDate(state.next.date)];
@@ -396,6 +504,13 @@ export function describeOutside(
       tr: `${day} ${time}'de başlar`,
       en: `starts ${day} at ${time}`,
       ru: `начнётся ${day} в ${time}`,
+      de: `${day} ab ${time} Uhr`,
+      fr: `${day} à partir de ${time}`,
+      es: `empieza el ${day} a las ${time}`,
+      it: `inizia ${day} alle ${time}`,
+      uk: `почнеться ${day} о ${time}`,
+      zh: `${day}${time}开始`,
+      az: `${day} ${time}-da başlayır`,
     });
   } else {
     const date = formatDateLabel(state.next.date, language);
@@ -403,6 +518,13 @@ export function describeOutside(
       tr: `${date} tarihinde başlar`,
       en: `starts ${date}`,
       ru: `начнётся ${date}`,
+      de: `ab ${date}`,
+      fr: `à partir du ${date}`,
+      es: `empieza el ${date}`,
+      it: `inizia il ${date}`,
+      uk: `почнеться ${date}`,
+      zh: `${date}开始`,
+      az: `${date} tarixində başlayır`,
     });
   }
   return `${base} · ${when}`;

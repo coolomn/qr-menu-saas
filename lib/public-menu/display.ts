@@ -1,13 +1,13 @@
 import type { PublicMenuCollection } from "@/lib/public-menu/menu-collections";
 import { describeSchedule } from "@/lib/public-menu/schedule";
+import { pickLang } from "@/lib/i18n/languages";
+import { translatedText } from "@/lib/i18n/translations";
 
 export function getMenuCollectionTitle(
   collection: PublicMenuCollection,
   language: string
 ): string {
-  if (language === "en" && collection.name_en?.trim()) return collection.name_en.trim();
-  if (language === "ru" && collection.name_ru?.trim()) return collection.name_ru.trim();
-  return collection.name;
+  return translatedText(collection, "name", language) ?? collection.name;
 }
 
 export function getMenuCollectionSubtitle(
@@ -19,7 +19,7 @@ export function getMenuCollectionSubtitle(
   if (collection.start_time && collection.end_time) {
     return `${formatTimeLabel(collection.start_time)} — ${formatTimeLabel(collection.end_time)}`;
   }
-  const desc = collection.description?.trim();
+  const desc = translatedText(collection, "description", language) ?? collection.description?.trim();
   if (desc) return desc;
   return null;
 }
@@ -31,15 +31,33 @@ function formatTimeLabel(time: string): string {
 }
 
 export function getAllDayLabel(language: string): string {
-  if (language === "en") return "All day";
-  if (language === "ru") return "Весь день";
-  return "Gün boyu";
+  return pickLang(language, {
+    tr: "Gün boyu",
+    en: "All day",
+    ru: "Весь день",
+    de: "Ganztägig",
+    fr: "Toute la journée",
+    es: "Todo el día",
+    it: "Tutto il giorno",
+    uk: "Весь день",
+    zh: "全天",
+    az: "Bütün gün",
+  });
 }
 
 export function getMenuPickSubtitle(language: string): string {
-  if (language === "en") return "Choose your menu";
-  if (language === "ru") return "Выберите меню";
-  return "Menünüzü seçin";
+  return pickLang(language, {
+    tr: "Menünüzü seçin",
+    en: "Choose your menu",
+    ru: "Выберите меню",
+    de: "Wählen Sie Ihre Speisekarte",
+    fr: "Choisissez votre menu",
+    es: "Elija su menú",
+    it: "Scegli il tuo menù",
+    uk: "Оберіть меню",
+    zh: "请选择菜单",
+    az: "Menyunuzu seçin",
+  });
 }
 
 /** Kart ikonu — DB’de emoji yok; isimden basit sezgi. */

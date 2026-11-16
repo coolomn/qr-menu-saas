@@ -11,6 +11,8 @@ import type { PublicMenuCollection } from "@/lib/public-menu/menu-collections";
 import type { LogoDisplayMode } from "@/lib/public-menu/logo-display";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
 import { PublicMenuBackgroundImage } from "@/app/menu/[slug]/_components/public-menu-background-image";
+import { LanguageSwitcher } from "@/app/menu/[slug]/_components/language-switcher";
+import type { MenuLanguage } from "@/lib/i18n/languages";
 
 type InstagramContext = {
   webUrl: string;
@@ -23,6 +25,8 @@ type MenuPickScreenProps = {
   logoDisplayMode?: LogoDisplayMode | null;
   welcomeBgUrl: string | null;
   language: string;
+  /** Faz 2.5: işletmenin açtığı diller. */
+  languages: readonly MenuLanguage[];
   onLanguageChange: (lang: string) => void;
   menuCollections: PublicMenuCollection[];
   /** Menü id → "Şu an servis dışı · …" notu (yalnızca servis dışı olanlar). */
@@ -47,6 +51,7 @@ export function MenuPickScreen({
   logoDisplayMode,
   welcomeBgUrl,
   language,
+  languages,
   onLanguageChange,
   menuCollections,
   serviceNotes,
@@ -61,20 +66,14 @@ export function MenuPickScreen({
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/45 via-black/35 to-black/55" />
 
       <div className="relative z-10 w-full p-5 sm:p-6 flex justify-end">
-        <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg flex gap-3 border border-white/40">
-          {(["tr", "en", "ru"] as const).map((lang) => (
-            <button
-              key={lang}
-              type="button"
-              onClick={() => onLanguageChange(lang)}
-              className={`uppercase transition-opacity ${
-                language === lang ? "text-gray-900 opacity-100" : "opacity-35"
-              }`}
-            >
-              {lang}
-            </button>
-          ))}
-        </div>
+        <LanguageSwitcher
+          languages={languages}
+          value={language}
+          onChange={onLanguageChange}
+          className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg flex gap-3 border border-white/40"
+          activeClassName="uppercase transition-opacity text-gray-900 opacity-100"
+          inactiveClassName="uppercase transition-opacity opacity-35"
+        />
       </div>
 
       <div className="relative z-10 flex flex-col items-center px-6 pt-2 pb-4">

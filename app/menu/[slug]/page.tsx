@@ -57,40 +57,11 @@ import {
 } from "@/lib/public-menu/public-menu-client";
 import type { PublicCategoryPayload } from "@/lib/public-menu/load-public-menu";
 import { resolveMenuPresentation } from "@/lib/public-menu/themes/resolve";
-
-/** DB’de çeviri yokken EN/RU için bilinen Türkçe ana grup / kategori adları (genişletilebilir). */
-const MENU_LABEL_FALLBACK: Record<string, { en: string; ru: string }> = {
-  YİYECEKLER: { en: "Foods", ru: "Блюда" },
-  İÇECEKLER: { en: "Drinks", ru: "Напитки" },
-  DİĞER: { en: "Other", ru: "Другое" },
-  KAHVE: { en: "Coffee", ru: "Кофе" },
-  "ALKOLLÜ İÇECEKLER": { en: "Alcoholic drinks", ru: "Алкогольные напитки" },
-  "ALKOLSÜZ İÇECEKLER": { en: "Non-alcoholic drinks", ru: "Безалкогольные напитки" },
-  KAHVALTI: { en: "Breakfast", ru: "Завтрак" },
-  BURGER: { en: "Burgers", ru: "Бургеры" },
-  PİZZA: { en: "Pizza", ru: "Пицца" },
-  PIZZA: { en: "Pizza", ru: "Пицца" },
-  TATLILAR: { en: "Desserts", ru: "Десерты" },
-  MEZE: { en: "Meze", ru: "Мезе" },
-  MEZELER: { en: "Cold starters", ru: "Закуски" },
-  ÇORBA: { en: "Soups", ru: "Супы" },
-  SALATA: { en: "Salads", ru: "Салаты" },
-  "ANA YEMEK": { en: "Main courses", ru: "Основные блюда" },
-  "ARA SICAK": { en: "Hot appetizers", ru: "Горячие закуски" },
-  "SOĞUK İÇECEKLER": { en: "Cold drinks", ru: "Холодные напитки" },
-  "SICAK İÇECEKLER": { en: "Hot drinks", ru: "Горячие напитки" },
-  MAKARNALAR: { en: "Pasta", ru: "Паста" },
-  BALIK: { en: "Fish", ru: "Рыба" },
-  DENİZ: { en: "Seafood", ru: "Морепродукты" },
-  "DENİZ ÜRÜNLERİ": { en: "Seafood", ru: "Морепродукты" },
-  TAVUK: { en: "Chicken", ru: "Курица" },
-  KUZU: { en: "Lamb", ru: "Баранина" },
-  DANA: { en: "Beef", ru: "Говядина" },
-  "VEJETARYEN MENÜ": { en: "Vegetarian", ru: "Вегетарианское меню" },
-  VEGAN: { en: "Vegan", ru: "Веган" },
-  ÇOCUK: { en: "Kids", ru: "Детское" },
-  "ÇOCUK MENÜSÜ": { en: "Kids menu", ru: "Детское меню" },
-};
+import { pickLang, toMenuLanguage } from "@/lib/i18n/languages";
+import { translatedText } from "@/lib/i18n/translations";
+import { menuLabelFallback } from "@/lib/i18n/menu-label-fallback";
+import { useMenuLanguage } from "@/lib/i18n/use-menu-language";
+import { LanguageSwitcher } from "@/app/menu/[slug]/_components/language-switcher";
 
 type PublicCategory = PublicCategoryPayload;
 
@@ -101,14 +72,30 @@ function MenuContentErrorBanner({
   language: string;
   onRetry: () => void;
 }) {
-  const message =
-    language === "en"
-      ? "Menu could not be loaded. Please try again."
-      : language === "ru"
-        ? "Не удалось загрузить меню. Попробуйте снова."
-        : "Menü yüklenemedi. Tekrar deneyin.";
-  const retryLabel =
-    language === "en" ? "Retry" : language === "ru" ? "Повторить" : "Tekrar dene";
+  const message = pickLang(language, {
+    tr: "Menü yüklenemedi. Tekrar deneyin.",
+    en: "Menu could not be loaded. Please try again.",
+    ru: "Не удалось загрузить меню. Попробуйте снова.",
+    de: "Die Speisekarte konnte nicht geladen werden. Bitte erneut versuchen.",
+    fr: "Impossible de charger le menu. Veuillez réessayer.",
+    es: "No se pudo cargar el menú. Inténtelo de nuevo.",
+    it: "Impossibile caricare il menù. Riprova.",
+    uk: "Не вдалося завантажити меню. Спробуйте ще раз.",
+    zh: "菜单加载失败，请重试。",
+    az: "Menyu yüklənmədi. Yenidən cəhd edin.",
+  });
+  const retryLabel = pickLang(language, {
+    tr: "Tekrar dene",
+    en: "Retry",
+    ru: "Повторить",
+    de: "Erneut versuchen",
+    fr: "Réessayer",
+    es: "Reintentar",
+    it: "Riprova",
+    uk: "Повторити",
+    zh: "重试",
+    az: "Yenidən cəhd et",
+  });
 
   return (
     <div className="rounded-2xl border border-red-200/80 bg-red-50/95 px-4 py-3 text-center shadow-sm">
@@ -122,10 +109,6 @@ function MenuContentErrorBanner({
       </button>
     </div>
   );
-}
-
-function normalizeMenuLabelKey(s: string) {
-  return s.toLocaleUpperCase("tr-TR").replace(/\s+/g, " ").trim();
 }
 
 function InstagramGlyph({ className }: { className?: string }) {
@@ -300,7 +283,12 @@ export default function CustomerMenu() {
   const menuDataLoadedRef = useRef(false);
   const menuDataLoadingRef = useRef(false);
 
-  const [language, setLanguage] = useState("tr");
+  // Faz 2.5: işletmenin açtığı diller; restoran yüklenene kadar TR.
+  const {
+    language,
+    setLanguage,
+    languages: menuLanguages,
+  } = useMenuLanguage(restaurant ? (restaurant.menu_languages ?? null) : undefined);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [menuFilter, setMenuFilter] = useState<MenuFilterState>(EMPTY_MENU_FILTER);
 
@@ -654,23 +642,28 @@ export default function CustomerMenu() {
   const themeColor = menuTheme.tabActiveColor;
   const tc = menuTheme.classes;
   const getText = (item: any, field: string) => {
-    const pick = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-    const en = pick(item[`${field}_en`]);
-    const ru = pick(item[`${field}_ru`]);
-    if (language === "en" && en) return en;
-    if (language === "ru" && ru) return ru;
+    const translated = translatedText(item, field, language);
+    if (translated) return translated;
     const base = item[field];
-    if (
-      typeof base === "string" &&
-      language !== "tr" &&
-      (field === "name" || field === "main_group")
-    ) {
-      const fb = MENU_LABEL_FALLBACK[normalizeMenuLabelKey(base)];
-      if (fb && language === "en") return fb.en;
-      if (fb && language === "ru") return fb.ru;
+    if (typeof base === "string" && (field === "name" || field === "main_group")) {
+      const fallback = menuLabelFallback(base, toMenuLanguage(language));
+      if (fallback) return fallback;
     }
     return base;
   };
+
+  const backToPickLabel = pickLang(language, {
+    tr: "Menü seçimine dön",
+    en: "Back to menu selection",
+    ru: "К выбору меню",
+    de: "Zurück zur Menüauswahl",
+    fr: "Retour au choix du menu",
+    es: "Volver a la selección de menú",
+    it: "Torna alla scelta del menù",
+    uk: "До вибору меню",
+    zh: "返回菜单选择",
+    az: "Menyu seçiminə qayıt",
+  });
 
   const getGroupLabel = (groupKey: string, cats: PublicCategory[]) => {
     const sample = cats[0];
@@ -696,12 +689,18 @@ export default function CustomerMenu() {
   );
 
   if (view === "welcome" && useCollectionFlow && showMenuPicker) {
-    const instagramFollowLabel =
-      language === "en"
-        ? "Follow us"
-        : language === "ru"
-          ? "Подпишитесь"
-          : "Takip edin";
+    const instagramFollowLabel = pickLang(language, {
+      tr: "Takip edin",
+      en: "Follow us",
+      ru: "Подпишитесь",
+      de: "Folgen Sie uns",
+      fr: "Suivez-nous",
+      es: "Síguenos",
+      it: "Seguici",
+      uk: "Підписуйтесь",
+      zh: "关注我们",
+      az: "Bizi izləyin",
+    });
 
     return wrapWithMenuFonts(
       <div className="relative min-h-[100dvh]">
@@ -711,6 +710,7 @@ export default function CustomerMenu() {
           logoDisplayMode={restaurant.logo_display_mode}
           welcomeBgUrl={restaurant.welcome_bg_url}
           language={language}
+          languages={menuLanguages}
           onLanguageChange={setLanguage}
           menuCollections={visibleCollections}
           serviceNotes={menuServiceNotes(visibleCollections, language, now)}
@@ -728,11 +728,18 @@ export default function CustomerMenu() {
         {menuDataLoading && pendingNavigation ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20 flex justify-center px-6">
             <p className="rounded-full bg-black/60 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white">
-              {language === "en"
-                ? "Loading menu..."
-                : language === "ru"
-                  ? "Загрузка меню..."
-                  : "Menü yükleniyor..."}
+              {pickLang(language, {
+                tr: "Menü yükleniyor...",
+                en: "Loading menu...",
+                ru: "Загрузка меню...",
+                de: "Speisekarte wird geladen...",
+                fr: "Chargement du menu...",
+                es: "Cargando el menú...",
+                it: "Caricamento del menù...",
+                uk: "Завантаження меню...",
+                zh: "菜单加载中...",
+                az: "Menyu yüklənir...",
+              })}
             </p>
           </div>
         ) : null}
@@ -753,26 +760,14 @@ export default function CustomerMenu() {
         <PublicVenueActions restaurant={restaurant} language={language} accentColor={themeColor} />
 
         <div className="relative z-10 w-full p-6 flex justify-end">
-          <div className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3">
-            <span
-              onClick={() => setLanguage("tr")}
-              className={language === "tr" ? "text-black" : "opacity-40 grayscale"}
-            >
-              TR
-            </span>
-            <span
-              onClick={() => setLanguage("en")}
-              className={language === "en" ? "text-black" : "opacity-40 grayscale"}
-            >
-              EN
-            </span>
-            <span
-              onClick={() => setLanguage("ru")}
-              className={language === "ru" ? "text-black" : "opacity-40 grayscale"}
-            >
-              RU
-            </span>
-          </div>
+          <LanguageSwitcher
+            languages={menuLanguages}
+            value={language}
+            onChange={setLanguage}
+            className="bg-white px-4 py-2 rounded-xl text-sm font-black text-gray-900 shadow-lg cursor-pointer flex gap-3"
+            activeClassName="text-black"
+            inactiveClassName="opacity-40 grayscale"
+          />
         </div>
 
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-6">
@@ -789,11 +784,18 @@ export default function CustomerMenu() {
           {!menuDataLoaded && !menuDataError ? (
             <div className="rounded-2xl bg-[#E5DFD3]/90 px-6 py-5 text-center shadow-lg">
               <p className="text-sm font-black uppercase tracking-widest text-[#1F3B2B]">
-                {language === "en"
-                  ? "Loading menu..."
-                  : language === "ru"
-                    ? "Загрузка меню..."
-                    : "Menü yükleniyor..."}
+                {pickLang(language, {
+                tr: "Menü yükleniyor...",
+                en: "Loading menu...",
+                ru: "Загрузка меню...",
+                de: "Speisekarte wird geladen...",
+                fr: "Chargement du menu...",
+                es: "Cargando el menú...",
+                it: "Caricamento del menù...",
+                uk: "Завантаження меню...",
+                zh: "菜单加载中...",
+                az: "Menyu yüklənir...",
+              })}
               </p>
             </div>
           ) : null}
@@ -835,11 +837,18 @@ export default function CustomerMenu() {
           {instagramCtx && (
             <footer className="pt-8 mt-2 border-t border-white/25 text-center">
               <p className="mb-3 text-[11px] sm:text-xs font-black uppercase tracking-[0.22em] text-white/95 drop-shadow-sm">
-                {language === "en"
-                  ? "Follow us now"
-                  : language === "ru"
-                    ? "Подпишитесь на нас"
-                    : "Şimdi Takip Edin"}
+                {pickLang(language, {
+                  tr: "Şimdi Takip Edin",
+                  en: "Follow us now",
+                  ru: "Подпишитесь на нас",
+                  de: "Jetzt folgen",
+                  fr: "Suivez-nous",
+                  es: "Síguenos ahora",
+                  it: "Seguici ora",
+                  uk: "Підпишіться на нас",
+                  zh: "立即关注我们",
+                  az: "İndi bizi izləyin",
+                })}
               </p>
               <a
                 href={instagramCtx.webUrl}
@@ -890,7 +899,7 @@ export default function CustomerMenu() {
           {showMenuPicker ? (
             <button
               type="button"
-              aria-label="Menü seçimine dön"
+              aria-label={backToPickLabel}
               onClick={backToMenuPick}
               className={tc.backButton}
             >
@@ -909,17 +918,14 @@ export default function CustomerMenu() {
               nameClassName={tc.fontHeading}
             />
           </div>
-          <div className={tc.langSwitcher}>
-            <span onClick={() => setLanguage("tr")} className={language === "tr" ? tc.langActive : tc.langInactive}>
-              TR
-            </span>
-            <span onClick={() => setLanguage("en")} className={language === "en" ? tc.langActive : tc.langInactive}>
-              EN
-            </span>
-            <span onClick={() => setLanguage("ru")} className={language === "ru" ? tc.langActive : tc.langInactive}>
-              RU
-            </span>
-          </div>
+          <LanguageSwitcher
+            languages={menuLanguages}
+            value={language}
+            onChange={setLanguage}
+            className={tc.langSwitcher}
+            activeClassName={tc.langActive}
+            inactiveClassName={tc.langInactive}
+          />
         </div>
 
         <PublicMenuSlider
@@ -952,19 +958,22 @@ export default function CustomerMenu() {
         {menuCategories.length === 0 && filterByMenuCollection && (
           <div className="text-center py-12 px-4 space-y-4">
             <p className={tc.emptyStateText}>
-              {language === "en"
-                ? "No items in this menu yet."
-                : language === "ru"
-                  ? "В этом меню пока нет позиций."
-                  : "Bu menüde henüz ürün yok."}
+              {pickLang(language, {
+                tr: "Bu menüde henüz ürün yok.",
+                en: "No items in this menu yet.",
+                ru: "В этом меню пока нет позиций.",
+                de: "In dieser Speisekarte gibt es noch keine Artikel.",
+                fr: "Aucun article dans ce menu pour le moment.",
+                es: "Aún no hay productos en este menú.",
+                it: "Ancora nessun prodotto in questo menù.",
+                uk: "У цьому меню поки немає позицій.",
+                zh: "此菜单暂无菜品。",
+                az: "Bu menyuda hələ məhsul yoxdur.",
+              })}
             </p>
             {showMenuPicker && (
               <button type="button" onClick={backToMenuPick} className={tc.emptyStateLink}>
-                {language === "en"
-                  ? "Back to menu selection"
-                  : language === "ru"
-                    ? "К выбору меню"
-                    : "Menü seçimine dön"}
+                {backToPickLabel}
               </button>
             )}
           </div>
@@ -994,18 +1003,36 @@ export default function CustomerMenu() {
         {hasAnyTabProducts && !hasAnyShownProducts && (
           <div className="text-center py-10 px-4 space-y-3">
             <p className={tc.emptyStateText}>
-              {language === "en"
-                ? "No items in this category match your filters."
-                : language === "ru"
-                  ? "В этой категории нет блюд по выбранным фильтрам."
-                  : "Bu kategoride filtrenize uyan ürün yok."}
+              {pickLang(language, {
+                tr: "Bu kategoride filtrenize uyan ürün yok.",
+                en: "No items in this category match your filters.",
+                ru: "В этой категории нет блюд по выбранным фильтрам.",
+                de: "Keine Artikel in dieser Kategorie entsprechen Ihren Filtern.",
+                fr: "Aucun article de cette catégorie ne correspond à vos filtres.",
+                es: "Ningún producto de esta categoría coincide con sus filtros.",
+                it: "Nessun prodotto di questa categoria corrisponde ai filtri.",
+                uk: "У цій категорії немає страв за вибраними фільтрами.",
+                zh: "此分类中没有符合筛选条件的菜品。",
+                az: "Bu kateqoriyada filtrinizə uyğun məhsul yoxdur.",
+              })}
             </p>
             <button
               type="button"
               onClick={() => setMenuFilter({ ...EMPTY_MENU_FILTER, sort: menuFilter.sort })}
               className={tc.emptyStateLink}
             >
-              {language === "en" ? "Clear filters" : language === "ru" ? "Сбросить фильтры" : "Filtreyi temizle"}
+              {pickLang(language, {
+                tr: "Filtreyi temizle",
+                en: "Clear filters",
+                ru: "Сбросить фильтры",
+                de: "Filter zurücksetzen",
+                fr: "Effacer les filtres",
+                es: "Borrar filtros",
+                it: "Cancella filtri",
+                uk: "Скинути фільтри",
+                zh: "清除筛选",
+                az: "Filtri təmizlə",
+              })}
             </button>
           </div>
         )}

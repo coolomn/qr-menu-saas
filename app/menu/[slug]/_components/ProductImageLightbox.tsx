@@ -18,6 +18,7 @@ import type { ThemeId } from "@/lib/public-menu/themes/ids";
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
 import { ProductDetailExtras } from "@/app/menu/[slug]/_components/product-detail-extras";
 import { hasNutrition, pickLang, readNutrition, resolveProductBadges } from "@/lib/public-menu/venue-info";
+import { translatedText } from "@/lib/i18n/translations";
 
 const OPTIONAL_META_FIELDS = [
   { keys: ["grammage", "gram", "weight", "weight_g", "portion"], label: "Gramaj" },
@@ -39,16 +40,7 @@ type ProductImageLightboxProps = {
 };
 
 function getVariantLabel(variant: PublicProductVariant, language: string): string {
-  const pick = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-  if (language === "en") {
-    const en = pick(variant.label_en);
-    if (en) return en;
-  }
-  if (language === "ru") {
-    const ru = pick(variant.label_ru);
-    if (ru) return ru;
-  }
-  return pick(variant.label) || variant.label;
+  return translatedText(variant, "label", language) ?? (variant.label.trim() || variant.label);
 }
 
 function readOptionalMeta(record: Record<string, unknown>): { label: string; value: string }[] {
@@ -139,8 +131,8 @@ function CopyLinkButton({
 }) {
   const [copied, setCopied] = useState(false);
   const label = copied
-    ? pickLang(language, { tr: "Link kopyalandı", en: "Link copied", ru: "Ссылка скопирована" })
-    : pickLang(language, { tr: "Linki kopyala", en: "Copy link", ru: "Копировать ссылку" });
+    ? pickLang(language, { tr: "Link kopyalandı", en: "Link copied", ru: "Ссылка скопирована", de: "Link kopiert", fr: "Lien copié", es: "Enlace copiado", it: "Link copiato", uk: "Посилання скопійовано", zh: "链接已复制", az: "Link kopyalandı" })
+    : pickLang(language, { tr: "Linki kopyala", en: "Copy link", ru: "Копировать ссылку", de: "Link kopieren", fr: "Copier le lien", es: "Copiar enlace", it: "Copia link", uk: "Копіювати посилання", zh: "复制链接", az: "Linki kopyala" });
 
   const onClick = async () => {
     try {
@@ -211,11 +203,11 @@ export function ProductDetailCard({
               type="button"
               onClick={onBack}
               className={`inline-flex min-h-11 min-w-0 items-center gap-1 rounded-full border py-2 pl-2 pr-3.5 text-sm font-bold shadow-md transition-colors ${lightboxCloseButtonClasses(appearance)}`}
-              aria-label={pickLang(language, { tr: "Önceki ürüne dön", en: "Back to previous item", ru: "Назад к предыдущему" })}
+              aria-label={pickLang(language, { tr: "Önceki ürüne dön", en: "Back to previous item", ru: "Назад к предыдущему", de: "Zurück zum vorherigen Artikel", fr: "Retour à l'article précédent", es: "Volver al producto anterior", it: "Torna al prodotto precedente", uk: "Назад до попередньої позиції", zh: "返回上一个菜品", az: "Əvvəlki məhsula qayıt" })}
             >
               <ChevronLeft size={20} className="shrink-0" aria-hidden />
               <span className="truncate max-w-[12rem]">
-                {backLabel || pickLang(language, { tr: "Geri", en: "Back", ru: "Назад" })}
+                {backLabel || pickLang(language, { tr: "Geri", en: "Back", ru: "Назад", de: "Zurück", fr: "Retour", es: "Atrás", it: "Indietro", uk: "Назад", zh: "返回", az: "Geri" })}
               </span>
             </button>
           ) : (
@@ -225,7 +217,7 @@ export function ProductDetailCard({
             type="button"
             onClick={onClose}
             className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-md transition-colors ${lightboxCloseButtonClasses(appearance)}`}
-            aria-label={pickLang(language, { tr: "Kapat", en: "Close", ru: "Закрыть" })}
+            aria-label={pickLang(language, { tr: "Kapat", en: "Close", ru: "Закрыть", de: "Schließen", fr: "Fermer", es: "Cerrar", it: "Chiudi", uk: "Закрити", zh: "关闭", az: "Bağla" })}
           >
             <X size={22} aria-hidden />
           </button>
@@ -293,7 +285,7 @@ export function ProductDetailCard({
           <div className="flex flex-wrap gap-1.5">
             {soldOut && (
               <span className="rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-white">
-                {pickLang(language, { tr: "Tükendi", en: "Sold out", ru: "Нет в наличии" })}
+                {pickLang(language, { tr: "Tükendi", en: "Sold out", ru: "Нет в наличии", de: "Ausverkauft", fr: "Épuisé", es: "Agotado", it: "Esaurito", uk: "Немає в наявності", zh: "已售罄", az: "Bitib" })}
               </span>
             )}
             {badges.map((badge) => (
@@ -319,10 +311,10 @@ export function ProductDetailCard({
         {hasNutrition(nutrition) && (
           <dl className="flex flex-wrap gap-x-5 gap-y-3">
             {[
-              { label: pickLang(language, { tr: "Kalori", en: "Calories", ru: "Калории" }), value: nutrition.calories, unit: "kcal" },
-              { label: pickLang(language, { tr: "Protein", en: "Protein", ru: "Белки" }), value: nutrition.protein_g, unit: "g" },
-              { label: pickLang(language, { tr: "Karbonhidrat", en: "Carbs", ru: "Углеводы" }), value: nutrition.carbs_g, unit: "g" },
-              { label: pickLang(language, { tr: "Yağ", en: "Fat", ru: "Жиры" }), value: nutrition.fat_g, unit: "g" },
+              { label: pickLang(language, { tr: "Kalori", en: "Calories", ru: "Калории", de: "Kalorien", fr: "Calories", es: "Calorías", it: "Calorie", uk: "Калорії", zh: "热量", az: "Kalori" }), value: nutrition.calories, unit: "kcal" },
+              { label: pickLang(language, { tr: "Protein", en: "Protein", ru: "Белки", de: "Eiweiß", fr: "Protéines", es: "Proteínas", it: "Proteine", uk: "Білки", zh: "蛋白质", az: "Zülal" }), value: nutrition.protein_g, unit: "g" },
+              { label: pickLang(language, { tr: "Karbonhidrat", en: "Carbs", ru: "Углеводы", de: "Kohlenhydrate", fr: "Glucides", es: "Carbohidratos", it: "Carboidrati", uk: "Вуглеводи", zh: "碳水化合物", az: "Karbohidrat" }), value: nutrition.carbs_g, unit: "g" },
+              { label: pickLang(language, { tr: "Yağ", en: "Fat", ru: "Жиры", de: "Fett", fr: "Lipides", es: "Grasas", it: "Grassi", uk: "Жири", zh: "脂肪", az: "Yağ" }), value: nutrition.fat_g, unit: "g" },
             ]
               .filter((item) => item.value !== null)
               .map((item) => (

@@ -33,6 +33,8 @@ import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
 import type { FontStyleId } from "@/lib/public-menu/themes/font-ids";
 import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
+import { normalizeMenuLanguages, type MenuLanguage } from "@/lib/i18n/languages";
+import { withCompactTranslations, type TranslationMap } from "@/lib/i18n/translations";
 
 export type RestaurantRow = {
   id: string;
@@ -55,15 +57,18 @@ export type RestaurantRow = {
   opening_hours?: unknown;
   social_links?: unknown;
   show_price_date?: boolean | null;
+  /** Faz 2.5: müşteri menüsü dilleri; yoksa varsayılan tr/en/ru. */
+  menu_languages?: string[] | null;
 };
 
 export type PublicRestaurantPayload = Omit<
   RestaurantRow,
-  "id" | "logo_display_mode" | "theme_id" | "font_style_id"
+  "id" | "logo_display_mode" | "theme_id" | "font_style_id" | "menu_languages"
 > & {
   logo_display_mode: ReturnType<typeof normalizeLogoDisplayMode>;
   theme_id: ThemeId;
   font_style_id: FontStyleId;
+  menu_languages: MenuLanguage[];
 };
 
 export type PublicCategoryPayload = {
@@ -83,6 +88,8 @@ export type PublicCategoryPayload = {
   note_ru?: string | null;
   /** Faz 2.3 zamanlaması; yok/null = her zaman. */
   schedule?: Schedule | null;
+  /** Faz 2.5: en/ru dışı diller (en/ru eski kolonlarda; aynıysa burada tekrar edilmez). */
+  translations?: TranslationMap;
 };
 
 type CategoryRow = {
@@ -99,6 +106,7 @@ type CategoryRow = {
   note_en?: string | null;
   note_ru?: string | null;
   schedule?: Schedule | null;
+  translations?: TranslationMap;
 };
 
 type ProductRow = {
@@ -127,6 +135,8 @@ type ProductRow = {
   schedule?: Schedule | null;
   /** Faz 2.4: boşsa alan yok. */
   removable_ingredients?: RemovableIngredient[];
+  /** Faz 2.5 */
+  translations?: TranslationMap;
 };
 
 export type PublicMenuBootstrapPayload = {
@@ -205,6 +215,11 @@ const SCHEDULE_COLUMN = "schedule";
 /** Faz 2.4 kolonu; migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
 const REMOVABLE_INGREDIENTS_COLUMN = "removable_ingredients";
 
+/** Faz 2.5 kolonu (kategori + ürün); migration uygulanmadıysa eski kademeli sorgulara düşülür. */
+const TRANSLATIONS_COLUMN = "translations";
+const CATEGORY_TRANSLATED_FIELDS = ["name", "main_group", "note"] as const;
+const PRODUCT_TRANSLATED_FIELDS = ["name", "description"] as const;
+
 const PRODUCT_COLUMNS_BASE = [
   "id",
   "category_id",
@@ -261,7 +276,9 @@ function withParsedSchedule<T extends { schedule?: unknown }>(row: T): T & { sch
 
 function toCategoryRows(value: unknown): CategoryRow[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(isCategoryRow).map(withParsedSchedule);
+  return value
+    .filter(isCategoryRow)
+    .map((row) => withCompactTranslations(withParsedSchedule(row), CATEGORY_TRANSLATED_FIELDS) as CategoryRow);
 }
 
 /** removable_ingredients'ı doğrular; boşsa alanı tamamen çıkarır (menü JSON'u küçük kalır). */
@@ -277,7 +294,13 @@ function toProductRows(value: unknown): ProductRow[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter(isProductRow)
-    .map((row) => withParsedIngredients(withParsedSchedule(row as ProductRow & { removable_ingredients?: unknown })));
+    .map(
+      (row) =>
+        withCompactTranslations(
+          withParsedIngredients(withParsedSchedule(row as ProductRow & { removable_ingredients?: unknown })),
+          PRODUCT_TRANSLATED_FIELDS
+        ) as ProductRow
+    );
 }
 
 export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicRestaurantPayload {
@@ -288,6 +311,7 @@ export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicR
     logo_display_mode: rawLogoDisplayMode,
     theme_id: rawThemeId,
     font_style_id: rawFontStyleId,
+    menu_languages: rawMenuLanguages,
     ...publicRestaurant
   } = restaurantRow;
 
@@ -296,6 +320,7 @@ export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicR
     logo_display_mode: normalizeLogoDisplayMode(rawLogoDisplayMode),
     theme_id: normalizeThemeId(rawThemeId),
     font_style_id: normalizeFontStyleId(rawFontStyleId),
+    menu_languages: normalizeMenuLanguages(rawMenuLanguages),
   };
 }
 
@@ -309,9 +334,18 @@ export async function loadPublicMenuRestaurantBySlug(
 ): Promise<LoadRestaurantResult> {
   let { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
-    .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS].join(","))
+    .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS, "menu_languages"].join(","))
     .eq("slug", normalizedSlug)
     .maybeSingle();
+
+  // Faz 2.5 kolonu yoksa (migration uygulanmadı) bir önceki tam sorgu.
+  if (restaurantError && isMissingColumn(restaurantError)) {
+    ({ data: restaurant, error: restaurantError } = await supabase
+      .from("restaurants")
+      .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS].join(","))
+      .eq("slug", normalizedSlug)
+      .maybeSingle());
+  }
 
   if (restaurantError && isMissingColumn(restaurantError)) {
     ({ data: restaurant, error: restaurantError } = await supabase
@@ -418,10 +452,20 @@ async function loadCategoryRows(
 ): Promise<CategoryRow[]> {
   let { data: categories, error: categoriesError } = await supabase
     .from("categories")
-    .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS, SCHEDULE_COLUMN].join(","))
+    .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS, SCHEDULE_COLUMN, TRANSLATIONS_COLUMN].join(","))
     .eq("restaurant_id", restaurantId)
     .neq("is_active", false)
     .order("sort_order");
+
+  // Faz 2.5 kolonu yoksa bir önceki tam sorgu.
+  if (categoriesError && isMissingColumn(categoriesError)) {
+    ({ data: categories, error: categoriesError } = await supabase
+      .from("categories")
+      .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS, SCHEDULE_COLUMN].join(","))
+      .eq("restaurant_id", restaurantId)
+      .neq("is_active", false)
+      .order("sort_order"));
+  }
 
   // Kademeli geri düşüş: önce yalnız zamanlama (2.3), sonra alt kategori (2.2) kolonları olmadan dene.
   if (categoriesError && isMissingColumn(categoriesError)) {
@@ -467,11 +511,24 @@ async function loadProductRows(
 
   let { data: productRows, error: productsError } = await supabase
     .from("products")
-    .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS, SCHEDULE_COLUMN, REMOVABLE_INGREDIENTS_COLUMN].join(","))
+    .select(
+      [PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS, SCHEDULE_COLUMN, REMOVABLE_INGREDIENTS_COLUMN, TRANSLATIONS_COLUMN].join(",")
+    )
     .in("category_id", categoryIds)
     .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
+
+  // Faz 2.5 kolonu yoksa bir önceki tam sorgu.
+  if (productsError && isMissingColumn(productsError)) {
+    ({ data: productRows, error: productsError } = await supabase
+      .from("products")
+      .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS, SCHEDULE_COLUMN, REMOVABLE_INGREDIENTS_COLUMN].join(","))
+      .in("category_id", categoryIds)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }));
+  }
 
   if (productsError && isMissingColumn(productsError)) {
     ({ data: productRows, error: productsError } = await supabase
