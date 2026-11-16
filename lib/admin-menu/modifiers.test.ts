@@ -3,8 +3,7 @@ import { describe, it } from "node:test";
 import {
   emptyModifierGroup,
   emptyModifierOption,
-  fillMissingIngredientTranslations,
-  fillMissingModifierTranslations,
+  ingredientTranslations,
   normalizePriceDelta,
   sanitizeIngredientsForSave,
   validateModifierGroup,
@@ -61,37 +60,34 @@ describe("malzeme listesi", () => {
         { name: "" },
         { name: "Turşu" },
       ]),
-      [{ name: "Soğan", name_en: "Onion" }, { name: "Turşu" }]
+      [{ name: "Soğan", name_en: "Onion", translations: { en: { name: "Onion" } } }, { name: "Turşu" }]
     );
+  });
+
+  it("translations kazanır; eski en/ru kolonları translations'tan yeniden yazılır", () => {
+    assert.deepEqual(
+      sanitizeIngredientsForSave([
+        {
+          name: "Soğan",
+          name_en: "Old onion",
+          translations: { en: { name: " Onion " }, de: { name: "Zwiebel" }, ru: { name: "" } },
+        },
+      ]),
+      [{ name: "Soğan", name_en: "Onion", translations: { en: { name: "Onion" }, de: { name: "Zwiebel" } } }]
+    );
+  });
+
+  it("eski kayıtlı malzemenin en/ru çevirisini haritaya taşır", () => {
+    assert.deepEqual(ingredientTranslations({ name: "Soğan", name_en: "Onion", name_ru: "Лук" }), {
+      en: { name: "Onion" },
+      ru: { name: "Лук" },
+    });
   });
 });
 
-describe("eksik çeviriler", () => {
-  const dict: Record<string, string> = { "tr>en:Soslar": "Sauces", "tr>ru:Soslar": "Соусы", "tr>en:Soğan": "Onion", "tr>ru:Soğan": "Лук" };
-  const translate = async (text: string, from: string, to: string) => dict[`${from}>${to}:${text}`] ?? null;
-
-  it("grup ve seçenek adlarında yalnız boş olanları doldurur", async () => {
-    const res = await fillMissingModifierTranslations(
-      group({
-        options: [
-          { ...emptyModifierOption(), name: "Soğan", name_en: "Red onion" },
-          { ...emptyModifierOption(), name: "" },
-        ],
-      }),
-      translate
-    );
-    assert.equal(res.group.name_en, "Sauces");
-    assert.equal(res.group.name_ru, "Соусы");
-    assert.equal(res.group.options[0].name_en, "Red onion", "dolu çeviriye dokunmaz");
-    assert.equal(res.group.options[0].name_ru, "Лук");
-    assert.equal(res.group.options[1].name_en, "");
-    assert.equal(res.filled, 3);
-  });
-
-  it("malzemeleri çevirir; çeviri gelmezse boş bırakır", async () => {
-    const res = await fillMissingIngredientTranslations([{ name: "Soğan" }, { name: "Turşu" }], translate);
-    assert.deepEqual(res.ingredients[0], { name: "Soğan", name_en: "Onion", name_ru: "Лук" });
-    assert.deepEqual(res.ingredients[1], { name: "Turşu" });
-    assert.equal(res.filled, 2);
+describe("seçenek adı çeviri uzunluğu", () => {
+  it("80 karakteri aşan çeviriyi reddeder", () => {
+    const g = group({ translations: { de: { name: "x".repeat(81) } } });
+    assert.match(validateModifierGroup(g) ?? "", /en fazla 80/);
   });
 });

@@ -13,6 +13,7 @@ import {
 } from "@/lib/admin-menu/modifiers";
 import { describeSelectionRule, formatPriceDelta } from "@/lib/public-menu/product-extras";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
+import type { TranslationLanguage } from "@/lib/i18n/languages";
 
 const supabase = getBrowserSupabase();
 
@@ -23,7 +24,13 @@ function ruleOf(g: AdminModifierGroup): string {
 }
 
 /** Faz 2.4: "Seçenek grupları" sekmesi — grubu bir kez tanımla, ürün formundan ürünlere bağla. */
-export function ModifierGroupsPanel({ restaurantId }: { restaurantId: string }) {
+export function ModifierGroupsPanel({
+  restaurantId,
+  translationLanguages,
+}: {
+  restaurantId: string;
+  translationLanguages: readonly TranslationLanguage[];
+}) {
   const [groups, setGroups] = useState<AdminModifierGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,6 +163,7 @@ export function ModifierGroupsPanel({ restaurantId }: { restaurantId: string }) 
           restaurantId={restaurantId}
           initial={editing}
           sortOrder={groups.length}
+          translationLanguages={translationLanguages}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);

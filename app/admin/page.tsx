@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Languages, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { ConfirmDialog } from "@/app/admin/_components/ConfirmDialog";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
@@ -69,15 +69,25 @@ import {
 } from "@/lib/admin-menu/bulk-product-menu-collections";
 import { formatPriceForDisplay } from "@/lib/format-price";
 import { PRODUCT_IMAGE_ACCEPT, uploadProductImage, uploadSliderImage, tryRemoveProductImageFiles, formatProductImageSaveError } from "@/lib/admin-menu/product-image-upload";
+import { normalizeMenuLanguages, type TranslationLanguage } from "@/lib/i18n/languages";
+import type { TranslationMap } from "@/lib/i18n/translations";
+import { saveLimits } from "@/lib/i18n/translatable";
 import {
-  fillMissingLocalizedValue,
-  fillMissingProductTranslations,
-  translationActionLabel,
-  translationStatusLabel,
-  type TargetLanguage,
-} from "@/lib/admin-menu/auto-translate";
-import { translateText, translateMenuCategoryFallback } from "@/lib/admin-menu/auto-translate-client";
-import { fillMissingCategoryName } from "@/lib/admin-menu/menu-category-translations";
+  cleanTranslationsForSave,
+  getTranslationField,
+  setTranslationField,
+  translationTabsFor,
+  translationsFromRow,
+  withFieldFrom,
+} from "@/lib/i18n/edit-translations";
+import {
+  applyAiResults,
+  entitiesTranslationStatus,
+  type TranslatableEntity,
+} from "@/lib/admin-menu/form-ai-translate";
+import { TranslationSection, translationInputClass } from "@/app/admin/_components/i18n/TranslationTabs";
+import { useFormAiTranslate } from "@/app/admin/_components/i18n/useFormAiTranslate";
+import { LanguagesPanel } from "@/app/admin/_components/i18n/LanguagesPanel";
 import { type AllergenSuggestion } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import SubscriptionLockedScreen from "@/app/admin/_components/SubscriptionLockedScreen";
@@ -190,15 +200,11 @@ function buildCategoryProductPreview(
 const EMPTY_CATEGORY_FORM = {
   name: "",
   main_group: "",
-  name_en: "",
-  name_ru: "",
-  main_group_en: "",
-  main_group_ru: "",
+  // Faz 2.5b: ad / ana grup / not çevirileri (tüm diller)
+  translations: {} as TranslationMap,
   // Faz 2.2: alt kategori + kategori notu
   parent_id: "",
   note: "",
-  note_en: "",
-  note_ru: "",
   // Faz 2.3: servis zamanı (null = her zaman)
   schedule: null as Schedule | null,
 };
@@ -208,8 +214,6 @@ function categoryStructureFromRow(c: any) {
   return {
     parent_id: typeof c?.parent_id === "string" ? c.parent_id : "",
     note: typeof c?.note === "string" ? c.note : "",
-    note_en: typeof c?.note_en === "string" ? c.note_en : "",
-    note_ru: typeof c?.note_ru === "string" ? c.note_ru : "",
   };
 }
 
@@ -256,7 +260,6 @@ export default function AdminDashboard() {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [translatingTarget, setTranslatingTarget] = useState<TargetLanguage | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
 
   const [isResetMenuModalOpen, setIsResetMenuModalOpen] = useState(false);
@@ -311,8 +314,9 @@ export default function AdminDashboard() {
   const [bulkMenuSuccess, setBulkMenuSuccess] = useState<string | null>(null);
   
   const [newProduct, setNewProduct] = useState({ 
-    name: "", name_en: "", name_ru: "", 
-    description: "", description_en: "", description_ru: "", 
+    name: "",
+    description: "",
+    translations: {} as TranslationMap,
     price: "", category_id: "", file: null as File | null, image_url: "", thumbnail_url: "",
     allergens: [] as string[],
     is_sold_out: false,
@@ -327,6 +331,14 @@ export default function AdminDashboard() {
   const [productExtras, setProductExtras] = useState<ProductExtrasValue>(emptyProductExtras());
   const [productExtrasLoading, setProductExtrasLoading] = useState(false);
   const productExtrasRequestRef = useRef(0);
+
+  // Faz 2.5b: menüde açık çeviri dilleri (TR hariç) + form içi AI çeviri
+  const translationLanguages = useMemo<TranslationLanguage[]>(
+    () => translationTabsFor(normalizeMenuLanguages(restaurant?.menu_languages)),
+    [restaurant?.menu_languages]
+  );
+  const productAi = useFormAiTranslate(restaurant?.id);
+  const categoryAi = useFormAiTranslate(restaurant?.id);
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const newProductRef = useRef(newProduct);
@@ -346,10 +358,7 @@ export default function AdminDashboard() {
     newProduct.name,
     newProduct.description,
     newProduct.category_id,
-    newProduct.name_en,
-    newProduct.description_en,
-    newProduct.name_ru,
-    newProduct.description_ru,
+    newProduct.translations,
   ]);
 
   useEffect(() => {
@@ -779,10 +788,10 @@ export default function AdminDashboard() {
           name: prev.name,
           description: prev.description,
           categoryName,
-          name_en: prev.name_en,
-          description_en: prev.description_en,
-          name_ru: prev.name_ru,
-          description_ru: prev.description_ru,
+          name_en: prev.translations.en?.name ?? "",
+          description_en: prev.translations.en?.description ?? "",
+          name_ru: prev.translations.ru?.name ?? "",
+          description_ru: prev.translations.ru?.description ?? "",
           menuCollectionName,
         }),
       });
@@ -829,14 +838,16 @@ export default function AdminDashboard() {
   };
 
   const openEditModal = (product: any) => {
+    productAi.reset();
     setAllergenSuggestMessage(null);
     setAllergenSuggestions([]);
     setEditingProductId(product.id);
     const existingVariants = sortProductVariantsByOrder(productVariantsMap[product.id] || []);
     const hasVariants = existingVariants.length > 0;
     setNewProduct({
-      name: product.name || "", name_en: product.name_en || "", name_ru: product.name_ru || "",
-      description: product.description || "", description_en: product.description_en || "", description_ru: product.description_ru || "",
+      name: product.name || "",
+      description: product.description || "",
+      translations: translationsFromRow(product, ["name", "description"]),
       price: product.price || "", category_id: product.category_id || "", file: null, image_url: product.image_url || "", thumbnail_url: product.thumbnail_url || "",
       allergens: product.allergens || [],
       is_sold_out: product.is_sold_out === true,
@@ -848,7 +859,11 @@ export default function AdminDashboard() {
       fat_g: product.fat_g != null ? String(product.fat_g) : "",
       pricing_mode: hasVariants ? "variants" : "single",
       variants: hasVariants
-        ? existingVariants.map((v) => ({ label: v.label, price: v.price }))
+        ? existingVariants.map((v) => ({
+            label: v.label,
+            price: v.price,
+            translations: translationsFromRow(v as unknown as Record<string, unknown>, ["label"]),
+          }))
         : [],
     });
     setProductMenuError(null);
@@ -887,17 +902,15 @@ export default function AdminDashboard() {
   };
 
   const openNewProductModal = () => {
+    productAi.reset();
     resetProductExtras();
     setEditingProductId(null);
     setAllergenSuggestMessage(null);
     setAllergenSuggestions([]);
     setNewProduct({
       name: "",
-      name_en: "",
-      name_ru: "",
       description: "",
-      description_en: "",
-      description_ru: "",
+      translations: {},
       price: "",
       category_id: "",
       file: null,
@@ -916,6 +929,7 @@ export default function AdminDashboard() {
   };
 
   const closeProductModal = () => {
+    productAi.reset();
     resetProductExtras();
     setIsProductModalOpen(false);
     setEditingProductId(null);
@@ -1030,8 +1044,10 @@ export default function AdminDashboard() {
 
       const payload = {
         restaurant_id: restaurant.id,
-        category_id: newProduct.category_id, name: newProduct.name, name_en: newProduct.name_en, name_ru: newProduct.name_ru,
-        description: newProduct.description, description_en: newProduct.description_en, description_ru: newProduct.description_ru,
+        category_id: newProduct.category_id, name: newProduct.name,
+        description: newProduct.description,
+        // Faz 2.5b: tüm dillerin çevirisi; eski name_en/… kolonlarını DB tetikleyicisi eşitler.
+        translations: cleanTranslationsForSave(newProduct.translations, saveLimits("product")),
         price: resolvedPrice, image_url: imageUrl, thumbnail_url: thumbnailUrl, allergens: newProduct.allergens,
         is_sold_out: newProduct.is_sold_out,
         badges: normalizeBadgeIds(newProduct.badges),
@@ -1476,13 +1492,14 @@ export default function AdminDashboard() {
       "DİĞER"
     ).toLocaleUpperCase("tr-TR");
 
+    // Alt kategori ana grup çevirisini de üst kategoriden alır.
+    const categoryTranslations = parentCategory
+      ? withFieldFrom(newCategory.translations, translationsFromRow(parentCategory, ["main_group"]), "main_group")
+      : newCategory.translations;
     const withI18n = {
       name: newCategory.name,
       main_group: mainGroup,
-      name_en: newCategory.name_en.trim() || null,
-      name_ru: newCategory.name_ru.trim() || null,
-      main_group_en: newCategory.main_group_en.trim() || null,
-      main_group_ru: newCategory.main_group_ru.trim() || null,
+      translations: cleanTranslationsForSave(categoryTranslations, saveLimits("category")),
       schedule: sanitizeScheduleForSave(newCategory.schedule),
     };
 
@@ -1495,8 +1512,6 @@ export default function AdminDashboard() {
       ...withI18n,
       parent_id: parentCategory ? parentCategory.id : null,
       note: newCategory.note.trim() || null,
-      note_en: newCategory.note_en.trim() || null,
-      note_ru: newCategory.note_ru.trim() || null,
     };
 
     const schemaMismatch = (err: { message?: string; code?: string } | null) =>
@@ -1525,6 +1540,7 @@ export default function AdminDashboard() {
         setEditingCategoryId(null);
         setCategoryMenuSelectedIds([]);
         setIsCategoryModalOpen(false);
+        categoryAi.reset();
       } else if (error) {
         alert(error.message || "Kategori güncellenemedi.");
       }
@@ -1538,10 +1554,7 @@ export default function AdminDashboard() {
     };
     const insertWithI18n = {
       ...insertBase,
-      name_en: withI18n.name_en,
-      name_ru: withI18n.name_ru,
-      main_group_en: withI18n.main_group_en,
-      main_group_ru: withI18n.main_group_ru,
+      translations: withI18n.translations,
       schedule: withI18n.schedule,
       is_active: true,
     };
@@ -1552,8 +1565,6 @@ export default function AdminDashboard() {
           ...insertWithI18n,
           parent_id: withStructure.parent_id,
           note: withStructure.note,
-          note_en: withStructure.note_en,
-          note_ru: withStructure.note_ru,
         },
       ])
       .select()
@@ -1582,12 +1593,14 @@ export default function AdminDashboard() {
       setEditingCategoryId(null);
       setCategoryMenuSelectedIds([]);
       setIsCategoryModalOpen(false);
+      categoryAi.reset();
     } else if (error) {
       alert(error.message || "Kategori eklenemedi.");
     }
   };
 
   const openNewCategoryModal = () => {
+    categoryAi.reset();
     setEditingCategoryId(null);
     setNewCategory({ ...EMPTY_CATEGORY_FORM });
     prepareNewCategoryMenuSelection();
@@ -1595,14 +1608,12 @@ export default function AdminDashboard() {
   };
 
   const openEditCategoryModal = (c: any) => {
+    categoryAi.reset();
     setEditingCategoryId(c.id);
     setNewCategory({
       name: c.name || "",
       main_group: String(c.main_group || "").toLocaleUpperCase("tr-TR"),
-      name_en: c.name_en != null ? String(c.name_en) : "",
-      name_ru: c.name_ru != null ? String(c.name_ru) : "",
-      main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
-      main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      translations: translationsFromRow(c, ["name", "main_group", "note"]),
       ...categoryStructureFromRow(c),
       schedule: parseSchedule(c.schedule),
     });
@@ -1615,6 +1626,7 @@ export default function AdminDashboard() {
   };
 
   const closeCategoryModal = () => {
+    categoryAi.reset();
     setIsCategoryModalOpen(false);
     setEditingCategoryId(null);
     setNewCategory({ ...EMPTY_CATEGORY_FORM });
@@ -1625,14 +1637,12 @@ export default function AdminDashboard() {
   };
 
   const openDuplicateCategoryModal = (c: any) => {
+    categoryAi.reset();
     setEditingCategoryId(null);
     setNewCategory({
       name: `${c.name || "Kategori"} (kopya)`,
       main_group: String(c.main_group || "").toLocaleUpperCase("tr-TR"),
-      name_en: c.name_en != null ? String(c.name_en) : "",
-      name_ru: c.name_ru != null ? String(c.name_ru) : "",
-      main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
-      main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      translations: translationsFromRow(c, ["name", "main_group", "note"]),
       ...categoryStructureFromRow(c),
       schedule: parseSchedule(c.schedule),
     });
@@ -1848,114 +1858,56 @@ export default function AdminDashboard() {
     if (data) setCategories(categories.map((x: any) => (x.id === c.id ? data : x)));
   };
 
-  const handleAutoTranslateProduct = async (targetLanguage: TargetLanguage) => {
-    setTranslatingTarget(targetLanguage);
-    try {
-      const patch = await fillMissingProductTranslations(
-        newProduct,
-        targetLanguage,
-        translateText
-      );
-      if (Object.keys(patch).length === 0) return;
-      setNewProduct((prev) => ({ ...prev, ...patch }));
-    } finally {
-      setTranslatingTarget(null);
-    }
+  // Faz 2.5b: ürün formu çevirileri (ad, açıklama, varyant adları)
+  const productTranslatableEntities = (): TranslatableEntity[] => [
+    {
+      id: "product",
+      kind: "product",
+      source: { name: newProduct.name, description: newProduct.description },
+      translations: newProduct.translations,
+    },
+    ...(newProduct.pricing_mode === "variants"
+      ? newProduct.variants.map((v, index) => ({
+          id: `variant:${index}`,
+          kind: "variant" as const,
+          source: { label: v.label },
+          translations: v.translations,
+        }))
+      : []),
+  ];
+
+  const handleProductAiTranslate = () => {
+    const variantsAtStart = newProduct.variants;
+    void productAi.run(productTranslatableEntities(), translationLanguages, (results) => {
+      setNewProduct((prev) => ({
+        ...prev,
+        translations: applyAiResults(prev.translations, results, "product"),
+        variants: prev.variants.map((v) => {
+          // Beklerken satır eklenip silindiyse: aynı nesneyi bul (dizin kaymasın).
+          const index = variantsAtStart.indexOf(v);
+          return index >= 0 ? { ...v, translations: applyAiResults(v.translations, results, `variant:${index}`) } : v;
+        }),
+      }));
+    });
   };
 
-  const handleAutoTranslateCategoryFields = async (targetLanguage: TargetLanguage) => {
-    setTranslatingTarget(targetLanguage);
-    try {
-      const namePatch = await fillMissingCategoryName(
-        newCategory,
-        targetLanguage,
-        translateMenuCategoryFallback
-      );
-      const mainGroupValue = await fillMissingLocalizedValue(
-        newCategory.main_group,
-        newCategory.main_group_en,
-        newCategory.main_group_ru,
-        targetLanguage,
-        translateText
-      );
-      setNewCategory((prev) => {
-        const next = { ...prev };
-        if (namePatch.name_en) next.name_en = namePatch.name_en;
-        if (namePatch.name_ru) next.name_ru = namePatch.name_ru;
-        if (mainGroupValue) {
-          if (targetLanguage === "en") next.main_group_en = mainGroupValue;
-          else next.main_group_ru = mainGroupValue;
-        }
-        return next;
-      });
-    } finally {
-      setTranslatingTarget(null);
-    }
-  };
+  // Faz 2.5b: kategori formu çevirileri (ad, ana grup, not)
+  const categoryTranslatableEntity = (): TranslatableEntity => ({
+    id: "category",
+    kind: "category",
+    source: {
+      name: newCategory.name,
+      // Alt kategoride ana grup üst kategoriden gelir; formda düzenlenmez.
+      main_group: newCategory.parent_id ? "" : newCategory.main_group,
+      note: newCategory.note,
+    },
+    translations: newCategory.translations,
+  });
 
-  const handleBulkTranslateMissingCategories = async (targetLanguage: TargetLanguage) => {
-    if (!restaurant?.id) return;
-    setTranslatingTarget(targetLanguage);
-    try {
-      for (const category of categories) {
-        const patch = await fillMissingCategoryName(
-          category,
-          targetLanguage,
-          translateMenuCategoryFallback
-        );
-        if (Object.keys(patch).length === 0) continue;
-        const { error } = await supabase
-          .from("categories")
-          .update(patch)
-          .eq("id", category.id)
-          .eq("restaurant_id", restaurant.id);
-        if (error) {
-          alert(error.message || "Çeviri kaydedilemedi.");
-          return;
-        }
-        setCategories((prev) =>
-          prev.map((row: { id: string }) => (row.id === category.id ? { ...row, ...patch } : row))
-        );
-        if (editingCategoryId === category.id) {
-          setNewCategory((prev) => ({ ...prev, ...patch }));
-        }
-      }
-    } finally {
-      setTranslatingTarget(null);
-    }
-  };
-
-  const handleBulkTranslateMissingProducts = async (targetLanguage: TargetLanguage) => {
-    if (!restaurant?.id) return;
-    setTranslatingTarget(targetLanguage);
-    try {
-      const list = filteredProducts;
-      for (const product of list) {
-        const patch = await fillMissingProductTranslations(
-          product,
-          targetLanguage,
-          translateText
-        );
-        if (Object.keys(patch).length === 0) continue;
-        const { error } = await supabase
-          .from("products")
-          .update(patch)
-          .eq("id", product.id)
-          .eq("restaurant_id", restaurant.id);
-        if (error) {
-          alert(error.message || "Çeviri kaydedilemedi.");
-          return;
-        }
-        setProducts((prev) =>
-          prev.map((row: { id: string }) => (row.id === product.id ? { ...row, ...patch } : row))
-        );
-        if (editingProductId === product.id) {
-          setNewProduct((prev) => ({ ...prev, ...patch }));
-        }
-      }
-    } finally {
-      setTranslatingTarget(null);
-    }
+  const handleCategoryAiTranslate = () => {
+    void categoryAi.run([categoryTranslatableEntity()], translationLanguages, (results) => {
+      setNewCategory((prev) => ({ ...prev, translations: applyAiResults(prev.translations, results, "category") }));
+    });
   };
 
   const MENU_RESET_PHRASE = "MENÜYÜ SİL";
@@ -2226,6 +2178,7 @@ export default function AdminDashboard() {
           <button onClick={() => {setActiveTab("categories"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'categories' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><List size={20} /> Kategoriler</button>
           <button onClick={() => {setActiveTab("menus"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'menus' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><LayoutGrid size={20} /> Menüler</button>
           <button onClick={() => {setActiveTab("modifiers"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'modifiers' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><SlidersHorizontal size={20} /> Seçenek Grupları</button>
+          <button onClick={() => {setActiveTab("languages"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'languages' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><Languages size={20} /> Diller &amp; Çeviri</button>
           <button onClick={() => {setActiveTab("qr"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'qr' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><QrCode size={20} /> QR Kod Üretici</button>
           <Link
             href="/admin/import"
@@ -2399,33 +2352,14 @@ export default function AdminDashboard() {
                     />
                     Sadece fiyatı boş olanlar
                   </label>
-                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => void handleBulkTranslateMissingProducts("en")}
-                      disabled={!!translatingTarget}
-                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                    >
-                      <Sparkles size={14} aria-hidden />
-                      {translatingTarget === "en"
-                        ? translationStatusLabel("en")
-                        : translationActionLabel("en")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleBulkTranslateMissingProducts("ru")}
-                      disabled={!!translatingTarget}
-                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                    >
-                      <Sparkles size={14} aria-hidden />
-                      {translatingTarget === "ru"
-                        ? translationStatusLabel("ru")
-                        : translationActionLabel("ru")}
-                    </button>
-                  </div>
-                  <p className="text-[10px] font-medium text-gray-500 leading-snug">
-                    Görünen ürünlerde yalnızca boş çeviri alanları doldurulur. Dolu İngilizce/Rusça ve tüm Türkçe alanlar korunur.
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("languages")}
+                    className="inline-flex items-center justify-center gap-1.5 self-start px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  >
+                    <Languages size={14} aria-hidden />
+                    Eksik çevirileri tamamla (Diller &amp; Çeviri)
+                  </button>
                 </div>
 
                 {productViewMode === "cards" && !productFiltersActive && groupedFilteredProducts.length > 0 && (
@@ -2692,7 +2626,7 @@ export default function AdminDashboard() {
             )}
 
             {activeTab === "menus" && restaurant?.id && (
-              <MenuCollectionsTab restaurantId={restaurant.id} />
+              <MenuCollectionsTab restaurantId={restaurant.id} translationLanguages={translationLanguages} />
             )}
 
             {activeTab === "categories" && (
@@ -2707,33 +2641,14 @@ export default function AdminDashboard() {
                     <Plus size={18} /> Yeni Kategori
                   </button>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-2 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => void handleBulkTranslateMissingCategories("en")}
-                    disabled={!!translatingTarget}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                  >
-                    <Sparkles size={14} aria-hidden />
-                    {translatingTarget === "en"
-                      ? translationStatusLabel("en")
-                      : translationActionLabel("en")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleBulkTranslateMissingCategories("ru")}
-                    disabled={!!translatingTarget}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                  >
-                    <Sparkles size={14} aria-hidden />
-                    {translatingTarget === "ru"
-                      ? translationStatusLabel("ru")
-                      : translationActionLabel("ru")}
-                  </button>
-                </div>
-                <p className="text-[10px] font-medium text-gray-500 mb-3 leading-snug">
-                  Yalnızca boş kategori adı çevirileri doldurulur (menü başlığı sözlüğü). Dolu EN/RU ve Türkçe adlar korunur.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("languages")}
+                  className="mb-3 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                >
+                  <Languages size={14} aria-hidden />
+                  Eksik çevirileri tamamla (Diller &amp; Çeviri)
+                </button>
                 <p className="text-[10px] text-gray-500 font-medium mb-4 leading-relaxed">
                   Sırayı ok düğmeleriyle ya da sol tutacak simgeden sürükleyerek değiştirin. Müşteri menüsündeki kategori şeridi bu sırayı kullanır. Alt kategoriler üst kategorinin hemen altında durur ve yalnız kendi aralarında sıralanır.
                 </p>
@@ -2922,7 +2837,23 @@ export default function AdminDashboard() {
             )}
 
             {activeTab === "modifiers" && restaurant?.id && (
-              <ModifierGroupsPanel restaurantId={restaurant.id} />
+              <ModifierGroupsPanel restaurantId={restaurant.id} translationLanguages={translationLanguages} />
+            )}
+
+            {activeTab === "languages" && restaurant?.id && (
+              <LanguagesPanel
+                restaurantId={restaurant.id}
+                menuLanguages={normalizeMenuLanguages(restaurant.menu_languages)}
+                onMenuLanguagesSaved={(menu_languages) =>
+                  setRestaurant((prev: typeof restaurant) => (prev ? { ...prev, menu_languages } : prev))
+                }
+                categories={categories}
+                products={products}
+                productVariantsMap={productVariantsMap}
+                onCategoriesChanged={setCategories}
+                onProductsChanged={setProducts}
+                onVariantsChanged={setProductVariantsMap}
+              />
             )}
 
             {activeTab === "qr" && (
@@ -3302,28 +3233,66 @@ export default function AdminDashboard() {
                         <textarea placeholder="Açıklama..." className="w-full max-w-full min-w-0 box-border resize-y bg-white p-3 md:p-4 rounded-xl font-medium text-gray-600 text-xs md:text-sm outline-none shadow-sm" rows={2} value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <button type="button" onClick={() => void handleAutoTranslateProduct("en")} disabled={!!translatingTarget} className="min-h-11 text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
-                        <Sparkles size={12}/> {translatingTarget === "en" ? translationStatusLabel("en") : translationActionLabel("en")}
-                      </button>
-                      <button type="button" onClick={() => void handleAutoTranslateProduct("ru")} disabled={!!translatingTarget} className="min-h-11 text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
-                        <Sparkles size={12}/> {translatingTarget === "ru" ? translationStatusLabel("ru") : translationActionLabel("ru")}
-                      </button>
-                    </div>
-
-                    {/* İNGİLİZCE VE RUSÇA KUTULARI BURAYA GERİ GELDİ */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">🇬🇧 English</label>
-                            <input placeholder="Name" className="w-full max-w-full min-w-0 min-h-11 border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_en} onChange={e => setNewProduct({...newProduct, name_en: e.target.value})} />
-                            <textarea placeholder="Description" className="w-full max-w-full min-w-0 box-border resize-y border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_en} onChange={e => setNewProduct({...newProduct, description_en: e.target.value})} />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">🇷🇺 Russian</label>
-                            <input placeholder="Название" className="w-full max-w-full min-w-0 min-h-11 border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold text-gray-900 outline-none" value={newProduct.name_ru} onChange={e => setNewProduct({...newProduct, name_ru: e.target.value})} />
-                            <textarea placeholder="Описание" className="w-full max-w-full min-w-0 box-border resize-y border-2 border-gray-50 p-3 rounded-xl text-xs font-medium text-gray-900 outline-none" rows={2} value={newProduct.description_ru} onChange={e => setNewProduct({...newProduct, description_ru: e.target.value})} />
-                        </div>
-                    </div>
+                    <TranslationSection
+                      languages={translationLanguages}
+                      statusFor={(lang) => entitiesTranslationStatus(productTranslatableEntities(), lang)}
+                      onAiFill={handleProductAiTranslate}
+                      aiBusy={productAi.busy}
+                      aiMessage={productAi.message}
+                    >
+                      {(lang) => (
+                        <>
+                          <input
+                            className={translationInputClass}
+                            placeholder={newProduct.name || "Ürün adı"}
+                            aria-label="Ürün adı çevirisi"
+                            value={getTranslationField(newProduct.translations, lang, "name")}
+                            onChange={(e) =>
+                              setNewProduct((prev) => ({
+                                ...prev,
+                                translations: setTranslationField(prev.translations, lang, "name", e.target.value),
+                              }))
+                            }
+                          />
+                          <textarea
+                            className={`${translationInputClass} resize-y font-medium`}
+                            rows={2}
+                            placeholder={newProduct.description || "Açıklama"}
+                            aria-label="Açıklama çevirisi"
+                            value={getTranslationField(newProduct.translations, lang, "description")}
+                            onChange={(e) =>
+                              setNewProduct((prev) => ({
+                                ...prev,
+                                translations: setTranslationField(prev.translations, lang, "description", e.target.value),
+                              }))
+                            }
+                          />
+                          {newProduct.pricing_mode === "variants" &&
+                            newProduct.variants.map((variant, index) =>
+                              variant.label.trim() ? (
+                                <input
+                                  key={`variant-tr-${index}`}
+                                  className={`${translationInputClass} font-medium`}
+                                  placeholder={`Seçenek: ${variant.label}`}
+                                  aria-label={`${variant.label} çevirisi`}
+                                  maxLength={200}
+                                  value={getTranslationField(variant.translations, lang, "label")}
+                                  onChange={(e) =>
+                                    setNewProduct((prev) => ({
+                                      ...prev,
+                                      variants: prev.variants.map((v, i) =>
+                                        i === index
+                                          ? { ...v, translations: setTranslationField(v.translations, lang, "label", e.target.value) }
+                                          : v
+                                      ),
+                                    }))
+                                  }
+                                />
+                              ) : null
+                            )}
+                        </>
+                      )}
+                    </TranslationSection>
 
                     <div className="p-3 md:p-5 border-2 border-gray-50 rounded-2xl">
                       <ProductBasicsFields
@@ -3347,6 +3316,7 @@ export default function AdminDashboard() {
                         products={products}
                         categories={categories}
                         loading={productExtrasLoading}
+                        translationLanguages={translationLanguages}
                       />
                     )}
 
@@ -3588,41 +3558,11 @@ export default function AdminDashboard() {
                       value={newCategory.main_group}
                       onChange={e => setNewCategory({ ...newCategory, main_group: e.target.value.toLocaleUpperCase("tr-TR") })}
                     />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-gray-500 uppercase ml-1">🇬🇧 English</label>
-                        <input placeholder="Foods, Drinks…" className="w-full border-2 border-white p-3 rounded-xl text-xs md:text-sm font-bold outline-none bg-white" value={newCategory.main_group_en} onChange={e => setNewCategory({ ...newCategory, main_group_en: e.target.value })} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-gray-500 uppercase ml-1">🇷🇺 Russian</label>
-                        <input placeholder="Еда, Напитки…" className="w-full border-2 border-white p-3 rounded-xl text-xs md:text-sm font-bold outline-none bg-white" value={newCategory.main_group_ru} onChange={e => setNewCategory({ ...newCategory, main_group_ru: e.target.value })} />
-                      </div>
-                    </div>
                   </div>
 
                   <div className="p-4 md:p-5 bg-blue-50 rounded-2xl border border-blue-100 space-y-3">
                     <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">🇹🇷 Türkçe ad</span>
                     <input required placeholder="Alt Kategori (Örn: Kahvaltı, Burger)" className="w-full bg-white p-3 md:p-4 rounded-xl font-black outline-none shadow-sm text-sm md:text-base" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <button type="button" onClick={() => void handleAutoTranslateCategoryFields("en")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
-                      <Sparkles size={12}/> {translatingTarget === "en" ? translationStatusLabel("en") : translationActionLabel("en")}
-                    </button>
-                    <button type="button" onClick={() => void handleAutoTranslateCategoryFields("ru")} disabled={!!translatingTarget} className="text-[9px] md:text-[10px] font-black bg-blue-50 text-blue-700 px-3 md:px-4 py-2 rounded-full shadow-sm flex items-center justify-center gap-1 md:gap-2 border border-blue-100">
-                      <Sparkles size={12}/> {translatingTarget === "ru" ? translationStatusLabel("ru") : translationActionLabel("ru")}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase ml-1">🇬🇧 English</label>
-                      <input placeholder="Name" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold outline-none" value={newCategory.name_en} onChange={e => setNewCategory({...newCategory, name_en: e.target.value})} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase ml-1">🇷🇺 Russian</label>
-                      <input placeholder="Название" className="w-full border-2 border-gray-50 p-3 rounded-xl text-xs md:text-sm font-bold outline-none" value={newCategory.name_ru} onChange={e => setNewCategory({...newCategory, name_ru: e.target.value})} />
-                    </div>
                   </div>
 
                   <CategoryStructureFields
@@ -3631,6 +3571,60 @@ export default function AdminDashboard() {
                     categories={categories}
                     editingCategoryId={editingCategoryId}
                   />
+
+                  <TranslationSection
+                    languages={translationLanguages}
+                    statusFor={(lang) => entitiesTranslationStatus([categoryTranslatableEntity()], lang)}
+                    onAiFill={handleCategoryAiTranslate}
+                    aiBusy={categoryAi.busy}
+                    aiMessage={categoryAi.message}
+                  >
+                    {(lang) => (
+                      <>
+                        <input
+                          className={translationInputClass}
+                          placeholder={newCategory.name || "Kategori adı"}
+                          aria-label="Kategori adı çevirisi"
+                          value={getTranslationField(newCategory.translations, lang, "name")}
+                          onChange={(e) =>
+                            setNewCategory((prev) => ({
+                              ...prev,
+                              translations: setTranslationField(prev.translations, lang, "name", e.target.value),
+                            }))
+                          }
+                        />
+                        {!newCategory.parent_id && (
+                          <input
+                            className={translationInputClass}
+                            placeholder={`Ana grup: ${newCategory.main_group || "YİYECEKLER"}`}
+                            aria-label="Ana grup çevirisi"
+                            value={getTranslationField(newCategory.translations, lang, "main_group")}
+                            onChange={(e) =>
+                              setNewCategory((prev) => ({
+                                ...prev,
+                                translations: setTranslationField(prev.translations, lang, "main_group", e.target.value),
+                              }))
+                            }
+                          />
+                        )}
+                        {newCategory.note.trim() && (
+                          <textarea
+                            className={`${translationInputClass} resize-y font-medium`}
+                            rows={2}
+                            placeholder={newCategory.note}
+                            aria-label="Kategori notu çevirisi"
+                            value={getTranslationField(newCategory.translations, lang, "note")}
+                            onChange={(e) =>
+                              setNewCategory((prev) => ({
+                                ...prev,
+                                translations: setTranslationField(prev.translations, lang, "note", e.target.value),
+                              }))
+                            }
+                          />
+                        )}
+                      </>
+                    )}
+                  </TranslationSection>
 
                   <ScheduleEditor
                     subject="kategori"

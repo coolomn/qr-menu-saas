@@ -3,10 +3,8 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronUp, Plus, Trash2, X } from "lucide-react";
-import { translateText } from "@/lib/admin-menu/auto-translate-client";
 import {
   emptyModifierOption,
-  fillMissingModifierTranslations,
   saveModifierGroup,
   validateModifierGroup,
   type AdminModifierGroup,
@@ -14,6 +12,11 @@ import {
 } from "@/lib/admin-menu/modifiers";
 import { MAX_OPTIONS_PER_GROUP } from "@/lib/public-menu/product-extras";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
+import type { TranslationLanguage } from "@/lib/i18n/languages";
+import { getTranslationField, setTranslationField } from "@/lib/i18n/edit-translations";
+import { applyAiResults, entitiesTranslationStatus, type TranslatableEntity } from "@/lib/admin-menu/form-ai-translate";
+import { TranslationSection, translationInputClass } from "@/app/admin/_components/i18n/TranslationTabs";
+import { useFormAiTranslate } from "@/app/admin/_components/i18n/useFormAiTranslate";
 
 const supabase = getBrowserSupabase();
 
@@ -22,6 +25,8 @@ type Props = {
   initial: AdminModifierGroup;
   /** Yeni grupta sıra (listenin sonu). */
   sortOrder: number;
+  /** Menüde açık çeviri dilleri (TR hariç). */
+  translationLanguages: readonly TranslationLanguage[];
   onClose: () => void;
   onSaved: (groupId: string) => void;
 };
@@ -34,14 +39,42 @@ const label = "text-[10px] font-black text-gray-500 uppercase tracking-widest";
  * Faz 2.4: seçenek grubu ekle/düzenle penceresi. Ürün formunun içinden de açıldığı için
  * <form> değil (iç içe form olmaz) ve body'ye portal ile çizilir.
  */
-export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, onSaved }: Props) {
+export function ModifierGroupModal({ restaurantId, initial, sortOrder, translationLanguages, onClose, onSaved }: Props) {
   const [group, setGroup] = useState<AdminModifierGroup>(initial);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [busyLabel, setBusyLabel] = useState("Kaydediliyor…");
-  const [showTranslations, setShowTranslations] = useState(
-    Boolean(initial.name_en || initial.name_ru || initial.options.some((o) => o.name_en || o.name_ru))
-  );
+  const ai = useFormAiTranslate(restaurantId);
+
+  // Seçenekler sıralanıp silinebildiği için AI anahtarı dizin değil, nesnenin kendisine bağlı.
+  const translatableEntities = (): { entities: TranslatableEntity[]; options: AdminModifierOption[] } => {
+    const options = group.options;
+    const entities: TranslatableEntity[] = [
+      { id: "group", kind: "modifier_group", source: { name: group.name }, translations: group.translations },
+      ...options.map((o, i) => ({
+        id: `option:${i}`,
+        kind: "modifier_option" as const,
+        source: { name: o.name },
+        translations: o.translations,
+      })),
+    ];
+    return { entities, options };
+  };
+
+  const statusFor = (lang: TranslationLanguage) => entitiesTranslationStatus(translatableEntities().entities, lang);
+
+  const fillWithAi = () => {
+    const { entities, options } = translatableEntities();
+    void ai.run(entities, translationLanguages, (results) => {
+      setGroup((g) => ({
+        ...g,
+        translations: applyAiResults(g.translations, results, "group"),
+        options: g.options.map((o) => {
+          const index = options.indexOf(o);
+          return index >= 0 ? { ...o, translations: applyAiResults(o.translations, results, `option:${index}`) } : o;
+        }),
+      }));
+    });
+  };
 
   const patchOption = (index: number, patch: Partial<AdminModifierOption>) =>
     setGroup((g) => ({ ...g, options: g.options.map((o, i) => (i === index ? { ...o, ...patch } : o)) }));
@@ -63,19 +96,7 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
     }
     setBusy(true);
     setError(null);
-    // Boş İngilizce/Rusça adları otomatik çevir (elle yazılanlara dokunmaz; servis yanıt vermezse
-    // Türkçe kalır ve kayıt yine yapılır).
-    let toSave = group;
-    try {
-      setBusyLabel("Çevriliyor…");
-      const translated = await fillMissingModifierTranslations(group, translateText);
-      toSave = translated.group;
-      setGroup(toSave);
-    } catch {
-      /* çeviri servisi ulaşılamaz: Türkçe adlar gösterilir */
-    }
-    setBusyLabel("Kaydediliyor…");
-    const res = await saveModifierGroup(supabase, restaurantId, toSave, sortOrder);
+    const res = await saveModifierGroup(supabase, restaurantId, group, sortOrder);
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
@@ -120,16 +141,6 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
               maxLength={80}
               onChange={(e) => setGroup({ ...group, name: e.target.value })}
             />
-            {showTranslations && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input className={input} placeholder="🇬🇧 Group name" value={group.name_en} maxLength={80}
-                  aria-label="Grup adı (İngilizce)"
-                  onChange={(e) => setGroup({ ...group, name_en: e.target.value })} />
-                <input className={input} placeholder="🇷🇺 Название группы" value={group.name_ru} maxLength={80}
-                  aria-label="Grup adı (Rusça)"
-                  onChange={(e) => setGroup({ ...group, name_ru: e.target.value })} />
-              </div>
-            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -145,18 +156,12 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
             </div>
             <p className="col-span-2 text-[11px] font-medium text-gray-500 leading-snug -mt-1">
               Müşteri menüde örneğin “1 seçin” ya da “en fazla 3” yazısını görür. Sipariş sistemi olmadığı için
-              seçenekler yalnızca bilgi olarak gösterilir. Kaydederken boş İngilizce/Rusça adlar otomatik çevrilir.
+              seçenekler yalnızca bilgi olarak gösterilir.
             </p>
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className={label}>Seçenekler</span>
-              <button type="button" onClick={() => setShowTranslations((v) => !v)}
-                className="text-[11px] font-bold text-blue-600 hover:underline">
-                {showTranslations ? "Çevirileri gizle" : "EN / RU çeviri ekle"}
-              </button>
-            </div>
+            <span className={label}>Seçenekler</span>
             {group.options.map((option, index) => (
               <div key={option.id ?? `new-${index}`}
                 className={`rounded-2xl border p-2.5 space-y-2 ${option.is_active ? "border-gray-100 bg-white" : "border-amber-100 bg-amber-50/50"}`}>
@@ -168,16 +173,6 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
                     aria-label={`Seçenek ${index + 1} fiyat farkı`} inputMode="decimal"
                     onChange={(e) => patchOption(index, { price_delta: e.target.value })} />
                 </div>
-                {showTranslations && (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <input className={input} placeholder="🇬🇧 Name" value={option.name_en} maxLength={80}
-                      aria-label={`Seçenek ${index + 1} adı (İngilizce)`}
-                      onChange={(e) => patchOption(index, { name_en: e.target.value })} />
-                    <input className={input} placeholder="🇷🇺 Название" value={option.name_ru} maxLength={80}
-                      aria-label={`Seçenek ${index + 1} adı (Rusça)`}
-                      onChange={(e) => patchOption(index, { name_ru: e.target.value })} />
-                  </div>
-                )}
                 <div className="flex items-center gap-1.5">
                   <input className={`${input} max-w-[7rem]`} placeholder="Kalori" value={option.calories} inputMode="numeric"
                     aria-label={`Seçenek ${index + 1} kalori`}
@@ -212,13 +207,53 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
               <Plus size={16} /> Seçenek ekle
             </button>
           </div>
+
+          <TranslationSection
+            languages={translationLanguages}
+            statusFor={statusFor}
+            onAiFill={fillWithAi}
+            aiBusy={ai.busy}
+            aiMessage={ai.message}
+          >
+            {(lang) => (
+              <>
+                <input
+                  className={translationInputClass}
+                  placeholder={group.name || "Grup adı"}
+                  aria-label="Grup adı çevirisi"
+                  maxLength={80}
+                  value={getTranslationField(group.translations, lang, "name")}
+                  onChange={(e) =>
+                    setGroup((g) => ({ ...g, translations: setTranslationField(g.translations, lang, "name", e.target.value) }))
+                  }
+                />
+                {group.options.map((option, index) =>
+                  option.name.trim() ? (
+                    <input
+                      key={option.id ?? `tr-${index}`}
+                      className={`${translationInputClass} font-medium`}
+                      placeholder={option.name}
+                      aria-label={`${option.name} çevirisi`}
+                      maxLength={80}
+                      value={getTranslationField(option.translations, lang, "name")}
+                      onChange={(e) =>
+                        patchOption(index, {
+                          translations: setTranslationField(option.translations, lang, "name", e.target.value),
+                        })
+                      }
+                    />
+                  ) : null
+                )}
+              </>
+            )}
+          </TranslationSection>
         </div>
 
         <div className="shrink-0 border-t px-4 py-3 md:px-6 md:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
           {error && <p className="text-sm font-bold text-red-600" role="alert">{error}</p>}
-          <button type="button" onClick={() => void save()} disabled={busy}
+          <button type="button" onClick={() => void save()} disabled={busy || ai.busy}
             className="w-full min-h-12 rounded-2xl bg-blue-600 text-white font-black hover:bg-blue-700 disabled:opacity-60">
-            {busy ? busyLabel : "Grubu kaydet"}
+            {busy ? "Kaydediliyor…" : "Grubu kaydet"}
           </button>
         </div>
       </div>

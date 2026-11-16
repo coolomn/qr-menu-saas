@@ -5,11 +5,8 @@
  * aynı işletme kuralını zorunlu kılar.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  fillMissingLocalizedValue,
-  type SourceLanguage,
-  type TargetLanguage,
-} from "@/lib/admin-menu/auto-translate";
+import { cleanTranslationsForSave, legacyColumnsFromTranslations, translationsFromRow } from "@/lib/i18n/edit-translations";
+import { parseTranslations, type TranslationMap } from "@/lib/i18n/translations";
 import {
   MAX_GROUPS_PER_PRODUCT,
   MAX_OPTIONS_PER_GROUP,
@@ -22,8 +19,8 @@ import {
 export type AdminModifierOption = {
   id?: string;
   name: string;
-  name_en: string;
-  name_ru: string;
+  /** Faz 2.5b: tüm diller ({ "en": { "name": "…" } }); eski name_en/name_ru tetikleyiciyle eşitlenir. */
+  translations: TranslationMap;
   price_delta: string;
   calories: string;
   is_active: boolean;
@@ -32,8 +29,7 @@ export type AdminModifierOption = {
 export type AdminModifierGroup = {
   id?: string;
   name: string;
-  name_en: string;
-  name_ru: string;
+  translations: TranslationMap;
   /** Form değeri: "" = sınır yok */
   min_select: string;
   max_select: string;
@@ -44,8 +40,7 @@ export type AdminModifierGroup = {
 
 export const emptyModifierOption = (): AdminModifierOption => ({
   name: "",
-  name_en: "",
-  name_ru: "",
+  translations: {},
   price_delta: "",
   calories: "",
   is_active: true,
@@ -53,8 +48,7 @@ export const emptyModifierOption = (): AdminModifierOption => ({
 
 export const emptyModifierGroup = (): AdminModifierGroup => ({
   name: "",
-  name_en: "",
-  name_ru: "",
+  translations: {},
   min_select: "",
   max_select: "",
   options: [emptyModifierOption()],
@@ -67,11 +61,17 @@ function parseIntField(raw: string): number | null | "invalid" {
   return Number(s);
 }
 
+function translatedNames(map: TranslationMap | undefined): string[] {
+  return Object.values(map ?? {}).map((fields) => fields?.name ?? "");
+}
+
+const NAME_LIMIT = { name: MODIFIER_NAME_MAX };
+
 /** Kaydetmeden önce form doğrulaması; hata metni ya da null. */
 export function validateModifierGroup(group: AdminModifierGroup): string | null {
   const name = group.name.trim();
   if (!name) return "Grup adı boş olamaz.";
-  if ([group.name, group.name_en, group.name_ru].some((v) => v.trim().length > MODIFIER_NAME_MAX)) {
+  if ([group.name, ...translatedNames(group.translations)].some((v) => v.trim().length > MODIFIER_NAME_MAX)) {
     return `Grup adı en fazla ${MODIFIER_NAME_MAX} karakter olabilir.`;
   }
   const options = group.options.filter((o) => o.name.trim() || o.price_delta.trim() || o.calories.trim());
@@ -79,7 +79,7 @@ export function validateModifierGroup(group: AdminModifierGroup): string | null 
   if (options.length > MAX_OPTIONS_PER_GROUP) return `Bir grupta en fazla ${MAX_OPTIONS_PER_GROUP} seçenek olabilir.`;
   for (const o of options) {
     if (!o.name.trim()) return "Her seçeneğin bir adı olmalı.";
-    if ([o.name, o.name_en, o.name_ru].some((v) => v.trim().length > MODIFIER_NAME_MAX)) {
+    if ([o.name, ...translatedNames(o.translations)].some((v) => v.trim().length > MODIFIER_NAME_MAX)) {
       return `Seçenek adı en fazla ${MODIFIER_NAME_MAX} karakter olabilir.`;
     }
     if (o.price_delta.trim().length > 20) return "Fiyat farkı çok uzun.";
@@ -110,13 +110,12 @@ export function normalizePriceDelta(raw: string): string {
   return `+${s.replace(/^\+/, "")}`;
 }
 
-const nullIfEmpty = (v: string) => (v.trim() ? v.trim() : null);
-
 type DbGroup = {
   id: string;
   name: string;
   name_en: string | null;
   name_ru: string | null;
+  translations?: unknown;
   min_select: number;
   max_select: number | null;
   sort_order: number;
@@ -128,6 +127,7 @@ type DbOption = {
   name: string;
   name_en: string | null;
   name_ru: string | null;
+  translations?: unknown;
   price_delta: string;
   calories: number | null;
   is_active: boolean;
@@ -141,13 +141,13 @@ export async function listModifierGroups(
   const [groups, options, links] = await Promise.all([
     supabase
       .from("modifier_groups")
-      .select("id, name, name_en, name_ru, min_select, max_select, sort_order")
+      .select("id, name, name_en, name_ru, translations, min_select, max_select, sort_order")
       .eq("restaurant_id", restaurantId)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true }),
     supabase
       .from("modifier_options")
-      .select("id, group_id, name, name_en, name_ru, price_delta, calories, is_active, sort_order")
+      .select("id, group_id, name, name_en, name_ru, translations, price_delta, calories, is_active, sort_order")
       .eq("restaurant_id", restaurantId)
       .order("sort_order", { ascending: true }),
     supabase.from("product_modifier_groups").select("group_id").eq("restaurant_id", restaurantId),
@@ -161,8 +161,7 @@ export async function listModifierGroups(
     list.push({
       id: o.id,
       name: o.name,
-      name_en: o.name_en ?? "",
-      name_ru: o.name_ru ?? "",
+      translations: translationsFromRow(o, ["name"]),
       price_delta: o.price_delta ?? "",
       calories: o.calories != null ? String(o.calories) : "",
       is_active: o.is_active,
@@ -179,8 +178,7 @@ export async function listModifierGroups(
     groups: ((groups.data ?? []) as DbGroup[]).map((g) => ({
       id: g.id,
       name: g.name,
-      name_en: g.name_en ?? "",
-      name_ru: g.name_ru ?? "",
+      translations: translationsFromRow(g, ["name"]),
       min_select: g.min_select > 0 ? String(g.min_select) : "",
       max_select: g.max_select != null ? String(g.max_select) : "",
       options: optionsByGroup.get(g.id) ?? [],
@@ -204,8 +202,7 @@ export async function saveModifierGroup(
   const row = {
     restaurant_id: restaurantId,
     name: group.name.trim(),
-    name_en: nullIfEmpty(group.name_en),
-    name_ru: nullIfEmpty(group.name_ru),
+    translations: cleanTranslationsForSave(group.translations, NAME_LIMIT),
     min_select: typeof min === "number" ? min : 0,
     max_select: typeof max === "number" ? max : null,
   };
@@ -239,8 +236,7 @@ export async function saveModifierGroup(
       group_id: groupId!,
       restaurant_id: restaurantId,
       name: o.name.trim(),
-      name_en: nullIfEmpty(o.name_en),
-      name_ru: nullIfEmpty(o.name_ru),
+      translations: cleanTranslationsForSave(o.translations, NAME_LIMIT),
       price_delta: normalizePriceDelta(o.price_delta),
       calories: typeof kcal === "number" ? kcal : null,
       is_active: o.is_active,
@@ -349,7 +345,11 @@ export async function saveProductLinks(
   return { ok: true };
 }
 
-/** Malzeme listesini kaydetmeye hazırlar: boşları atar, aynı adı bir kez tutar, üst sınır uygular. */
+/**
+ * Malzeme listesini kaydetmeye hazırlar: boşları atar, aynı adı bir kez tutar, üst sınır uygular.
+ * Çeviriler `translations` içinde; eski name_en/name_ru da yazılır (bu jsonb'de tetikleyici yok,
+ * geri dönülen eski sürüm de çevirileri görsün).
+ */
 export function sanitizeIngredientsForSave(list: RemovableIngredient[]): RemovableIngredient[] {
   const seen = new Set<string>();
   const out: RemovableIngredient[] = [];
@@ -359,72 +359,24 @@ export function sanitizeIngredientsForSave(list: RemovableIngredient[]): Removab
     const key = name.toLocaleLowerCase("tr-TR");
     if (seen.has(key)) continue;
     seen.add(key);
-    const en = (item.name_en ?? "").trim().slice(0, MODIFIER_NAME_MAX);
-    const ru = (item.name_ru ?? "").trim().slice(0, MODIFIER_NAME_MAX);
-    out.push({ name, ...(en ? { name_en: en } : {}), ...(ru ? { name_ru: ru } : {}) });
+    const translations = cleanTranslationsForSave(ingredientTranslations(item), NAME_LIMIT);
+    const legacy = legacyColumnsFromTranslations(translations, ["name"]);
+    out.push({
+      name,
+      ...(legacy.name_en ? { name_en: legacy.name_en } : {}),
+      ...(legacy.name_ru ? { name_ru: legacy.name_ru } : {}),
+      ...(Object.keys(translations).length > 0 ? { translations } : {}),
+    });
     if (out.length >= MAX_REMOVABLE_INGREDIENTS) break;
   }
   return out;
 }
 
-type Translate = (
-  text: string,
-  sourceLanguage: SourceLanguage,
-  targetLanguage: TargetLanguage
-) => Promise<string | null>;
-
-const TARGETS: TargetLanguage[] = ["en", "ru"];
-
-/** Ad alanının boş EN/RU karşılıklarını doldurur (dolu olanlara dokunmaz; çeviri gelmezse boş kalır). */
-async function fillNameTranslations<T extends { name: string; name_en?: string | null; name_ru?: string | null }>(
-  item: T,
-  translate: Translate
-): Promise<{ next: T; filled: number }> {
-  let next = item;
-  let filled = 0;
-  for (const lang of TARGETS) {
-    const key = lang === "en" ? "name_en" : "name_ru";
-    const value = await fillMissingLocalizedValue(next.name, next.name_en, next.name_ru, lang, translate);
-    if (value) {
-      next = { ...next, [key]: value.slice(0, MODIFIER_NAME_MAX) };
-      filled += 1;
-    }
-  }
-  return { next, filled };
-}
-
-/** Grup adı + seçenek adlarının eksik İngilizce/Rusça çevirilerini doldurur. */
-export async function fillMissingModifierTranslations(
-  group: AdminModifierGroup,
-  translate: Translate
-): Promise<{ group: AdminModifierGroup; filled: number }> {
-  let total = 0;
-  const head = await fillNameTranslations(group, translate);
-  total += head.filled;
-  const options: AdminModifierOption[] = [];
-  for (const option of head.next.options) {
-    if (!option.name.trim()) {
-      options.push(option);
-      continue;
-    }
-    const res = await fillNameTranslations(option, translate);
-    total += res.filled;
-    options.push(res.next);
-  }
-  return { group: { ...head.next, options }, filled: total };
-}
-
-/** Çıkarılabilir malzemelerin eksik İngilizce/Rusça çevirilerini doldurur. */
-export async function fillMissingIngredientTranslations(
-  list: RemovableIngredient[],
-  translate: Translate
-): Promise<{ ingredients: RemovableIngredient[]; filled: number }> {
-  let total = 0;
-  const out: RemovableIngredient[] = [];
-  for (const item of list) {
-    const res = await fillNameTranslations(item, translate);
-    total += res.filled;
-    out.push(res.next);
-  }
-  return { ingredients: out, filled: total };
+/** Malzemenin tüm çevirileri (translations + eski name_en/name_ru; translations önceliklidir). */
+export function ingredientTranslations(item: RemovableIngredient): TranslationMap {
+  const map = translationsFromRow(
+    { name_en: item.name_en ?? null, name_ru: item.name_ru ?? null, translations: item.translations ?? {} },
+    ["name"]
+  );
+  return parseTranslations(map);
 }

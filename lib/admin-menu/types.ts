@@ -1,4 +1,5 @@
 import type { Schedule } from "@/lib/public-menu/schedule";
+import type { TranslationMap } from "@/lib/i18n/translations";
 
 export type MenuCollectionCardVisualType = "icon" | "image" | "none";
 
@@ -17,6 +18,8 @@ export type AdminMenuCollection = {
   name: string;
   name_en: string | null;
   name_ru: string | null;
+  /** Faz 2.5b: ad + açıklama çevirileri (tüm diller). */
+  translations: TranslationMap;
   description: string | null;
   start_time: string | null;
   end_time: string | null;

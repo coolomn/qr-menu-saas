@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  MENU_COLLECTION_ADMIN_SELECT,
   assertCanDeactivateMenuCollection,
   assertCanDeleteMenuCollection,
   getCategoryCountsByMenuCollection,
@@ -78,7 +79,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       .update(parsed.data)
       .eq("id", id)
       .select(
-        "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, schedule, created_at, updated_at"
+        MENU_COLLECTION_ADMIN_SELECT
       )
       .single();
 
