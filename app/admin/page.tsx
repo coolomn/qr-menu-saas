@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Languages, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Languages, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown, SlidersHorizontal, HeartPulse } from "lucide-react";
 import { ConfirmDialog } from "@/app/admin/_components/ConfirmDialog";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
@@ -22,10 +22,12 @@ import { describeSchedule, parseSchedule, sanitizeScheduleForSave, type Schedule
 import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSettings";
 import { AnnouncementCard } from "@/app/admin/_components/settings/AnnouncementCard";
 import { SeoVisibilityCard } from "@/app/admin/_components/settings/SeoVisibilityCard";
+import { MenuHealthPanel } from "@/app/admin/_components/health/MenuHealthPanel";
 import { parseAnnouncement } from "@/lib/public-menu/announcement";
 import {
   normalizeBadgeIds,
   parseNutritionInput,
+  normalizeWhatsappNumber,
   parseOpeningHours,
   type SocialLinks,
 } from "@/lib/public-menu/venue-info";
@@ -340,6 +342,18 @@ export default function AdminDashboard() {
   const translationLanguages = useMemo<TranslationLanguage[]>(
     () => translationTabsFor(normalizeMenuLanguages(restaurant?.menu_languages)),
     [restaurant?.menu_languages]
+  );
+  // Faz 2.11b: menü sağlık skoru için kayıtlı işletme bilgileri (kaydedilmemiş form değişikliği sayılmaz).
+  const healthVenue = useMemo(
+    () => ({
+      hasLogo: typeof restaurant?.logo_url === "string" && restaurant.logo_url.trim() !== "",
+      hasOpeningHours: parseOpeningHours(restaurant?.opening_hours) !== null,
+      hasContact:
+        normalizeWhatsappNumber(restaurant?.whatsapp_number) !== null ||
+        (typeof restaurant?.instagram === "string" && restaurant.instagram.trim() !== "") ||
+        (typeof restaurant?.google_review_url === "string" && restaurant.google_review_url.trim() !== ""),
+    }),
+    [restaurant?.logo_url, restaurant?.opening_hours, restaurant?.whatsapp_number, restaurant?.instagram, restaurant?.google_review_url]
   );
   const productAi = useFormAiTranslate(restaurant?.id);
   const categoryAi = useFormAiTranslate(restaurant?.id);
@@ -2182,6 +2196,7 @@ export default function AdminDashboard() {
           <button onClick={() => {setActiveTab("menus"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'menus' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><LayoutGrid size={20} /> Menüler</button>
           <button onClick={() => {setActiveTab("modifiers"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'modifiers' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><SlidersHorizontal size={20} /> Seçenek Grupları</button>
           <button onClick={() => {setActiveTab("languages"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'languages' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><Languages size={20} /> Dil, Çeviri &amp; Döviz</button>
+          <button onClick={() => {setActiveTab("health"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'health' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><HeartPulse size={20} /> Menü Sağlığı</button>
           <button onClick={() => {setActiveTab("qr"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'qr' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><QrCode size={20} /> QR Kod Üretici</button>
           <Link
             href="/admin/import"
@@ -2861,6 +2876,18 @@ export default function AdminDashboard() {
                 onCategoriesChanged={setCategories}
                 onProductsChanged={setProducts}
                 onVariantsChanged={setProductVariantsMap}
+              />
+            )}
+
+            {activeTab === "health" && restaurant?.id && (
+              <MenuHealthPanel
+                products={products}
+                categories={categories}
+                variantsByProduct={productVariantsMap as unknown as Record<string, Record<string, unknown>[]>}
+                translationLanguages={translationLanguages}
+                venue={healthVenue}
+                onEditProduct={openEditModal}
+                onGoTo={(target) => setActiveTab(target)}
               />
             )}
 
