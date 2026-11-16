@@ -36,6 +36,8 @@ type MenuPickScreenProps = {
   instagramCtx: InstagramContext;
   onInstagramClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   instagramLabel: string;
+  /** Faz 2.9: en üstte çizilecek duyuru şeridi (yoksa hiçbir şey eklenmez). */
+  topSlot?: React.ReactNode;
 };
 
 function InstagramGlyph({ className }: { className?: string }) {
@@ -60,11 +62,14 @@ export function MenuPickScreen({
   instagramCtx,
   onInstagramClick,
   instagramLabel,
+  topSlot,
 }: MenuPickScreenProps) {
   return (
     <div className="relative min-h-[100dvh] flex flex-col bg-stone-900 font-sans animate-in fade-in duration-500">
       <PublicMenuBackgroundImage src={welcomeBgUrl} />
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/45 via-black/35 to-black/55" />
+
+      {topSlot ? <div className="relative z-10 w-full">{topSlot}</div> : null}
 
       <div className="relative z-10 w-full p-5 sm:p-6 flex justify-end">
         <LanguageSwitcher

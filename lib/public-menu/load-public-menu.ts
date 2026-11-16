@@ -35,6 +35,7 @@ import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
 import { normalizeMenuLanguages, type MenuLanguage } from "@/lib/i18n/languages";
 import { withCompactTranslations, type TranslationMap } from "@/lib/i18n/translations";
+import { publicAnnouncement, type Announcement } from "@/lib/public-menu/announcement";
 import {
   normalizeDisplayCurrencies,
   normalizeFixedRates,
@@ -69,6 +70,8 @@ export type RestaurantRow = {
   /** Faz 2.5c: "≈" ile gösterilecek dövizler + işletmenin sabit kuru; yoksa döviz gösterimi kapalı. */
   display_currencies?: string[] | null;
   fixed_exchange_rates?: unknown;
+  /** Faz 2.9: üst duyuru şeridi (ham jsonb; {} = yok). */
+  announcement?: unknown;
 };
 
 export type PublicRestaurantPayload = Omit<
@@ -80,6 +83,7 @@ export type PublicRestaurantPayload = Omit<
   | "menu_languages"
   | "display_currencies"
   | "fixed_exchange_rates"
+  | "announcement"
 > & {
   logo_display_mode: ReturnType<typeof normalizeLogoDisplayMode>;
   theme_id: ThemeId;
@@ -87,6 +91,8 @@ export type PublicRestaurantPayload = Omit<
   menu_languages: MenuLanguage[];
   /** Faz 2.5c: gösterilebilir kurlar (işletme sırası; eski/eksik kur atılmış). Boş = döviz gösterimi yok. */
   currency_rates?: PublicCurrencyRate[];
+  /** Faz 2.9: yalnız AÇIK ve metni olan duyuru; tarih aralığı istemcide değerlendirilir. Yoksa alan yok. */
+  announcement?: Announcement;
 };
 
 export type PublicCategoryPayload = {
@@ -194,6 +200,9 @@ const RESTAURANT_COLUMNS = [
 
 /** Faz 2.5c kolonları; migration uygulanmadıysa sorgu bunlarsız tekrarlanır. */
 const RESTAURANT_CURRENCY_COLUMNS = ["display_currencies", "fixed_exchange_rates"].join(",");
+
+/** Faz 2.9 kolonu; migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
+const RESTAURANT_ANNOUNCEMENT_COLUMN = "announcement";
 
 /** Faz 2.1 kolonları; migration uygulanmadıysa sorgu bunlarsız tekrarlanır. */
 const RESTAURANT_VENUE_COLUMNS = [
@@ -338,11 +347,14 @@ export function toPublicRestaurantPayload(
     menu_languages: rawMenuLanguages,
     display_currencies: _displayCurrencies,
     fixed_exchange_rates: _fixedExchangeRates,
+    announcement: rawAnnouncement,
     ...publicRestaurant
   } = restaurantRow;
+  const announcement = publicAnnouncement(rawAnnouncement);
 
   return {
     ...publicRestaurant,
+    ...(announcement ? { announcement } : {}),
     logo_display_mode: normalizeLogoDisplayMode(rawLogoDisplayMode),
     theme_id: normalizeThemeId(rawThemeId),
     font_style_id: normalizeFontStyleId(rawFontStyleId),
@@ -390,9 +402,26 @@ export async function loadPublicMenuRestaurantBySlug(
 ): Promise<LoadRestaurantResult> {
   let { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
-    .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS, "menu_languages", RESTAURANT_CURRENCY_COLUMNS].join(","))
+    .select(
+      [
+        RESTAURANT_COLUMNS,
+        RESTAURANT_VENUE_COLUMNS,
+        "menu_languages",
+        RESTAURANT_CURRENCY_COLUMNS,
+        RESTAURANT_ANNOUNCEMENT_COLUMN,
+      ].join(",")
+    )
     .eq("slug", normalizedSlug)
     .maybeSingle();
+
+  // Faz 2.9 kolonu yoksa (migration uygulanmadı) bir önceki tam sorgu.
+  if (restaurantError && isMissingColumn(restaurantError)) {
+    ({ data: restaurant, error: restaurantError } = await supabase
+      .from("restaurants")
+      .select([RESTAURANT_COLUMNS, RESTAURANT_VENUE_COLUMNS, "menu_languages", RESTAURANT_CURRENCY_COLUMNS].join(","))
+      .eq("slug", normalizedSlug)
+      .maybeSingle());
+  }
 
   // Faz 2.5c kolonları yoksa (migration uygulanmadı) bir önceki tam sorgu.
   if (restaurantError && isMissingColumn(restaurantError)) {

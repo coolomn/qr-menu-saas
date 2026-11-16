@@ -63,6 +63,7 @@ import { translatedText } from "@/lib/i18n/translations";
 import { menuLabelFallback } from "@/lib/i18n/menu-label-fallback";
 import { useMenuLanguage } from "@/lib/i18n/use-menu-language";
 import { LanguageSwitcher } from "@/app/menu/[slug]/_components/language-switcher";
+import { PublicAnnouncementBar } from "@/app/menu/[slug]/_components/public-announcement-bar";
 import { MenuCurrencyProvider, useMenuCurrency } from "@/app/menu/[slug]/_components/menu-currency";
 
 type PublicCategory = PublicCategoryPayload;
@@ -725,6 +726,15 @@ export default function CustomerMenu() {
           onSelectCollection={openMenuCollection}
           instagramCtx={instagramCtx}
           instagramLabel={instagramFollowLabel}
+          topSlot={
+            <PublicAnnouncementBar
+              announcement={restaurant.announcement}
+              scope={restaurant.slug}
+              language={language}
+              accentColor={themeColor}
+              now={now}
+            />
+          }
           onInstagramClick={(e) => {
             const u = instagramCtx?.appUsername;
             if (!u || !isIOSMobileClient()) return;
@@ -766,6 +776,16 @@ export default function CustomerMenu() {
         <PublicMenuBackgroundImage src={restaurant.welcome_bg_url} />
         <div className="pointer-events-none absolute inset-0 z-[1] bg-black/30" />
         <PublicVenueActions restaurant={restaurant} language={language} accentColor={themeColor} />
+
+        <div className="relative z-10 w-full">
+          <PublicAnnouncementBar
+            announcement={restaurant.announcement}
+              scope={restaurant.slug}
+            language={language}
+            accentColor={themeColor}
+            now={now}
+          />
+        </div>
 
         <div className="relative z-10 w-full p-6 flex justify-end">
           <LanguageSwitcher
@@ -907,6 +927,13 @@ export default function CustomerMenu() {
     <ProductExtrasProvider groups={modifierGroups} products={products}>
     <MenuCurrencyProvider rate={currencyRate} language={language}>
     <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
+      <PublicAnnouncementBar
+        announcement={restaurant.announcement}
+              scope={restaurant.slug}
+        language={language}
+        accentColor={themeColor}
+        now={now}
+      />
       <header className={tc.header}>
         <div className={tc.headerInner}>
           {showMenuPicker ? (

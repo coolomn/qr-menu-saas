@@ -20,6 +20,8 @@ import { loadProductLinks, sanitizeIngredientsForSave, saveProductLinks } from "
 import { parseRemovableIngredients } from "@/lib/public-menu/product-extras";
 import { describeSchedule, parseSchedule, sanitizeScheduleForSave, type Schedule } from "@/lib/public-menu/schedule";
 import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSettings";
+import { AnnouncementCard } from "@/app/admin/_components/settings/AnnouncementCard";
+import { parseAnnouncement } from "@/lib/public-menu/announcement";
 import {
   normalizeBadgeIds,
   parseNutritionInput,
@@ -2964,6 +2966,18 @@ export default function AdminDashboard() {
                       onChange={(e) => setSettings({ ...settings, instagram: e.target.value })}
                     />
                   </div>
+
+                  {restaurant?.id && (
+                    <AnnouncementCard
+                      key={restaurant.id}
+                      restaurantId={restaurant.id}
+                      value={parseAnnouncement(restaurant.announcement)}
+                      translationLanguages={translationLanguages}
+                      onSaved={(announcement) =>
+                        setRestaurant((prev: typeof restaurant) => (prev ? { ...prev, announcement } : prev))
+                      }
+                    />
+                  )}
 
                   <VenueInfoSettings
                     value={settings}

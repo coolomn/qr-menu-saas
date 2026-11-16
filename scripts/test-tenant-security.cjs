@@ -321,6 +321,38 @@ async function main() {
       }
     }
 
+    // 3a-2) Faz 2.9: owner duyuru kaydedebilmeli; geçersiz duyuru DB'de reddedilmeli
+    //       (migration uygulanmamış ortamda kolon yok → atlanır).
+    {
+      const { data: prevRow } = await admin.from("restaurants").select("announcement").eq("id", activeRestaurantId).single();
+      const good = {
+        enabled: true,
+        text: "Test duyuru",
+        translations: { en: { text: "Test announcement" } },
+        ends_on: "2099-12-31",
+      };
+      const { error } = await owner.from("restaurants").update({ announcement: good }).eq("id", activeRestaurantId);
+      if (error && /announcement|column/i.test(error.message) && error.code !== "23514") {
+        console.log("SKIP  owner announcement (migration yok)");
+      } else {
+        const { data: after } = await admin.from("restaurants").select("announcement").eq("id", activeRestaurantId).single();
+        record(
+          "active owner CAN save announcement",
+          !error && after.announcement.text === "Test duyuru" && after.announcement.translations.en.text === "Test announcement",
+          error ? error.message : ""
+        );
+        const { error: badErr } = await owner
+          .from("restaurants")
+          .update({ announcement: { enabled: true, text: "x".repeat(201), html: "<b>" } })
+          .eq("id", activeRestaurantId);
+        record("invalid announcement is rejected", !!badErr, badErr ? badErr.code : "ACCEPTED");
+        await admin
+          .from("restaurants")
+          .update({ announcement: prevRow?.announcement ?? {} })
+          .eq("id", activeRestaurantId);
+      }
+    }
+
     // 3b) AKTİF restoranda da slug/abonelik alanları değiştirilememeli (tetikleyici, kilitten bağımsız)
     {
       const { error: slugErr } = await owner
