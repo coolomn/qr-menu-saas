@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { ModifierGroupModal } from "@/app/admin/_components/modifiers/ModifierGroupModal";
+import { translateText } from "@/lib/admin-menu/auto-translate-client";
 import {
   emptyModifierGroup,
+  fillMissingIngredientTranslations,
   listModifierGroups,
   type AdminModifierGroup,
 } from "@/lib/admin-menu/modifiers";
@@ -34,7 +36,8 @@ type Props = {
   restaurantId: string;
   editingProductId: string | null;
   value: ProductExtrasValue;
-  onChange: (next: ProductExtrasValue) => void;
+  /** React state setter'ı: arka planda biten çeviri en güncel değere uygulanır. */
+  onChange: (next: ProductExtrasValue | ((prev: ProductExtrasValue) => ProductExtrasValue)) => void;
   products: ProductOption[];
   categories: CategoryOption[];
   /** Düzenlenen ürünün bağlantıları yüklenirken */
@@ -77,6 +80,59 @@ export function ProductExtrasFields({
     value.ingredients.some((i) => i.name_en || i.name_ru)
   );
   const [pairingQuery, setPairingQuery] = useState("");
+  const [translatingCount, setTranslatingCount] = useState(0);
+
+  /** Eklenen malzemenin İngilizce/Rusça karşılığını arka planda doldurur (elle yazılana dokunmaz). */
+  const translateIngredient = async (name: string) => {
+    setTranslatingCount((n) => n + 1);
+    try {
+      const { ingredients } = await fillMissingIngredientTranslations([{ name }], translateText);
+      const t = ingredients[0];
+      if (!t?.name_en && !t?.name_ru) return;
+      onChange((prev) => ({
+        ...prev,
+        ingredients: prev.ingredients.map((item) =>
+          item.name === name
+            ? {
+                ...item,
+                name_en: item.name_en?.trim() ? item.name_en : t.name_en ?? item.name_en,
+                name_ru: item.name_ru?.trim() ? item.name_ru : t.name_ru ?? item.name_ru,
+              }
+            : item
+        ),
+      }));
+    } catch {
+      /* çeviri servisi ulaşılamaz: Türkçe gösterilir, elle yazılabilir */
+    } finally {
+      setTranslatingCount((n) => n - 1);
+    }
+  };
+
+  /** Daha önce çevirisiz eklenmiş malzemeler için toplu doldurma. */
+  const translateMissingIngredients = async () => {
+    setTranslatingCount((n) => n + 1);
+    try {
+      const { ingredients } = await fillMissingIngredientTranslations(value.ingredients, translateText);
+      const byName = new Map(ingredients.map((i) => [i.name, i]));
+      onChange((prev) => ({
+        ...prev,
+        ingredients: prev.ingredients.map((item) => {
+          const t = byName.get(item.name);
+          return {
+            ...item,
+            name_en: item.name_en?.trim() ? item.name_en : t?.name_en ?? item.name_en,
+            name_ru: item.name_ru?.trim() ? item.name_ru : t?.name_ru ?? item.name_ru,
+          };
+        }),
+      }));
+      setShowIngredientTranslations(true);
+    } catch {
+      /* yok say */
+    } finally {
+      setTranslatingCount((n) => n - 1);
+    }
+  };
+  const missingIngredientTranslations = value.ingredients.some((i) => !i.name_en?.trim() || !i.name_ru?.trim());
 
   const applyGroups = useCallback((res: Awaited<ReturnType<typeof listModifierGroups>>) => {
     if (res.ok) {
@@ -124,7 +180,10 @@ export function ProductExtrasFields({
     const exists = value.ingredients.some(
       (i) => i.name.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR")
     );
-    if (!exists) onChange({ ...value, ingredients: [...value.ingredients, { name }] });
+    if (!exists) {
+      onChange({ ...value, ingredients: [...value.ingredients, { name }] });
+      void translateIngredient(name);
+    }
     setIngredientDraft("");
   };
 
@@ -213,10 +272,20 @@ export function ProductExtrasFields({
             Çıkarılabilir malzemeler (isteğe bağlı)
           </label>
           {value.ingredients.length > 0 && (
-            <button type="button" onClick={() => setShowIngredientTranslations((v) => !v)}
-              className="text-[11px] font-bold text-orange-700 hover:underline">
-              {showIngredientTranslations ? "Çevirileri gizle" : "EN / RU çeviri"}
-            </button>
+            <span className="flex items-center gap-3">
+              {translatingCount > 0 ? (
+                <span className="text-[11px] font-bold text-orange-700/70" role="status">Çevriliyor…</span>
+              ) : missingIngredientTranslations ? (
+                <button type="button" onClick={() => void translateMissingIngredients()}
+                  className="text-[11px] font-bold text-orange-700 hover:underline">
+                  Eksik çevirileri doldur
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setShowIngredientTranslations((v) => !v)}
+                className="text-[11px] font-bold text-orange-700 hover:underline">
+                {showIngredientTranslations ? "Çevirileri gizle" : "EN / RU çeviri"}
+              </button>
+            </span>
           )}
         </div>
         <div className="flex gap-2">

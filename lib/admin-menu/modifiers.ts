@@ -6,6 +6,11 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  fillMissingLocalizedValue,
+  type SourceLanguage,
+  type TargetLanguage,
+} from "@/lib/admin-menu/auto-translate";
+import {
   MAX_GROUPS_PER_PRODUCT,
   MAX_OPTIONS_PER_GROUP,
   MAX_PRODUCT_PAIRINGS,
@@ -360,4 +365,66 @@ export function sanitizeIngredientsForSave(list: RemovableIngredient[]): Removab
     if (out.length >= MAX_REMOVABLE_INGREDIENTS) break;
   }
   return out;
+}
+
+type Translate = (
+  text: string,
+  sourceLanguage: SourceLanguage,
+  targetLanguage: TargetLanguage
+) => Promise<string | null>;
+
+const TARGETS: TargetLanguage[] = ["en", "ru"];
+
+/** Ad alanının boş EN/RU karşılıklarını doldurur (dolu olanlara dokunmaz; çeviri gelmezse boş kalır). */
+async function fillNameTranslations<T extends { name: string; name_en?: string | null; name_ru?: string | null }>(
+  item: T,
+  translate: Translate
+): Promise<{ next: T; filled: number }> {
+  let next = item;
+  let filled = 0;
+  for (const lang of TARGETS) {
+    const key = lang === "en" ? "name_en" : "name_ru";
+    const value = await fillMissingLocalizedValue(next.name, next.name_en, next.name_ru, lang, translate);
+    if (value) {
+      next = { ...next, [key]: value.slice(0, MODIFIER_NAME_MAX) };
+      filled += 1;
+    }
+  }
+  return { next, filled };
+}
+
+/** Grup adı + seçenek adlarının eksik İngilizce/Rusça çevirilerini doldurur. */
+export async function fillMissingModifierTranslations(
+  group: AdminModifierGroup,
+  translate: Translate
+): Promise<{ group: AdminModifierGroup; filled: number }> {
+  let total = 0;
+  const head = await fillNameTranslations(group, translate);
+  total += head.filled;
+  const options: AdminModifierOption[] = [];
+  for (const option of head.next.options) {
+    if (!option.name.trim()) {
+      options.push(option);
+      continue;
+    }
+    const res = await fillNameTranslations(option, translate);
+    total += res.filled;
+    options.push(res.next);
+  }
+  return { group: { ...head.next, options }, filled: total };
+}
+
+/** Çıkarılabilir malzemelerin eksik İngilizce/Rusça çevirilerini doldurur. */
+export async function fillMissingIngredientTranslations(
+  list: RemovableIngredient[],
+  translate: Translate
+): Promise<{ ingredients: RemovableIngredient[]; filled: number }> {
+  let total = 0;
+  const out: RemovableIngredient[] = [];
+  for (const item of list) {
+    const res = await fillNameTranslations(item, translate);
+    total += res.filled;
+    out.push(res.next);
+  }
+  return { ingredients: out, filled: total };
 }

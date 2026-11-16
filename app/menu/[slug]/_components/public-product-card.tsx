@@ -61,38 +61,81 @@ export function PublicProductCard({
   const productUrlOf = usePublicProductUrl();
   const productUrl = productUrlOf(slug ?? "", product.id);
   const productUrlFor = useCallback((id: string) => productUrlOf(slug ?? "", id), [productUrlOf, slug]);
-  // Pencereyi biz açtıysak adres çubuğuna ürün linki yazılır; geri tuşu pencereyi kapatır.
-  const pushedRef = useRef(false);
+  // Pencereyi biz açtıysak adres çubuğuna ürün linki yazılır. Faz 2.4: "Yanında iyi gider"den
+  // geçilen her ürün de geçmişe eklenir; geri tuşu (telefon ya da penceredeki "‹") önceki ürüne,
+  // en sonda menüye döner. Çarpı pencereyi tamamen kapatır.
+  const [trail, setTrail] = useState<PublicProduct[]>([]);
+  const trailRef = useRef<PublicProduct[]>([]);
+  const pushedDepthRef = useRef(0);
+
+  const setTrailBoth = useCallback((next: PublicProduct[]) => {
+    trailRef.current = next;
+    setTrail(next);
+  }, []);
 
   const openDetail = useCallback(() => {
+    setTrailBoth([]);
+    pushedDepthRef.current = 0;
     if (slug) {
       try {
         window.history.pushState(null, "", productUrl);
-        pushedRef.current = true;
+        pushedDepthRef.current = 1;
       } catch {
-        pushedRef.current = false;
+        pushedDepthRef.current = 0;
       }
     }
     setDetailOpen(true);
-  }, [slug, productUrl]);
+  }, [slug, productUrl, setTrailBoth]);
 
   const closeDetail = useCallback(() => {
     setDetailOpen(false);
-    if (pushedRef.current) {
-      pushedRef.current = false;
-      window.history.back();
+    const depth = pushedDepthRef.current;
+    pushedDepthRef.current = 0;
+    setTrailBoth([]);
+    // Eklenen tüm adımları geri al: adres menüye döner (popstate dinleyicisi kapanınca kalkar).
+    if (depth > 0) window.history.go(-depth);
+  }, [setTrailBoth]);
+
+  const openPairing = useCallback(
+    (next: PublicProduct) => {
+      setTrailBoth([...trailRef.current, next]);
+      if (pushedDepthRef.current > 0) {
+        try {
+          window.history.pushState(null, "", productUrlFor(next.id));
+          pushedDepthRef.current += 1;
+        } catch {
+          /* adres güncellenemezse pencere yine çalışır */
+        }
+      }
+    },
+    [productUrlFor, setTrailBoth]
+  );
+
+  const goBack = useCallback(() => {
+    if (pushedDepthRef.current > 1) {
+      window.history.back(); // popstate önceki ürünü gösterir
+    } else {
+      setTrailBoth(trailRef.current.slice(0, -1));
     }
-  }, []);
+  }, [setTrailBoth]);
 
   useEffect(() => {
     if (!detailOpen) return;
     const onPopState = () => {
-      pushedRef.current = false;
+      if (trailRef.current.length > 0) {
+        setTrailBoth(trailRef.current.slice(0, -1));
+        pushedDepthRef.current = Math.max(0, pushedDepthRef.current - 1);
+        return;
+      }
+      pushedDepthRef.current = 0;
       setDetailOpen(false);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [detailOpen]);
+  }, [detailOpen, setTrailBoth]);
+
+  const shownProduct = trail.length > 0 ? trail[trail.length - 1] : product;
+  const previousProduct = trail.length > 1 ? trail[trail.length - 2] : trail.length === 1 ? product : null;
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
   const c = resolvedTheme.classes;
 
@@ -220,9 +263,11 @@ export function PublicProductCard({
       <ProductImageLightbox
         open={detailOpen}
         onClose={closeDetail}
-        shareUrl={productUrl}
-        productUrlFor={slug ? productUrlFor : undefined}
-        product={product}
+        shareUrl={slug ? productUrlFor(shownProduct.id) : productUrl}
+        onOpenPairing={openPairing}
+        onBack={previousProduct ? goBack : undefined}
+        backLabel={previousProduct ? getText(previousProduct as unknown as Record<string, unknown>, "name") : undefined}
+        product={shownProduct}
         theme={resolvedTheme}
         getText={getText}
         language={language}

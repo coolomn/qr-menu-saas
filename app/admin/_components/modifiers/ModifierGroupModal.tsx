@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronUp, Plus, Trash2, X } from "lucide-react";
+import { translateText } from "@/lib/admin-menu/auto-translate-client";
 import {
   emptyModifierOption,
+  fillMissingModifierTranslations,
   saveModifierGroup,
   validateModifierGroup,
   type AdminModifierGroup,
@@ -36,6 +38,7 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
   const [group, setGroup] = useState<AdminModifierGroup>(initial);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Kaydediliyor…");
   const [showTranslations, setShowTranslations] = useState(
     Boolean(initial.name_en || initial.name_ru || initial.options.some((o) => o.name_en || o.name_ru))
   );
@@ -60,7 +63,19 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
     }
     setBusy(true);
     setError(null);
-    const res = await saveModifierGroup(supabase, restaurantId, group, sortOrder);
+    // Boş İngilizce/Rusça adları otomatik çevir (elle yazılanlara dokunmaz; servis yanıt vermezse
+    // Türkçe kalır ve kayıt yine yapılır).
+    let toSave = group;
+    try {
+      setBusyLabel("Çevriliyor…");
+      const translated = await fillMissingModifierTranslations(group, translateText);
+      toSave = translated.group;
+      setGroup(toSave);
+    } catch {
+      /* çeviri servisi ulaşılamaz: Türkçe adlar gösterilir */
+    }
+    setBusyLabel("Kaydediliyor…");
+    const res = await saveModifierGroup(supabase, restaurantId, toSave, sortOrder);
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
@@ -130,7 +145,7 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
             </div>
             <p className="col-span-2 text-[11px] font-medium text-gray-500 leading-snug -mt-1">
               Müşteri menüde örneğin “1 seçin” ya da “en fazla 3” yazısını görür. Sipariş sistemi olmadığı için
-              seçenekler yalnızca bilgi olarak gösterilir.
+              seçenekler yalnızca bilgi olarak gösterilir. Kaydederken boş İngilizce/Rusça adlar otomatik çevrilir.
             </p>
           </div>
 
@@ -203,7 +218,7 @@ export function ModifierGroupModal({ restaurantId, initial, sortOrder, onClose, 
           {error && <p className="text-sm font-bold text-red-600" role="alert">{error}</p>}
           <button type="button" onClick={() => void save()} disabled={busy}
             className="w-full min-h-12 rounded-2xl bg-blue-600 text-white font-black hover:bg-blue-700 disabled:opacity-60">
-            {busy ? "Kaydediliyor…" : "Grubu kaydet"}
+            {busy ? busyLabel : "Grubu kaydet"}
           </button>
         </div>
       </div>
