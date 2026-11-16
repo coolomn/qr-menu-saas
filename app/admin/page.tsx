@@ -21,6 +21,7 @@ import { parseRemovableIngredients } from "@/lib/public-menu/product-extras";
 import { describeSchedule, parseSchedule, sanitizeScheduleForSave, type Schedule } from "@/lib/public-menu/schedule";
 import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSettings";
 import { AnnouncementCard } from "@/app/admin/_components/settings/AnnouncementCard";
+import { SeoVisibilityCard } from "@/app/admin/_components/settings/SeoVisibilityCard";
 import { parseAnnouncement } from "@/lib/public-menu/announcement";
 import {
   normalizeBadgeIds,
@@ -2975,6 +2976,17 @@ export default function AdminDashboard() {
                       translationLanguages={translationLanguages}
                       onSaved={(announcement) =>
                         setRestaurant((prev: typeof restaurant) => (prev ? { ...prev, announcement } : prev))
+                      }
+                    />
+                  )}
+
+                  {restaurant?.id && (
+                    <SeoVisibilityCard
+                      key={restaurant.id}
+                      restaurantId={restaurant.id}
+                      value={restaurant.seo_indexable !== false}
+                      onSaved={(seo_indexable) =>
+                        setRestaurant((prev: typeof restaurant) => (prev ? { ...prev, seo_indexable } : prev))
                       }
                     />
                   )}
