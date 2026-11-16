@@ -16,6 +16,7 @@ import {
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 import { MULTI_MENU_PROTOTYPE_ENABLED } from "@/lib/menu-prototype/config";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
+import { QrLabelBadge } from "@/app/menu/[slug]/_components/qr-label-badge";
 import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slider";
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
@@ -785,6 +786,10 @@ export default function CustomerMenu() {
             variant="hero"
             nameClassName="text-white"
           />
+          <QrLabelBadge
+            language={language}
+            className="mt-4 inline-flex items-center rounded-full bg-white/90 px-4 py-1.5 text-sm font-black uppercase tracking-wide text-gray-900 shadow"
+          />
         </div>
 
         <div className="relative z-10 w-full max-w-md mx-auto px-6 pb-12 space-y-3">
@@ -963,6 +968,9 @@ export default function CustomerMenu() {
       </header>
 
       <main className={tc.main}>
+        <div className="mb-3 flex justify-center empty:hidden">
+          <QrLabelBadge language={language} style={{ color: themeColor, borderColor: themeColor }} />
+        </div>
         {menuCategories.length === 0 && filterByMenuCollection && (
           <div className="text-center py-12 px-4 space-y-4">
             <p className={tc.emptyStateText}>

@@ -13,6 +13,7 @@ import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-resta
 import { PublicMenuBackgroundImage } from "@/app/menu/[slug]/_components/public-menu-background-image";
 import { LanguageSwitcher } from "@/app/menu/[slug]/_components/language-switcher";
 import type { MenuLanguage } from "@/lib/i18n/languages";
+import { QrLabelBadge } from "@/app/menu/[slug]/_components/qr-label-badge";
 
 type InstagramContext = {
   webUrl: string;
@@ -83,6 +84,10 @@ export function MenuPickScreen({
           logoDisplayMode={logoDisplayMode}
           variant="hero"
           nameClassName="text-white"
+        />
+        <QrLabelBadge
+          language={language}
+          className="mt-4 inline-flex items-center rounded-full bg-white/90 px-4 py-1.5 text-sm font-black uppercase tracking-wide text-gray-900 shadow"
         />
         <p className="mt-5 text-sm sm:text-base font-semibold tracking-[0.2em] uppercase text-white/90 text-center drop-shadow-sm">
           {getMenuPickSubtitle(language)}
