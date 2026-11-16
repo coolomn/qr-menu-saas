@@ -94,6 +94,7 @@ import Link from "next/link";
 import SubscriptionLockedScreen from "@/app/admin/_components/SubscriptionLockedScreen";
 import { getTenantLockState, type TenantLockState } from "@/lib/tenant/lock-state";
 import { publicMenuUrl } from "@/lib/domains/hosts";
+import { QrStudio } from "@/app/admin/_components/qr/QrStudio";
 import { usePublicMenuUrl } from "@/lib/domains/use-public-menu-url";
 import {
   loadOwnerRestaurantById,
@@ -256,7 +257,6 @@ export default function AdminDashboard() {
   const [welcomeBgFile, setWelcomeBgFile] = useState<File | null>(null);
   const saveSettingsInFlightRef = useRef(false);
   
-  const [tableNumber, setTableNumber] = useState("");
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
@@ -1947,7 +1947,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const downloadQRCode = () => { window.open(`https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(`${publicMenuUrl(restaurant.slug, window.location.hostname, window.location.origin)}${tableNumber ? `?masa=${encodeURIComponent(tableNumber)}` : ""}`)}`, '_blank'); };
 
   const activeCategoriesForFilter = useMemo(
     () => (categories ?? []).filter((c) => c.is_active !== false),
@@ -2862,8 +2861,13 @@ export default function AdminDashboard() {
               />
             )}
 
-            {activeTab === "qr" && (
-              <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-12 max-w-md mx-auto text-center"><div className="w-16 h-16 md:w-20 md:h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6 md:mb-8 shadow-inner"><QrCode size={32} /></div><h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-2 tracking-tighter">QR Üretici</h2><input type="text" placeholder="Masa No (Örn: 5)" className="w-full border-2 border-gray-100 p-4 md:p-5 rounded-2xl mb-4 md:mb-6 text-center text-xl md:text-2xl font-black text-gray-900 focus:border-blue-500 outline-none transition-all" value={tableNumber} onChange={e => setTableNumber(e.target.value)} /><button onClick={downloadQRCode} className="w-full bg-gray-900 text-white py-4 md:py-5 rounded-2xl font-black shadow-xl hover:bg-black transition-all">QR Kodu Aç / İndir</button></div>
+            {activeTab === "qr" && restaurant?.slug && (
+              <QrStudio
+                restaurantName={restaurant.name || ""}
+                slug={restaurant.slug}
+                logoUrl={settings.logo_url || null}
+                brandColor={settings.primary_color || "#2563eb"}
+              />
             )}
 
             {activeTab === "settings" && (
