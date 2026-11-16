@@ -2,6 +2,7 @@
 
 import { useProductExtras } from "@/app/menu/[slug]/_components/product-extras-context";
 import { PublicMenuPrice } from "@/app/menu/[slug]/_components/public-menu-price";
+import { ApproxAmount } from "@/app/menu/[slug]/_components/menu-currency";
 import {
   describeSelectionRule,
   formatPriceDelta,
@@ -62,6 +63,7 @@ export function ProductDetailExtras({ product, theme, getText, language, onOpenP
                   </span>
                   {delta ? (
                     <span className="shrink-0 text-xs font-bold" style={{ color: theme.priceColor }}>
+                      <ApproxAmount raw={option.price_delta} signed className="mr-1.5 text-[10px]" />
                       {delta}
                     </span>
                   ) : null}

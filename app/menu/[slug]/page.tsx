@@ -62,6 +62,7 @@ import { translatedText } from "@/lib/i18n/translations";
 import { menuLabelFallback } from "@/lib/i18n/menu-label-fallback";
 import { useMenuLanguage } from "@/lib/i18n/use-menu-language";
 import { LanguageSwitcher } from "@/app/menu/[slug]/_components/language-switcher";
+import { MenuCurrencyProvider, useMenuCurrency } from "@/app/menu/[slug]/_components/menu-currency";
 
 type PublicCategory = PublicCategoryPayload;
 
@@ -289,6 +290,12 @@ export default function CustomerMenu() {
     setLanguage,
     languages: menuLanguages,
   } = useMenuLanguage(restaurant ? (restaurant.menu_languages ?? null) : undefined);
+  // Faz 2.5c: "≈ €12" için seçili döviz (işletme döviz açmadıysa hiç görünmez).
+  const {
+    rates: currencyRates,
+    rate: currencyRate,
+    setCurrency,
+  } = useMenuCurrency(restaurant?.currency_rates, language);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [menuFilter, setMenuFilter] = useState<MenuFilterState>(EMPTY_MENU_FILTER);
 
@@ -893,6 +900,7 @@ export default function CustomerMenu() {
 
   return wrapWithMenuFonts(
     <ProductExtrasProvider groups={modifierGroups} products={products}>
+    <MenuCurrencyProvider rate={currencyRate} language={language}>
     <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
       <header className={tc.header}>
         <div className={tc.headerInner}>
@@ -998,6 +1006,7 @@ export default function CustomerMenu() {
             options={filterOptions}
             theme={menuTheme}
             language={language}
+            currency={{ rates: currencyRates, value: currencyRate, onChange: setCurrency }}
           />
         )}
         {hasAnyTabProducts && !hasAnyShownProducts && (
@@ -1102,6 +1111,7 @@ export default function CustomerMenu() {
       />
       <PublicVenueActions restaurant={restaurant} language={language} accentColor={themeColor} />
     </MenuThemeShell>
+    </MenuCurrencyProvider>
     </ProductExtrasProvider>
   );
 }

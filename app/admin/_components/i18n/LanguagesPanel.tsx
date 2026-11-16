@@ -34,6 +34,8 @@ import { parseRemovableIngredients } from "@/lib/public-menu/product-extras";
 import { runAiTranslate } from "@/lib/admin-menu/ai-translate-client";
 import type { AdminMenuCollectionListItem } from "@/lib/admin-menu/types";
 import type { ProductVariant } from "@/lib/admin-menu/product-variants";
+import { CurrencyCard } from "@/app/admin/_components/i18n/CurrencyCard";
+import type { CurrencyCode } from "@/lib/currency/currencies";
 
 const supabase = getBrowserSupabase();
 
@@ -43,6 +45,13 @@ type Props = {
   restaurantId: string;
   menuLanguages: MenuLanguage[];
   onMenuLanguagesSaved: (languages: MenuLanguage[]) => void;
+  /** Faz 2.5c: müşteri menüsünde "≈" gösterilecek dövizler. */
+  displayCurrencies: CurrencyCode[];
+  fixedRates: Partial<Record<CurrencyCode, number>>;
+  onCurrenciesSaved: (next: {
+    display_currencies: CurrencyCode[];
+    fixed_exchange_rates: Partial<Record<CurrencyCode, number>>;
+  }) => void;
   categories: Row[];
   products: Row[];
   productVariantsMap: Record<string, ProductVariant[]>;
@@ -73,6 +82,12 @@ export function LanguagesPanel(props: Props) {
         restaurantId={props.restaurantId}
         menuLanguages={props.menuLanguages}
         onSaved={props.onMenuLanguagesSaved}
+      />
+      <CurrencyCard
+        restaurantId={props.restaurantId}
+        displayCurrencies={props.displayCurrencies}
+        fixedRates={props.fixedRates}
+        onSaved={props.onCurrenciesSaved}
       />
       <TranslationCenter {...props} />
     </div>

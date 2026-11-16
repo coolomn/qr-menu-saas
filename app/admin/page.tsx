@@ -88,6 +88,7 @@ import {
 import { TranslationSection, translationInputClass } from "@/app/admin/_components/i18n/TranslationTabs";
 import { useFormAiTranslate } from "@/app/admin/_components/i18n/useFormAiTranslate";
 import { LanguagesPanel } from "@/app/admin/_components/i18n/LanguagesPanel";
+import { normalizeDisplayCurrencies, normalizeFixedRates } from "@/lib/currency/currencies";
 import { type AllergenSuggestion } from "@/lib/suggest-allergens";
 import Link from "next/link";
 import SubscriptionLockedScreen from "@/app/admin/_components/SubscriptionLockedScreen";
@@ -2178,7 +2179,7 @@ export default function AdminDashboard() {
           <button onClick={() => {setActiveTab("categories"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'categories' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><List size={20} /> Kategoriler</button>
           <button onClick={() => {setActiveTab("menus"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'menus' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><LayoutGrid size={20} /> Menüler</button>
           <button onClick={() => {setActiveTab("modifiers"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'modifiers' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><SlidersHorizontal size={20} /> Seçenek Grupları</button>
-          <button onClick={() => {setActiveTab("languages"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'languages' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><Languages size={20} /> Diller &amp; Çeviri</button>
+          <button onClick={() => {setActiveTab("languages"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'languages' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><Languages size={20} /> Dil, Çeviri &amp; Döviz</button>
           <button onClick={() => {setActiveTab("qr"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'qr' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><QrCode size={20} /> QR Kod Üretici</button>
           <Link
             href="/admin/import"
@@ -2846,6 +2847,11 @@ export default function AdminDashboard() {
                 menuLanguages={normalizeMenuLanguages(restaurant.menu_languages)}
                 onMenuLanguagesSaved={(menu_languages) =>
                   setRestaurant((prev: typeof restaurant) => (prev ? { ...prev, menu_languages } : prev))
+                }
+                displayCurrencies={normalizeDisplayCurrencies(restaurant.display_currencies)}
+                fixedRates={normalizeFixedRates(restaurant.fixed_exchange_rates)}
+                onCurrenciesSaved={(next) =>
+                  setRestaurant((prev: typeof restaurant) => (prev ? { ...prev, ...next } : prev))
                 }
                 categories={categories}
                 products={products}

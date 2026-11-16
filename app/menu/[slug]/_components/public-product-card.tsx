@@ -180,9 +180,9 @@ export function PublicProductCard({
             )}
             {priceRange && (
               <span className="shrink-0 whitespace-nowrap" aria-label="Fiyat aralığı">
-                <PublicMenuPrice raw={priceRange.min} theme={resolvedTheme} size="variant" />
+                <PublicMenuPrice raw={priceRange.min} theme={resolvedTheme} size="variant" approx={false} />
                 <span style={{ color: resolvedTheme.priceColor }}> – </span>
-                <PublicMenuPrice raw={priceRange.max} theme={resolvedTheme} size="variant" />
+                <PublicMenuPrice raw={priceRange.max} theme={resolvedTheme} size="variant" approx={false} />
               </span>
             )}
           </div>

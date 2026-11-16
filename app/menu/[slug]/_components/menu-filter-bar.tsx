@@ -19,6 +19,8 @@ import {
 } from "@/lib/public-menu/menu-filters";
 import type { ResolvedMenuPresentation } from "@/lib/public-menu/themes/resolve";
 import { pickLang, type LocalizedString } from "@/lib/i18n/languages";
+import { CurrencyNote, CurrencySelect } from "@/app/menu/[slug]/_components/menu-currency";
+import type { CurrencyCode, PublicCurrencyRate } from "@/lib/currency/currencies";
 
 const SORT_LABELS: Record<MenuSort, LocalizedString> = {
   default: { tr: "Önerilen sıra", en: "Recommended", ru: "Рекомендуемые", de: "Empfohlen", fr: "Recommandé", es: "Recomendado", it: "Consigliati", uk: "Рекомендовані", zh: "推荐排序", az: "Tövsiyə olunan" },
@@ -33,13 +35,19 @@ type MenuFilterBarProps = {
   options: { allergens: string[]; diets: DietFilterId[] };
   theme: ResolvedMenuPresentation;
   language: string;
+  /** Faz 2.5c: döviz seçici (işletme döviz açmadıysa rates boş → görünmez). */
+  currency?: {
+    rates: PublicCurrencyRate[];
+    value: PublicCurrencyRate | null;
+    onChange: (next: CurrencyCode | "TRY") => void;
+  };
 };
 
 function toggle<T>(list: T[], item: T): T[] {
   return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
 }
 
-export function MenuFilterBar({ value, onChange, options, theme, language }: MenuFilterBarProps) {
+export function MenuFilterBar({ value, onChange, options, theme, language, currency }: MenuFilterBarProps) {
   const [open, setOpen] = useState(false);
   const appearance = theme.appearance;
   const chipBase = lightboxCloseButtonClasses(appearance);
@@ -64,7 +72,7 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {hasFilterOptions && (
           <button
             type="button"
@@ -93,7 +101,18 @@ export function MenuFilterBar({ value, onChange, options, theme, language }: Men
             </option>
           ))}
         </select>
+        {currency ? (
+          <CurrencySelect
+            rates={currency.rates}
+            value={currency.value}
+            onChange={currency.onChange}
+            language={language}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold ${activeChip(currency.value !== null)}`}
+            style={activeStyle(currency.value !== null)}
+          />
+        ) : null}
       </div>
+      <CurrencyNote className="mt-2" />
 
       {open &&
         typeof document !== "undefined" &&

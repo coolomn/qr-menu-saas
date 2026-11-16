@@ -5,6 +5,7 @@ import {
   isAuthorizedCronRequest,
   markExpiredSubscriptions,
 } from "@/lib/cron/daily-maintenance";
+import { refreshExchangeRates } from "@/lib/currency/tcmb";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,10 +29,12 @@ export async function GET(request: Request) {
     expired?: number;
     expireFailed?: number;
     snapshotsDeleted?: number;
+    ratesUpdated?: number;
+    rateDate?: string;
     errors: string[];
   } = { errors: [] };
 
-  // Biri başarısız olsa da diğeri çalışsın.
+  // Biri başarısız olsa da diğerleri çalışsın.
   try {
     const r = await markExpiredSubscriptions(admin);
     result.expired = r.expired.length;
@@ -46,6 +49,16 @@ export async function GET(request: Request) {
   } catch (err) {
     console.error("[cron] deleteExpiredMenuSnapshots", err);
     result.errors.push("snapshots");
+  }
+
+  // Faz 2.5c: TCMB kurları. Hata olursa eski kurlar kalır (72 saat sonra menüde gizlenir).
+  try {
+    const r = await refreshExchangeRates(admin);
+    result.ratesUpdated = r.updated;
+    result.rateDate = r.rateDate;
+  } catch (err) {
+    console.error("[cron] refreshExchangeRates", err);
+    result.errors.push("rates");
   }
 
   console.log("[cron] daily-maintenance", JSON.stringify(result));
