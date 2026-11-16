@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/app/admin/_components/ConfirmDialog";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
@@ -50,6 +50,7 @@ import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
 import { type ThemeId } from "@/lib/public-menu/themes/ids";
 import { normalizeThemeId } from "@/lib/public-menu/themes/normalize";
 import { MenuCollectionsTab } from "@/app/admin/_components/menu-collections/MenuCollectionsTab";
+import { CategoryStructureFields } from "@/app/admin/_components/categories/CategoryStructureFields";
 import { CategoryMenuCollectionFields } from "@/app/admin/_components/menu-collections/CategoryMenuCollectionFields";
 import { ProductMenuCollectionFields } from "@/app/admin/_components/menu-collections/ProductMenuCollectionFields";
 import type { CategoryMenuCollectionsPickerMenu } from "@/lib/admin-menu/types";
@@ -84,6 +85,12 @@ import {
   runRestaurantSettingsAssetCleanup,
   saveRestaurantSettings,
 } from "@/lib/admin-menu/save-restaurant-settings";
+import {
+  categorySiblingPosition,
+  dropCategoryInTree,
+  moveCategoryInTree,
+  orderCategoryTree,
+} from "@/lib/admin-menu/category-order";
 
 const supabase = getBrowserSupabase();
 
@@ -172,6 +179,32 @@ function buildCategoryProductPreview(
   };
 }
 
+const EMPTY_CATEGORY_FORM = {
+  name: "",
+  main_group: "",
+  name_en: "",
+  name_ru: "",
+  main_group_en: "",
+  main_group_ru: "",
+  // Faz 2.2: alt kategori + kategori notu
+  parent_id: "",
+  note: "",
+  note_en: "",
+  note_ru: "",
+  // Faz 2.3: servis zamanı (null = her zaman)
+  schedule: null as Schedule | null,
+};
+
+/** Kayıttaki kategori satırından formun Faz 2.2 alanları. */
+function categoryStructureFromRow(c: any) {
+  return {
+    parent_id: typeof c?.parent_id === "string" ? c.parent_id : "",
+    note: typeof c?.note === "string" ? c.note : "",
+    note_en: typeof c?.note_en === "string" ? c.note_en : "",
+    note_ru: typeof c?.note_ru === "string" ? c.note_ru : "",
+  };
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const menuUrlFor = usePublicMenuUrl();
@@ -238,15 +271,7 @@ export default function AdminDashboard() {
   const [productDragOverId, setProductDragOverId] = useState<string | null>(null);
   const [productReorderBusy, setProductReorderBusy] = useState(false);
 
-  const [newCategory, setNewCategory] = useState({
-    name: "",
-    main_group: "",
-    name_en: "",
-    name_ru: "",
-    main_group_en: "",
-    main_group_ru: "",
-    schedule: null as Schedule | null,
-  });
+  const [newCategory, setNewCategory] = useState({ ...EMPTY_CATEGORY_FORM });
 
   const [restaurantMenus, setRestaurantMenus] = useState<
     { id: string; name: string; is_active: boolean; sort_order: number }[]
@@ -1381,7 +1406,15 @@ export default function AdminDashboard() {
     }
     setCategoryMenuError(null);
 
-    const mainGroup = (newCategory.main_group || "DİĞER").toLocaleUpperCase("tr-TR");
+    // Alt kategori, üst kategorisinin ana grubunda durur (menüde aynı yerde görünsün).
+    const parentCategory = newCategory.parent_id
+      ? categories.find((c: any) => c.id === newCategory.parent_id)
+      : null;
+    const mainGroup = (
+      (parentCategory?.main_group as string | undefined) ||
+      newCategory.main_group ||
+      "DİĞER"
+    ).toLocaleUpperCase("tr-TR");
 
     const withI18n = {
       name: newCategory.name,
@@ -1398,12 +1431,23 @@ export default function AdminDashboard() {
       main_group: mainGroup,
     };
 
+    const withStructure = {
+      ...withI18n,
+      parent_id: parentCategory ? parentCategory.id : null,
+      note: newCategory.note.trim() || null,
+      note_en: newCategory.note_en.trim() || null,
+      note_ru: newCategory.note_ru.trim() || null,
+    };
+
     const schemaMismatch = (err: { message?: string; code?: string } | null) =>
       err &&
       (/column|schema cache|does not exist|42703/i.test(err.message || "") || err.code === "42703");
 
     if (editingCategoryId) {
-      let { data, error } = await supabase.from("categories").update(withI18n).eq("id", editingCategoryId).select().single();
+      let { data, error } = await supabase.from("categories").update(withStructure).eq("id", editingCategoryId).select().single();
+      if (error && schemaMismatch(error)) {
+        ({ data, error } = await supabase.from("categories").update(withI18n).eq("id", editingCategoryId).select().single());
+      }
       if (error && schemaMismatch(error)) {
         ({ data, error } = await supabase.from("categories").update(base).eq("id", editingCategoryId).select().single());
         if (!error && data) {
@@ -1417,7 +1461,7 @@ export default function AdminDashboard() {
         if (!synced) return;
         setCategories(categories.map((c: any) => (c.id === editingCategoryId ? data : c)));
         setProducts(products.map((p: any) => (p.category_id === editingCategoryId ? { ...p, categories: data } : p)));
-        setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
+        setNewCategory({ ...EMPTY_CATEGORY_FORM });
         setEditingCategoryId(null);
         setCategoryMenuSelectedIds([]);
         setIsCategoryModalOpen(false);
@@ -1441,7 +1485,22 @@ export default function AdminDashboard() {
       schedule: withI18n.schedule,
       is_active: true,
     };
-    let { data, error } = await supabase.from("categories").insert([insertWithI18n]).select().single();
+    let { data, error } = await supabase
+      .from("categories")
+      .insert([
+        {
+          ...insertWithI18n,
+          parent_id: withStructure.parent_id,
+          note: withStructure.note,
+          note_en: withStructure.note_en,
+          note_ru: withStructure.note_ru,
+        },
+      ])
+      .select()
+      .single();
+    if (error && schemaMismatch(error)) {
+      ({ data, error } = await supabase.from("categories").insert([insertWithI18n]).select().single());
+    }
     if (error && schemaMismatch(error)) {
       ({ data, error } = await supabase.from("categories").insert([insertBase]).select().single());
       if (!error && data) {
@@ -1459,7 +1518,7 @@ export default function AdminDashboard() {
         return;
       }
       setCategories([...categories, data]);
-      setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
+      setNewCategory({ ...EMPTY_CATEGORY_FORM });
       setEditingCategoryId(null);
       setCategoryMenuSelectedIds([]);
       setIsCategoryModalOpen(false);
@@ -1470,7 +1529,7 @@ export default function AdminDashboard() {
 
   const openNewCategoryModal = () => {
     setEditingCategoryId(null);
-    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
+    setNewCategory({ ...EMPTY_CATEGORY_FORM });
     prepareNewCategoryMenuSelection();
     setIsCategoryModalOpen(true);
   };
@@ -1484,6 +1543,7 @@ export default function AdminDashboard() {
       name_ru: c.name_ru != null ? String(c.name_ru) : "",
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      ...categoryStructureFromRow(c),
       schedule: parseSchedule(c.schedule),
     });
     setIsCategoryModalOpen(true);
@@ -1497,7 +1557,7 @@ export default function AdminDashboard() {
   const closeCategoryModal = () => {
     setIsCategoryModalOpen(false);
     setEditingCategoryId(null);
-    setNewCategory({ name: "", main_group: "", name_en: "", name_ru: "", main_group_en: "", main_group_ru: "", schedule: null });
+    setNewCategory({ ...EMPTY_CATEGORY_FORM });
     setCategoryMenuSelectedIds([]);
     setCategoryMenuPickerMenus([]);
     setCategoryMenuError(null);
@@ -1513,6 +1573,7 @@ export default function AdminDashboard() {
       name_ru: c.name_ru != null ? String(c.name_ru) : "",
       main_group_en: c.main_group_en != null ? String(c.main_group_en) : "",
       main_group_ru: c.main_group_ru != null ? String(c.main_group_ru) : "",
+      ...categoryStructureFromRow(c),
       schedule: parseSchedule(c.schedule),
     });
     const active = getActiveRestaurantMenus();
@@ -1561,13 +1622,19 @@ export default function AdminDashboard() {
     const sourceId = e.dataTransfer.getData("text/category-id") || e.dataTransfer.getData("text/plain");
     setCategoryDragOverId(null);
     setCategoryDragId(null);
-    if (!sourceId || sourceId === targetId) return;
-    const list = [...categories];
-    const si = list.findIndex((c: any) => c.id === sourceId);
-    const ti = list.findIndex((c: any) => c.id === targetId);
-    if (si < 0 || ti < 0) return;
-    const [removed] = list.splice(si, 1);
-    list.splice(ti, 0, removed);
+    if (!sourceId || sourceId === targetId || categoryReorderBusy) return;
+    // Yalnız aynı üst kategorinin kardeşleri arasında; üst kategori alt kategorileriyle birlikte taşınır.
+    const list = dropCategoryInTree(categories, sourceId, targetId);
+    if (!list) return;
+    setCategories(list);
+    await persistCategoryOrder(list);
+  };
+
+  /** Ok düğmeleri: dokunmatik ekranda da çalışır (sürükle-bırak telefonda çalışmaz). */
+  const handleCategoryMove = async (id: string, direction: -1 | 1) => {
+    if (categoryReorderBusy) return;
+    const list = moveCategoryInTree(categories, id, direction);
+    if (!list) return;
     setCategories(list);
     await persistCategoryOrder(list);
   };
@@ -2607,7 +2674,7 @@ export default function AdminDashboard() {
                   Yalnızca boş kategori adı çevirileri doldurulur (menü başlığı sözlüğü). Dolu EN/RU ve Türkçe adlar korunur.
                 </p>
                 <p className="text-[10px] text-gray-500 font-medium mb-4 leading-relaxed">
-                  Sırayı sol tutacak simgeden sürükleyip başka bir kartın üzerine bırakın. Müşteri menüsündeki kategori şeridi bu sırayı kullanır.
+                  Sırayı ok düğmeleriyle ya da sol tutacak simgeden sürükleyerek değiştirin. Müşteri menüsündeki kategori şeridi bu sırayı kullanır. Alt kategoriler üst kategorinin hemen altında durur ve yalnız kendi aralarında sıralanır.
                 </p>
                 {categoryReorderBusy && (
                   <p className="text-xs font-bold text-blue-600 mb-3" role="status">
@@ -2615,7 +2682,10 @@ export default function AdminDashboard() {
                   </p>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                  {categories.map((c: any) => {
+                  {orderCategoryTree(categories).map((c: any) => {
+                    const siblingPos = categorySiblingPosition(categories, c.id);
+                    const isSubcategory =
+                      !!c.parent_id && categories.some((x: any) => x.id === c.parent_id);
                     const productCount = products.filter((p: any) => p.category_id === c.id).length;
                     const productPreview = buildCategoryProductPreview(c.id, products);
                     const menuHidden = c.is_active === false;
@@ -2633,7 +2703,9 @@ export default function AdminDashboard() {
                           categoryDragOverId === c.id && categoryDragId && categoryDragId !== c.id
                             ? "ring-2 ring-blue-400 border-blue-200 bg-blue-50/40"
                             : "border-gray-100"
-                        } ${menuHidden ? "opacity-75" : ""}`}
+                        } ${menuHidden ? "opacity-75" : ""} ${
+                          isSubcategory ? "border-l-4 border-l-emerald-300 bg-emerald-50/30" : ""
+                        }`}
                       >
                         <button
                           type="button"
@@ -2707,6 +2779,14 @@ export default function AdminDashboard() {
                                 ⏰ {describeSchedule(parseSchedule(c.schedule), "tr")}
                               </span>
                             )}
+                            {c.parent_id && (
+                              <span
+                                className="text-[9px] font-bold bg-emerald-50 border border-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md truncate max-w-[10rem]"
+                                title="Bu kategori müşteri menüsünde üst kategorinin içinde başlık olarak görünür"
+                              >
+                                ↳ {categories.find((x: any) => x.id === c.parent_id)?.name ?? "Üst kategori"} içinde
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-0.5 pt-1 mt-0.5 border-t border-gray-200/80">
                             <button
@@ -2749,6 +2829,28 @@ export default function AdminDashboard() {
                             >
                               <Trash2 size={15} aria-hidden />
                             </button>
+                            <span className="ml-auto flex items-center gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => void handleCategoryMove(c.id, -1)}
+                                disabled={categoryReorderBusy || siblingPos.index <= 0}
+                                title="Yukarı taşı"
+                                aria-label={`${categoryDisplayName} yukarı taşı`}
+                                className="text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-white"
+                              >
+                                <ChevronUp size={15} aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleCategoryMove(c.id, 1)}
+                                disabled={categoryReorderBusy || siblingPos.index >= siblingPos.count - 1}
+                                title="Aşağı taşı"
+                                aria-label={`${categoryDisplayName} aşağı taşı`}
+                                className="text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-white"
+                              >
+                                <ChevronDown size={15} aria-hidden />
+                              </button>
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -3446,10 +3548,17 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
+                  <CategoryStructureFields
+                    value={newCategory}
+                    onChange={(patch) => setNewCategory((prev) => ({ ...prev, ...patch }))}
+                    categories={categories}
+                    editingCategoryId={editingCategoryId}
+                  />
+
                   <ScheduleEditor
                     subject="kategori"
                     value={newCategory.schedule}
-                    onChange={(schedule) => setNewCategory({ ...newCategory, schedule })}
+                    onChange={(schedule) => setNewCategory((prev) => ({ ...prev, schedule }))}
                   />
 
                   {getActiveRestaurantMenus().length >= 2 && (

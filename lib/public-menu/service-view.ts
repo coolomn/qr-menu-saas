@@ -54,17 +54,41 @@ export function resolveCategoryService(
   );
 }
 
+/**
+ * Alt kategorideki ürün için `parentCategory` verilir: üst kategorinin zamanlaması da geçerlidir
+ * (üst "gizle" ise ürün de gizlenir). Not önceliği: ürün > alt kategori > üst kategori > menü.
+ */
 export function resolveProductService(
   product: Scheduled,
   category: Scheduled | undefined,
+  menu: Scheduled | null | undefined,
+  now: Date,
+  parentCategory?: Scheduled
+): ServiceResolution {
+  return resolveService(
+    [
+      { level: "menu", schedule: menu?.schedule ?? null },
+      // Sıralama kararlı: aynı seviyede önce gelen (alt kategori) notta öncelikli.
+      { level: "category", schedule: category?.schedule ?? null },
+      { level: "category", schedule: parentCategory?.schedule ?? null },
+      { level: "product", schedule: product.schedule ?? null },
+    ],
+    now
+  );
+}
+
+export function resolveCategoryServiceWithParent(
+  category: Scheduled | undefined,
+  parentCategory: Scheduled | undefined,
   menu: Scheduled | null | undefined,
   now: Date
 ): ServiceResolution {
   return resolveService(
     [
       { level: "menu", schedule: menu?.schedule ?? null },
+      // Sıralama kararlı: aynı seviyede önce gelen (alt kategori) notta öncelikli.
       { level: "category", schedule: category?.schedule ?? null },
-      { level: "product", schedule: product.schedule ?? null },
+      { level: "category", schedule: parentCategory?.schedule ?? null },
     ],
     now
   );

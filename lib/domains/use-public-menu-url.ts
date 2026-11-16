@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import { publicMenuUrl } from "@/lib/domains/hosts";
+import { publicMenuUrl, publicProductUrl } from "@/lib/domains/hosts";
 
 const subscribeNoop = () => () => {};
 
@@ -23,6 +23,16 @@ export function usePublicMenuUrl(): (slug: string) => string {
   const location = useCurrentLocation();
   return useCallback(
     (slug: string) => publicMenuUrl(slug, location?.host ?? null, location?.origin ?? null),
+    [location?.host, location?.origin]
+  );
+}
+
+/** Ürün detay sayfasının adresi (paylaşım linki ve adres çubuğu için). */
+export function usePublicProductUrl(): (slug: string, productId: string) => string {
+  const location = useCurrentLocation();
+  return useCallback(
+    (slug: string, productId: string) =>
+      publicProductUrl(slug, productId, location?.host ?? null, location?.origin ?? null),
     [location?.host, location?.origin]
   );
 }

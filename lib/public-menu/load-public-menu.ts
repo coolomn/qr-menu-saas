@@ -1,3 +1,4 @@
+import { dropHiddenSubcategories } from "@/lib/public-menu/category-tree";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PublicProductVariant } from "@/lib/admin-menu/product-variants";
 import { sortProductsByOrder } from "@/lib/admin-menu/product-sort";
@@ -67,6 +68,11 @@ export type PublicCategoryPayload = {
   main_group_ru: string | null;
   sort_order: number | null;
   menu_collection_ids: string[];
+  /** Faz 2.2: alt kategoriyse üst kategorinin id'si. */
+  parent_id?: string | null;
+  note?: string | null;
+  note_en?: string | null;
+  note_ru?: string | null;
   /** Faz 2.3 zamanlaması; yok/null = her zaman. */
   schedule?: Schedule | null;
 };
@@ -80,6 +86,10 @@ type CategoryRow = {
   main_group_en: string | null;
   main_group_ru: string | null;
   sort_order: number | null;
+  parent_id?: string | null;
+  note?: string | null;
+  note_en?: string | null;
+  note_ru?: string | null;
   schedule?: Schedule | null;
 };
 
@@ -173,6 +183,9 @@ const CATEGORY_COLUMNS = [
   "main_group_ru",
   "sort_order",
 ].join(",");
+
+/** Faz 2.2 kolonları (alt kategori + kategori notu); migration yoksa bunlarsız tekrar denenir. */
+const CATEGORY_STRUCTURE_COLUMNS = ["parent_id", "note", "note_en", "note_ru"].join(",");
 
 /** Faz 2.3 kolonu (kategori + ürün); migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
 const SCHEDULE_COLUMN = "schedule";
@@ -379,10 +392,20 @@ async function loadCategoryRows(
 ): Promise<CategoryRow[]> {
   let { data: categories, error: categoriesError } = await supabase
     .from("categories")
-    .select([CATEGORY_COLUMNS, SCHEDULE_COLUMN].join(","))
+    .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS, SCHEDULE_COLUMN].join(","))
     .eq("restaurant_id", restaurantId)
     .neq("is_active", false)
     .order("sort_order");
+
+  // Kademeli geri düşüş: önce yalnız zamanlama (2.3), sonra alt kategori (2.2) kolonları olmadan dene.
+  if (categoriesError && isMissingColumn(categoriesError)) {
+    ({ data: categories, error: categoriesError } = await supabase
+      .from("categories")
+      .select([CATEGORY_COLUMNS, CATEGORY_STRUCTURE_COLUMNS].join(","))
+      .eq("restaurant_id", restaurantId)
+      .neq("is_active", false)
+      .order("sort_order"));
+  }
 
   if (categoriesError && isMissingColumn(categoriesError)) {
     ({ data: categories, error: categoriesError } = await supabase
@@ -407,7 +430,7 @@ async function loadCategoryRows(
     throw categoriesError;
   }
 
-  return toCategoryRows(categories);
+  return dropHiddenSubcategories(toCategoryRows(categories));
 }
 
 async function loadProductRows(

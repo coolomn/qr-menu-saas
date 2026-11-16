@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createMenuSnapshot, listMenuSnapshots, restoreMenuSnapshot } from "./index";
+import { createMenuSnapshot, listMenuSnapshots, parentsFirst, restoreMenuSnapshot } from "./index";
 
 type Row = Record<string, unknown>;
 type Db = Record<string, Row[]>;
@@ -217,5 +217,17 @@ describe("listMenuSnapshots", () => {
     ];
     const res = await listMenuSnapshots(fakeDb(db), R);
     assert.deepEqual(res.ok && res.snapshots.map((s) => s.id), ["s1"]);
+  });
+});
+
+describe("parentsFirst", () => {
+  it("üst kategorileri alt kategorilerden önce yazar, sırayı korur", () => {
+    const rows = [
+      { id: "kek", parent_id: "tatli" },
+      { id: "tatli", parent_id: null },
+      { id: "icecek" },
+      { id: "pasta", parent_id: "tatli" },
+    ];
+    assert.deepEqual(parentsFirst(rows).map((r) => r.id), ["tatli", "icecek", "kek", "pasta"]);
   });
 });

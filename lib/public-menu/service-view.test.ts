@@ -90,3 +90,21 @@ describe("categories and products", () => {
     assert.equal(res.visible, true);
   });
 });
+
+describe("subcategories", () => {
+  it("parent category schedule applies to products in a subcategory", () => {
+    const hiddenParent = { schedule: day("hide") };
+    assert.equal(resolveProductService({}, { schedule: null }, null, EVENING, hiddenParent).visible, false);
+    const shownParent = { schedule: day("show") };
+    const res = resolveProductService({}, { schedule: null }, null, EVENING, shownParent);
+    assert.equal(res.visible, true);
+    assert.equal(res.outside?.level, "category");
+  });
+
+  it("subcategory's own schedule wins the note over the parent's", () => {
+    const sub = { schedule: { ...day("show"), windows: [{ days: [0, 1, 2, 3, 4, 5, 6], start: "09:00", end: "10:00" }] } };
+    const parent = { schedule: day("show") };
+    const res = resolveProductService({}, sub, null, EVENING, parent);
+    assert.equal(serviceNote(res, "tr", EVENING), "Şu an servis dışı · Yarın 09:00'de başlar");
+  });
+});

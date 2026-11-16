@@ -7,7 +7,14 @@ import {
   unstable_getResponseFromNextConfig,
 } from "next/experimental/testing/server";
 import { buildDomainAfterFilesRewrites, buildDomainRedirects } from "./routing-rules";
-import { canonicalMenuUrl, findHostSet, normalizeHostname, publicMenuUrl } from "./hosts";
+import {
+  canonicalMenuUrl,
+  canonicalProductUrl,
+  findHostSet,
+  normalizeHostname,
+  publicMenuUrl,
+  publicProductUrl,
+} from "./hosts";
 
 const nextConfig = {
   async redirects() {
@@ -73,6 +80,24 @@ describe("alan adı yönlendirme kuralları", () => {
   it("qr alan adında kısa adres menüye yönlenir, adres çubuğu kısa kalır", async () => {
     await expectRewrite("https://qr.tapmenu.com.tr/kafe-x", "https://qr.tapmenu.com.tr/menu/kafe-x");
     await expectRewrite("https://qr.tapmenu.com.tr/kafe-x?masa=5", "https://qr.tapmenu.com.tr/menu/kafe-x?masa=5");
+  });
+
+  it("ürün detay adresi qr alan adında /{slug}/p/{ürün} olarak çalışır", async () => {
+    await expectRewrite(
+      "https://qr.tapmenu.com.tr/kafe-x/p/abc-123",
+      "https://qr.tapmenu.com.tr/menu/kafe-x/p/abc-123"
+    );
+    await expectRewrite(
+      "https://qr-test.tapmenu.com.tr/kafe-x/p/abc-123",
+      "https://qr-test.tapmenu.com.tr/menu/kafe-x/p/abc-123"
+    );
+    // eski adres (pazarlama alan adı) aynen çalışır
+    await expectUntouched("https://tapmenu.com.tr/menu/kafe-x/p/abc-123");
+    // app alan adında menü/ürün açılmaz → qr'a taşınır
+    await expectRedirect(
+      "https://app.tapmenu.com.tr/menu/kafe-x/p/abc-123",
+      "https://qr.tapmenu.com.tr/kafe-x/p/abc-123"
+    );
   });
 
   it("qr alan adında panel açılmaz; kök adres pazarlama sitesine gider", async () => {
@@ -148,5 +173,19 @@ describe("menü adresi yardımcıları", () => {
 
   it("asıl (canonical) menü adresi her zaman canlı qr alan adıdır", () => {
     assert.equal(canonicalMenuUrl("kafe-x"), "https://qr.tapmenu.com.tr/kafe-x");
+  });
+});
+
+describe("ürün adresi yardımcıları", () => {
+  it("canlıda qr alan adına, önizlemede /menu altına gider", () => {
+    assert.equal(
+      publicProductUrl("kafe-x", "p1", "app.tapmenu.com.tr"),
+      "https://qr.tapmenu.com.tr/kafe-x/p/p1"
+    );
+    assert.equal(
+      publicProductUrl("kafe-x", "p1", "abc.vercel.app", "https://abc.vercel.app"),
+      "https://abc.vercel.app/menu/kafe-x/p/p1"
+    );
+    assert.equal(canonicalProductUrl("kafe-x", "p1"), "https://qr.tapmenu.com.tr/kafe-x/p/p1");
   });
 });

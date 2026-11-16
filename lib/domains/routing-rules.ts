@@ -58,6 +58,12 @@ function redirectsForSet(set: HostSet): Redirect[] {
       has: hostCondition(set.app),
       destination: `https://${set.menu}/:slug`,
       permanent,
+    },
+    {
+      source: "/menu/:slug/p/:productId",
+      has: hostCondition(set.app),
+      destination: `https://${set.menu}/:slug/p/:productId`,
+      permanent,
     }
   );
 
@@ -74,9 +80,17 @@ export function buildDomainRedirects(sets: readonly HostSet[] = HOST_SETS): Redi
  * yalnızca eşleşmeyen tek parçalı yollar menüye yönlenir.
  */
 export function buildDomainAfterFilesRewrites(sets: readonly HostSet[] = HOST_SETS): Rewrite[] {
-  return sets.map((set) => ({
-    source: "/:slug",
-    has: hostCondition(set.menu),
-    destination: "/menu/:slug",
-  }));
+  return sets.flatMap((set) => [
+    {
+      source: "/:slug",
+      has: hostCondition(set.menu),
+      destination: "/menu/:slug",
+    },
+    // Ürün detay sayfası: qr…/{slug}/p/{ürün} → /menu/{slug}/p/{ürün}
+    {
+      source: "/:slug/p/:productId",
+      has: hostCondition(set.menu),
+      destination: "/menu/:slug/p/:productId",
+    },
+  ]);
 }

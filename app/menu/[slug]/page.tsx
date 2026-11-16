@@ -19,10 +19,19 @@ import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-resta
 import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slider";
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
+import { MenuFilterBar } from "@/app/menu/[slug]/_components/menu-filter-bar";
+import { childrenByParent, isTopLevelCategory } from "@/lib/public-menu/category-tree";
+import {
+  applyMenuFilter,
+  availableFilterOptions,
+  EMPTY_MENU_FILTER,
+  type MenuFilterState,
+} from "@/lib/public-menu/menu-filters";
 import {
   effectiveMenuPicker,
   menuServiceNotes,
   resolveCategoryService,
+  resolveCategoryServiceWithParent,
   resolveProductService,
   serviceNote,
   visibleMenuCollections,
@@ -290,6 +299,7 @@ export default function CustomerMenu() {
 
   const [language, setLanguage] = useState("tr");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [menuFilter, setMenuFilter] = useState<MenuFilterState>(EMPTY_MENU_FILTER);
 
   const [view, setView] = useState<"welcome" | "menu">("welcome");
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
@@ -477,27 +487,36 @@ export default function CustomerMenu() {
             return productBelongsToMenuCollection(p, selectedMenuCollectionId, cat);
           });
     // Faz 2.3: "servis dışında gizle" seçilmiş menü/kategori/ürünler listeden çıkar.
-    return inMenu.filter(
-      (p) => resolveProductService(p, categoryById.get(p.category_id), selectedMenu, now).visible
-    );
+    return inMenu.filter((p) => {
+      const cat = categoryById.get(p.category_id);
+      const parent = cat?.parent_id ? categoryById.get(cat.parent_id) : undefined;
+      return resolveProductService(p, cat, selectedMenu, now, parent).visible;
+    });
   }, [products, filterByMenuCollection, selectedMenuCollectionId, categoryById, selectedMenu, now]);
 
+  const subcategoriesByParent = useMemo(() => childrenByParent(categories), [categories]);
+
+  /** Sekmelerde yalnız üst kategoriler; alt kategoriler üst kategorinin sayfasında listelenir. */
   const menuCategories = useMemo(() => {
-    let list = categories;
+    let list = categories.filter(isTopLevelCategory);
     if (menuMainGroup != null) {
       list = list.filter((c) => categoryGroupKey(c) === menuMainGroup);
     }
     list = list.filter((c) => resolveCategoryService(c, selectedMenu, now).visible);
     if (filterByMenuCollection && selectedMenuCollectionId) {
-      list = list.filter((c) => categoryBelongsToMenuCollection(c, selectedMenuCollectionId));
+      const withSubs = (c: PublicCategory) => [c, ...(subcategoriesByParent.get(c.id) ?? [])];
+      list = list.filter((c) =>
+        withSubs(c).some((x) => categoryBelongsToMenuCollection(x, selectedMenuCollectionId))
+      );
       const categoriesWithProducts = new Set(
         productsInSelectedMenu.map((p: { category_id: string }) => p.category_id)
       );
-      list = list.filter((c) => categoriesWithProducts.has(c.id));
+      list = list.filter((c) => withSubs(c).some((x) => categoriesWithProducts.has(x.id)));
     }
     return list;
   }, [
     categories,
+    subcategoriesByParent,
     menuMainGroup,
     filterByMenuCollection,
     selectedMenuCollectionId,
@@ -519,6 +538,24 @@ export default function CustomerMenu() {
     );
   }, [productsInSelectedMenu, activeCategory, menuCategoryIds]);
 
+  /** Etkin üst kategorinin alt kategorileri ve ürünleri (ürünü olmayan alt kategori gösterilmez). */
+  const visibleSubsections = useMemo(() => {
+    if (!activeCategory || !menuCategoryIds.has(activeCategory)) return [];
+    return (subcategoriesByParent.get(activeCategory) ?? [])
+      .map((sub) => ({
+        category: sub,
+        products: productsInSelectedMenu.filter(
+          (p: { category_id: string }) => p.category_id === sub.id
+        ),
+      }))
+      .filter((section) => section.products.length > 0);
+  }, [activeCategory, menuCategoryIds, subcategoriesByParent, productsInSelectedMenu]);
+
+  const filterOptions = useMemo(
+    () => availableFilterOptions(productsInSelectedMenu),
+    [productsInSelectedMenu]
+  );
+
   const activeCategoryServiceNote = useMemo(() => {
     if (!activeCategory) return null;
     return serviceNote(
@@ -527,6 +564,17 @@ export default function CustomerMenu() {
       now
     );
   }, [activeCategory, categoryById, selectedMenu, now, language]);
+
+  /** Faz 2.3: ürün kartı için servis durumu (alt kategoride üst kategorinin zamanlaması da geçerli). */
+  const productServiceProps = (product: PublicProduct) => {
+    const cat = categoryById.get(product.category_id);
+    const parent = cat?.parent_id ? categoryById.get(cat.parent_id) : undefined;
+    const service = resolveProductService(product, cat, selectedMenu, now, parent);
+    return {
+      outOfService: service.outside !== null,
+      serviceNote: service.outside?.level === "product" ? serviceNote(service, language, now) : null,
+    };
+  };
 
   useEffect(() => {
     if (view !== "menu") return;
@@ -626,7 +674,7 @@ export default function CustomerMenu() {
     return getText({ ...sample, main_group: trLabel }, "main_group");
   };
 
-  const groupedCategories = categories.reduce(
+  const groupedCategories = categories.filter(isTopLevelCategory).reduce(
     (acc, cat) => {
       const group = cat.main_group || "DİĞER";
       if (!acc[group]) acc[group] = [];
@@ -814,6 +862,21 @@ export default function CustomerMenu() {
     return <MenuLoadingScreen />;
   }
 
+  const shownProducts = applyMenuFilter(visibleProducts, menuFilter, (product) =>
+    getText(product, "name")
+  );
+  const shownSubsections = visibleSubsections
+    .map((section) => ({
+      ...section,
+      products: applyMenuFilter(section.products, menuFilter, (product) => getText(product, "name")),
+    }))
+    .filter((section) => section.products.length > 0);
+  const activeCategoryRow = activeCategory ? categoryById.get(activeCategory) : undefined;
+  const activeCategoryNote = activeCategoryRow ? getText(activeCategoryRow, "note") : "";
+  const hasAnyTabProducts =
+    visibleProducts.length > 0 || visibleSubsections.length > 0;
+  const hasAnyShownProducts = shownProducts.length > 0 || shownSubsections.length > 0;
+
   return wrapWithMenuFonts(
     <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
       <header className={tc.header}>
@@ -908,23 +971,93 @@ export default function CustomerMenu() {
             {activeCategoryServiceNote}
           </p>
         )}
-        {visibleProducts.map((product) => {
-          const service = resolveProductService(
-            product,
-            categoryById.get(product.category_id),
-            selectedMenu,
+        {activeCategoryNote ? (
+          <p className={`${tc.emptyStateText} whitespace-pre-line font-medium italic`}>
+            {activeCategoryNote}
+          </p>
+        ) : null}
+        {menuCategories.length > 0 && hasAnyTabProducts && (
+          <MenuFilterBar
+            value={menuFilter}
+            onChange={setMenuFilter}
+            options={filterOptions}
+            theme={menuTheme}
+            language={language}
+          />
+        )}
+        {hasAnyTabProducts && !hasAnyShownProducts && (
+          <div className="text-center py-10 px-4 space-y-3">
+            <p className={tc.emptyStateText}>
+              {language === "en"
+                ? "No items in this category match your filters."
+                : language === "ru"
+                  ? "В этой категории нет блюд по выбранным фильтрам."
+                  : "Bu kategoride filtrenize uyan ürün yok."}
+            </p>
+            <button
+              type="button"
+              onClick={() => setMenuFilter({ ...EMPTY_MENU_FILTER, sort: menuFilter.sort })}
+              className={tc.emptyStateLink}
+            >
+              {language === "en" ? "Clear filters" : language === "ru" ? "Сбросить фильтры" : "Filtreyi temizle"}
+            </button>
+          </div>
+        )}
+        {shownProducts.map((product) => (
+          <PublicProductCard
+            key={product.id}
+            product={product}
+            theme={menuTheme}
+            getText={getText}
+            language={language}
+            {...productServiceProps(product)}
+          />
+        ))}
+        {shownSubsections.map((section) => {
+          const note = getText(section.category, "note");
+          // Yalnız alt kategorinin kendi zamanlaması; üst kategori/menü notu sayfanın üstündeki şeritte.
+          const subServiceNote = serviceNote(
+            resolveCategoryServiceWithParent(
+              section.category,
+              undefined,
+              null,
+              now
+            ),
+            language,
             now
           );
           return (
-            <PublicProductCard
-              key={product.id}
-              product={product}
-              theme={menuTheme}
-              getText={getText}
-              language={language}
-              outOfService={service.outside !== null}
-              serviceNote={service.outside?.level === "product" ? serviceNote(service, language, now) : null}
-            />
+            <section key={section.category.id} className="space-y-3 pt-3" aria-label={getText(section.category, "name")}>
+              <div className="space-y-1">
+                <h2
+                  className={`${tc.fontHeading} text-base font-black uppercase tracking-wide`}
+                  style={{ color: themeColor }}
+                >
+                  {getText(section.category, "name")}
+                </h2>
+                {note ? (
+                  <p className={`${tc.emptyStateText} whitespace-pre-line font-medium italic`}>{note}</p>
+                ) : null}
+                {subServiceNote ? (
+                  <p
+                    role="status"
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900"
+                  >
+                    {subServiceNote}
+                  </p>
+                ) : null}
+              </div>
+              {section.products.map((product) => (
+                <PublicProductCard
+                  key={product.id}
+                  product={product}
+                  theme={menuTheme}
+                  getText={getText}
+                  language={language}
+                  {...productServiceProps(product)}
+                />
+              ))}
+            </section>
           );
         })}
       </main>

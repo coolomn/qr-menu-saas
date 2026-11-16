@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
+import { usePublicProductUrl } from "@/lib/domains/use-public-menu-url";
 import {
   hasProductVariants,
   type PublicProduct,
@@ -16,6 +18,7 @@ import { ProductImageLightbox } from "@/app/menu/[slug]/_components/ProductImage
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
 import { resolvePublicProductCardImageSrc } from "@/lib/public-menu/product-image-urls";
 import { pickLang, resolveProductBadges } from "@/lib/public-menu/venue-info";
+import { variantPriceRangeRaw } from "@/lib/public-menu/menu-filters";
 
 type PublicProductCardProps = {
   product: PublicProduct;
@@ -52,6 +55,42 @@ export function PublicProductCard({
   serviceNote = null,
 }: PublicProductCardProps & { language?: string }) {
   const [detailOpen, setDetailOpen] = useState(false);
+  const params = useParams();
+  const slugParam = params?.slug;
+  const slug = Array.isArray(slugParam) ? slugParam[0] : slugParam;
+  const productUrl = usePublicProductUrl()(slug ?? "", product.id);
+  // Pencereyi biz açtıysak adres çubuğuna ürün linki yazılır; geri tuşu pencereyi kapatır.
+  const pushedRef = useRef(false);
+
+  const openDetail = useCallback(() => {
+    if (slug) {
+      try {
+        window.history.pushState(null, "", productUrl);
+        pushedRef.current = true;
+      } catch {
+        pushedRef.current = false;
+      }
+    }
+    setDetailOpen(true);
+  }, [slug, productUrl]);
+
+  const closeDetail = useCallback(() => {
+    setDetailOpen(false);
+    if (pushedRef.current) {
+      pushedRef.current = false;
+      window.history.back();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!detailOpen) return;
+    const onPopState = () => {
+      pushedRef.current = false;
+      setDetailOpen(false);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [detailOpen]);
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
   const c = resolvedTheme.classes;
 
@@ -64,13 +103,19 @@ export function PublicProductCard({
   const soldOut = product.is_sold_out === true;
   const faded = soldOut || outOfService;
   const badges = resolveProductBadges(product.badges, language);
+  const priceRange = showVariants ? variantPriceRangeRaw(product) : null;
 
   return (
     <>
-      <button
-        type="button"
+      <a
+        href={productUrl}
         className={`${c.productCard} w-full cursor-pointer text-left transition-opacity hover:opacity-95 active:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500`}
-        onClick={() => setDetailOpen(true)}
+        onClick={(event) => {
+          // Ctrl/Cmd/orta tık: tarayıcı linki kendi açsın; normal tık: sayfa içinde pencere.
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+          event.preventDefault();
+          openDetail();
+        }}
         aria-label={productName ? `${productName} — detayları gör` : "Ürün detaylarını gör"}
       >
         {cardImageUrl && (
@@ -98,6 +143,13 @@ export function PublicProductCard({
                 theme={resolvedTheme}
                 size="product"
               />
+            )}
+            {priceRange && (
+              <span className="shrink-0 whitespace-nowrap" aria-label="Fiyat aralığı">
+                <PublicMenuPrice raw={priceRange.min} theme={resolvedTheme} size="variant" />
+                <span style={{ color: resolvedTheme.priceColor }}> – </span>
+                <PublicMenuPrice raw={priceRange.max} theme={resolvedTheme} size="variant" />
+              </span>
             )}
           </div>
 
@@ -160,11 +212,12 @@ export function PublicProductCard({
             theme={resolvedTheme}
           />
         </div>
-      </button>
+      </a>
 
       <ProductImageLightbox
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onClose={closeDetail}
+        shareUrl={productUrl}
         product={product}
         theme={resolvedTheme}
         getText={getText}
