@@ -79,6 +79,13 @@ export function ProductDetailExtras({ product, theme, getText, language, onOpenP
               tr: "Çıkarılabilir malzemeler",
               en: "Can be removed",
               ru: "Можно убрать",
+              de: "Kann weggelassen werden",
+              fr: "Peut être retiré",
+              es: "Se puede quitar",
+              it: "Si può togliere",
+              uk: "Можна прибрати",
+              zh: "可去除的配料",
+              az: "Çıxarıla bilən inqrediyentlər",
             })}
           </h3>
           <div className="flex flex-wrap gap-1.5">
@@ -96,6 +103,13 @@ export function ProductDetailExtras({ product, theme, getText, language, onOpenP
               tr: "İstemediğiniz malzemeyi sipariş verirken belirtin.",
               en: "Let us know what to leave out when you order.",
               ru: "Сообщите при заказе, что убрать.",
+              de: "Sagen Sie bei der Bestellung, was weggelassen werden soll.",
+              fr: "Indiquez lors de la commande ce que vous souhaitez retirer.",
+              es: "Indique al pedir qué ingrediente desea quitar.",
+              it: "Indica al momento dell'ordine cosa togliere.",
+              uk: "Повідомте під час замовлення, що прибрати.",
+              zh: "点餐时请告知需要去除的配料。",
+              az: "Sifariş verərkən istəmədiyiniz inqrediyenti bildirin.",
             })}
           </p>
         </section>
@@ -104,7 +118,7 @@ export function ProductDetailExtras({ product, theme, getText, language, onOpenP
       {pairings.length > 0 && (
         <section>
           <h3 className={`${c.fontBody} mb-2 text-sm font-bold`}>
-            {pickLang(language, { tr: "Yanında iyi gider", en: "Goes well with", ru: "Хорошо сочетается с" })}
+            {pickLang(language, { tr: "Yanında iyi gider", en: "Goes well with", ru: "Хорошо сочетается с", de: "Passt gut zu", fr: "Se marie bien avec", es: "Combina bien con", it: "Si abbina bene a", uk: "Добре поєднується з", zh: "推荐搭配", az: "Yanında yaxşı gedir" })}
           </h3>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
             {pairings.map((pairing, _i, all) => {

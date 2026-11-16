@@ -18,6 +18,7 @@ import { ProductImageLightbox } from "@/app/menu/[slug]/_components/ProductImage
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
 import { resolvePublicProductCardImageSrc } from "@/lib/public-menu/product-image-urls";
 import { pickLang, resolveProductBadges } from "@/lib/public-menu/venue-info";
+import { translatedText } from "@/lib/i18n/translations";
 import { variantPriceRangeRaw } from "@/lib/public-menu/menu-filters";
 
 type PublicProductCardProps = {
@@ -30,20 +31,8 @@ type PublicProductCardProps = {
   serviceNote?: string | null;
 };
 
-function getVariantLabel(
-  variant: PublicProductVariant,
-  language: string
-): string {
-  const pick = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-  if (language === "en") {
-    const en = pick(variant.label_en);
-    if (en) return en;
-  }
-  if (language === "ru") {
-    const ru = pick(variant.label_ru);
-    if (ru) return ru;
-  }
-  return pick(variant.label) || variant.label;
+function getVariantLabel(variant: PublicProductVariant, language: string): string {
+  return translatedText(variant, "label", language) ?? (variant.label.trim() || variant.label);
 }
 
 export function PublicProductCard({
@@ -229,7 +218,7 @@ export function PublicProductCard({
             <div className="mb-1 flex flex-wrap gap-1">
               {soldOut && (
                 <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
-                  {pickLang(language, { tr: "Tükendi", en: "Sold out", ru: "Нет в наличии" })}
+                  {pickLang(language, { tr: "Tükendi", en: "Sold out", ru: "Нет в наличии", de: "Ausverkauft", fr: "Épuisé", es: "Agotado", it: "Esaurito", uk: "Немає в наявності", zh: "已售罄", az: "Bitib" })}
                 </span>
               )}
               {badges.map((badge) => (

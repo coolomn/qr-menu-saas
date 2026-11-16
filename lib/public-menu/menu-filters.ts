@@ -10,9 +10,9 @@ import type { PublicProduct } from "@/lib/public-menu/product-variants";
  */
 
 export const DIET_FILTERS = [
-  { id: "vegan", icon: "🌱", tr: "Vegan", en: "Vegan", ru: "Веган" },
-  { id: "vegetarian", icon: "🥬", tr: "Vejetaryen", en: "Vegetarian", ru: "Вегетарианское" },
-  { id: "spicy", icon: "🌶️", tr: "Acı", en: "Spicy", ru: "Острое" },
+  { id: "vegan", icon: "🌱", tr: "Vegan", en: "Vegan", ru: "Веган", de: "Vegan", fr: "Végan", es: "Vegano", it: "Vegano", uk: "Веган", zh: "纯素", az: "Vegan" },
+  { id: "vegetarian", icon: "🥬", tr: "Vejetaryen", en: "Vegetarian", ru: "Вегетарианское", de: "Vegetarisch", fr: "Végétarien", es: "Vegetariano", it: "Vegetariano", uk: "Вегетаріанське", zh: "素食", az: "Vegetarian" },
+  { id: "spicy", icon: "🌶️", tr: "Acı", en: "Spicy", ru: "Острое", de: "Scharf", fr: "Épicé", es: "Picante", it: "Piccante", uk: "Гостре", zh: "辣", az: "Acılı" },
 ] as const;
 
 export type DietFilterId = (typeof DIET_FILTERS)[number]["id"];

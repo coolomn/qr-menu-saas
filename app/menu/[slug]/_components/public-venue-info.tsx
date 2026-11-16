@@ -67,8 +67,8 @@ export function PublicVenueActions({ restaurant, language, accentColor }: Props)
     }
   };
 
-  const infoLabel = pickLang(language, { tr: "Mekan bilgileri", en: "Venue info", ru: "О заведении" });
-  const waLabel = pickLang(language, { tr: "WhatsApp ile yazın", en: "Message us on WhatsApp", ru: "Написать в WhatsApp" });
+  const infoLabel = pickLang(language, { tr: "Mekan bilgileri", en: "Venue info", ru: "О заведении", de: "Infos zum Lokal", fr: "Infos sur l'établissement", es: "Información del local", it: "Info sul locale", uk: "Про заклад", zh: "商家信息", az: "Məkan haqqında" });
+  const waLabel = pickLang(language, { tr: "WhatsApp ile yazın", en: "Message us on WhatsApp", ru: "Написать в WhatsApp", de: "Schreiben Sie uns auf WhatsApp", fr: "Écrivez-nous sur WhatsApp", es: "Escríbanos por WhatsApp", it: "Scrivici su WhatsApp", uk: "Напишіть нам у WhatsApp", zh: "通过 WhatsApp 联系我们", az: "WhatsApp ilə yazın" });
 
   return (
     <>
@@ -119,7 +119,7 @@ export function PublicVenueActions({ restaurant, language, accentColor }: Props)
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                aria-label={pickLang(language, { tr: "Kapat", en: "Close", ru: "Закрыть" })}
+                aria-label={pickLang(language, { tr: "Kapat", en: "Close", ru: "Закрыть", de: "Schließen", fr: "Fermer", es: "Cerrar", it: "Chiudi", uk: "Закрити", zh: "关闭", az: "Bağla" })}
                 className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700"
               >
                 <X size={20} aria-hidden />
@@ -131,7 +131,7 @@ export function PublicVenueActions({ restaurant, language, accentColor }: Props)
                 <div className="mb-2 flex items-center gap-2">
                   <Clock size={16} aria-hidden />
                   <h3 className="text-sm font-black uppercase tracking-wide">
-                    {pickLang(language, { tr: "Çalışma saatleri", en: "Opening hours", ru: "Часы работы" })}
+                    {pickLang(language, { tr: "Çalışma saatleri", en: "Opening hours", ru: "Часы работы", de: "Öffnungszeiten", fr: "Horaires d'ouverture", es: "Horario", it: "Orari di apertura", uk: "Години роботи", zh: "营业时间", az: "İş saatları" })}
                   </h3>
                   {openNow !== null ? (
                     <span
@@ -140,8 +140,8 @@ export function PublicVenueActions({ restaurant, language, accentColor }: Props)
                       }`}
                     >
                       {openNow
-                        ? pickLang(language, { tr: "Şu an açık", en: "Open now", ru: "Открыто" })
-                        : pickLang(language, { tr: "Şu an kapalı", en: "Closed now", ru: "Закрыто" })}
+                        ? pickLang(language, { tr: "Şu an açık", en: "Open now", ru: "Открыто", de: "Jetzt geöffnet", fr: "Ouvert maintenant", es: "Abierto ahora", it: "Aperto ora", uk: "Зараз відчинено", zh: "营业中", az: "İndi açıqdır" })
+                        : pickLang(language, { tr: "Şu an kapalı", en: "Closed now", ru: "Закрыто", de: "Jetzt geschlossen", fr: "Fermé actuellement", es: "Cerrado ahora", it: "Chiuso ora", uk: "Зараз зачинено", zh: "休息中", az: "İndi bağlıdır" })}
                     </span>
                   ) : null}
                 </div>
@@ -168,14 +168,14 @@ export function PublicVenueActions({ restaurant, language, accentColor }: Props)
                 <div className="space-y-1 rounded-2xl border border-gray-100 px-3 py-2 text-sm">
                   {wifiName ? (
                     <p>
-                      <span className="text-gray-500">{pickLang(language, { tr: "Ağ", en: "Network", ru: "Сеть" })}: </span>
+                      <span className="text-gray-500">{pickLang(language, { tr: "Ağ", en: "Network", ru: "Сеть", de: "Netzwerk", fr: "Réseau", es: "Red", it: "Rete", uk: "Мережа", zh: "网络", az: "Şəbəkə" })}: </span>
                       <span className="font-bold">{wifiName}</span>
                     </p>
                   ) : null}
                   {wifiPassword ? (
                     <div className="flex items-center justify-between gap-2">
                       <p>
-                        <span className="text-gray-500">{pickLang(language, { tr: "Şifre", en: "Password", ru: "Пароль" })}: </span>
+                        <span className="text-gray-500">{pickLang(language, { tr: "Şifre", en: "Password", ru: "Пароль", de: "Passwort", fr: "Mot de passe", es: "Contraseña", it: "Password", uk: "Пароль", zh: "密码", az: "Şifrə" })}: </span>
                         <span className="break-all font-mono font-bold">{wifiPassword}</span>
                       </p>
                       <button
@@ -185,8 +185,8 @@ export function PublicVenueActions({ restaurant, language, accentColor }: Props)
                       >
                         {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
                         {copied
-                          ? pickLang(language, { tr: "Kopyalandı", en: "Copied", ru: "Скопировано" })
-                          : pickLang(language, { tr: "Kopyala", en: "Copy", ru: "Копировать" })}
+                          ? pickLang(language, { tr: "Kopyalandı", en: "Copied", ru: "Скопировано", de: "Kopiert", fr: "Copié", es: "Copiado", it: "Copiato", uk: "Скопійовано", zh: "已复制", az: "Kopyalandı" })
+                          : pickLang(language, { tr: "Kopyala", en: "Copy", ru: "Копировать", de: "Kopieren", fr: "Copier", es: "Copiar", it: "Copia", uk: "Копіювати", zh: "复制", az: "Kopyala" })}
                       </button>
                     </div>
                   ) : null}
@@ -206,6 +206,13 @@ export function PublicVenueActions({ restaurant, language, accentColor }: Props)
                   tr: "Google'da değerlendirin",
                   en: "Rate us on Google",
                   ru: "Оцените нас в Google",
+                  de: "Bewerten Sie uns auf Google",
+                  fr: "Notez-nous sur Google",
+                  es: "Valórenos en Google",
+                  it: "Valutaci su Google",
+                  uk: "Оцініть нас у Google",
+                  zh: "在 Google 上为我们评分",
+                  az: "Google-da bizi qiymətləndirin",
                 })}
               </a>
             ) : null}
@@ -255,6 +262,13 @@ export function PublicPriceDateNote({
         tr: `Fiyatlar en son ${date} tarihinde güncellenmiştir.`,
         en: `Prices last updated on ${date}.`,
         ru: `Цены обновлены: ${date}.`,
+        de: `Preise zuletzt aktualisiert am ${date}.`,
+        fr: `Prix mis à jour le ${date}.`,
+        es: `Precios actualizados el ${date}.`,
+        it: `Prezzi aggiornati il ${date}.`,
+        uk: `Ціни оновлено: ${date}.`,
+        zh: `价格更新于 ${date}。`,
+        az: `Qiymətlər sonuncu dəfə ${date} tarixində yenilənib.`,
       })}
     </p>
   );

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { MenuFontLoader } from "@/app/menu/[slug]/_components/menu-font-loader";
@@ -11,13 +10,14 @@ import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-resta
 import { usePublicMenuUrl, usePublicProductUrl } from "@/lib/domains/use-public-menu-url";
 import type { PublicProductPageData } from "@/lib/public-menu/load-public-product";
 import { resolveMenuPresentation } from "@/lib/public-menu/themes/resolve";
-import { pickLang } from "@/lib/public-menu/venue-info";
-
-const LANGS = ["tr", "en", "ru"] as const;
+import { pickLang } from "@/lib/i18n/languages";
+import { localizedText } from "@/lib/i18n/translations";
+import { useMenuLanguage } from "@/lib/i18n/use-menu-language";
+import { LanguageSwitcher } from "@/app/menu/[slug]/_components/language-switcher";
 
 export function ProductPageClient({ slug, data }: { slug: string; data: PublicProductPageData }) {
   const { restaurant, category, product } = data;
-  const [language, setLanguage] = useState<string>("tr");
+  const { language, setLanguage, languages } = useMenuLanguage(restaurant.menu_languages);
   const menuUrl = usePublicMenuUrl()(slug);
   const productUrlOf = usePublicProductUrl();
   const shareUrl = productUrlOf(slug, product.id);
@@ -29,13 +29,8 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
   );
   const tc = theme.classes;
 
-  const getText = (item: Record<string, unknown>, field: string): string => {
-    const pick = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-    if (language === "en" && pick(item[`${field}_en`])) return pick(item[`${field}_en`]);
-    if (language === "ru" && pick(item[`${field}_ru`])) return pick(item[`${field}_ru`]);
-    const base = item[field];
-    return typeof base === "string" ? base : "";
-  };
+  const getText = (item: Record<string, unknown>, field: string): string =>
+    localizedText(item, field, language);
 
   const categoryLabel = category
     ? getText(category as unknown as Record<string, unknown>, "name")
@@ -52,6 +47,13 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
                 tr: "Menüye dön",
                 en: "Back to menu",
                 ru: "Назад в меню",
+                de: "Zurück zur Speisekarte",
+                fr: "Retour au menu",
+                es: "Volver al menú",
+                it: "Torna al menù",
+                uk: "Назад до меню",
+                zh: "返回菜单",
+                az: "Menyuya qayıt",
               })}
               className={tc.backButton}
             >
@@ -67,17 +69,14 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
                 nameClassName={tc.fontHeading}
               />
             </div>
-            <div className={tc.langSwitcher}>
-              {LANGS.map((code) => (
-                <span
-                  key={code}
-                  onClick={() => setLanguage(code)}
-                  className={language === code ? tc.langActive : tc.langInactive}
-                >
-                  {code.toUpperCase()}
-                </span>
-              ))}
-            </div>
+            <LanguageSwitcher
+              languages={languages}
+              value={language}
+              onChange={setLanguage}
+              className={tc.langSwitcher}
+              activeClassName={tc.langActive}
+              inactiveClassName={tc.langInactive}
+            />
           </div>
         </header>
 
@@ -98,6 +97,13 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
               tr: "Tüm menüyü gör",
               en: "See the full menu",
               ru: "Посмотреть всё меню",
+              de: "Ganze Speisekarte ansehen",
+              fr: "Voir tout le menu",
+              es: "Ver el menú completo",
+              it: "Vedi tutto il menù",
+              uk: "Переглянути все меню",
+              zh: "查看完整菜单",
+              az: "Bütün menyuya bax",
             })}
           </Link>
         </main>

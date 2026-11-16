@@ -7,6 +7,14 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parsePriceForDisplay } from "@/lib/format-price";
+import { pickLang } from "@/lib/i18n/languages";
+import {
+  parseTranslations,
+  selectWithOptionalTranslations,
+  translatedText,
+  withCompactTranslations,
+  type TranslationMap,
+} from "@/lib/i18n/translations";
 
 export const MAX_REMOVABLE_INGREDIENTS = 30;
 export const MAX_PRODUCT_PAIRINGS = 8;
@@ -18,6 +26,8 @@ export type RemovableIngredient = {
   name: string;
   name_en?: string | null;
   name_ru?: string | null;
+  /** Faz 2.5: { "de": { "name": "Zwiebel" } } */
+  translations?: TranslationMap;
 };
 
 export type PublicModifierOption = {
@@ -27,6 +37,7 @@ export type PublicModifierOption = {
   name_ru: string | null;
   price_delta: string;
   calories: number | null;
+  translations?: TranslationMap;
 };
 
 export type PublicModifierGroup = {
@@ -34,6 +45,7 @@ export type PublicModifierGroup = {
   name: string;
   name_en: string | null;
   name_ru: string | null;
+  translations?: TranslationMap;
   min_select: number;
   /** null = sınırsız */
   max_select: number | null;
@@ -72,6 +84,19 @@ function isSchemaError(error: { code?: string; message?: string } | null): boole
   return /column|relation|schema cache|does not exist/i.test(error.message || "");
 }
 
+/** Yalnız izinli alanları ve uzunluk sınırını korur. */
+function limitTranslations(map: TranslationMap, fields: readonly string[], max: number): TranslationMap {
+  const out: TranslationMap = {};
+  for (const [lang, values] of Object.entries(map) as [keyof TranslationMap, Record<string, string>][]) {
+    const kept: Record<string, string> = {};
+    for (const field of fields) {
+      if (values[field]) kept[field] = values[field].slice(0, max);
+    }
+    if (Object.keys(kept).length > 0) out[lang] = kept;
+  }
+  return out;
+}
+
 /** products.removable_ingredients ham değerini güvenli listeye çevirir. */
 export function parseRemovableIngredients(raw: unknown): RemovableIngredient[] {
   if (!Array.isArray(raw)) return [];
@@ -81,10 +106,12 @@ export function parseRemovableIngredients(raw: unknown): RemovableIngredient[] {
     const row = item as Record<string, unknown>;
     const name = str(row.name).slice(0, MODIFIER_NAME_MAX);
     if (!name) continue;
+    const translations = limitTranslations(parseTranslations(row.translations), ["name"], MODIFIER_NAME_MAX);
     out.push({
       name,
       name_en: optStr(row.name_en)?.slice(0, MODIFIER_NAME_MAX) ?? null,
       name_ru: optStr(row.name_ru)?.slice(0, MODIFIER_NAME_MAX) ?? null,
+      ...(Object.keys(translations).length > 0 ? { translations } : {}),
     });
     if (out.length >= MAX_REMOVABLE_INGREDIENTS) break;
   }
@@ -98,6 +125,10 @@ function toOption(raw: unknown): PublicModifierOption | null {
   const name = str(row.name);
   if (!id || !name) return null;
   const calories = int(row.calories);
+  const { translations } = withCompactTranslations(
+    { translations: row.translations, name_en: row.name_en, name_ru: row.name_ru },
+    ["name"]
+  );
   return {
     id,
     name,
@@ -105,6 +136,7 @@ function toOption(raw: unknown): PublicModifierOption | null {
     name_ru: optStr(row.name_ru),
     price_delta: str(row.price_delta),
     calories: calories != null && calories >= 0 ? calories : null,
+    ...(translations ? { translations } : {}),
   };
 }
 
@@ -124,7 +156,12 @@ export function normalizePublicModifierGroups(raw: unknown): PublicModifierGroup
     if (options.length === 0) continue;
     const min = int(row.min_select);
     const max = int(row.max_select);
+    const { translations } = withCompactTranslations(
+      { translations: row.translations, name_en: row.name_en, name_ru: row.name_ru },
+      ["name"]
+    );
     out.push({
+      ...(translations ? { translations } : {}),
       id,
       name,
       name_en: optStr(row.name_en),
@@ -137,10 +174,11 @@ export function normalizePublicModifierGroups(raw: unknown): PublicModifierGroup
   return out;
 }
 
-function pickLangText(language: string, item: { name: string; name_en?: string | null; name_ru?: string | null }) {
-  if (language === "en" && str(item.name_en)) return str(item.name_en);
-  if (language === "ru" && str(item.name_ru)) return str(item.name_ru);
-  return item.name;
+function pickLangText(
+  language: string,
+  item: { name: string; name_en?: string | null; name_ru?: string | null; translations?: TranslationMap }
+) {
+  return translatedText(item, "name", language) ?? item.name;
 }
 
 export { pickLangText as modifierText };
@@ -155,14 +193,70 @@ export function describeSelectionRule(
 ): string {
   const min = group.min_select > 0 ? group.min_select : 0;
   const max = group.max_select != null && group.max_select > 0 ? group.max_select : null;
-  const t = (tr: string, en: string, ru: string) => (language === "en" ? en : language === "ru" ? ru : tr);
-
-  if (min > 0 && max === min) return t(`${min} seçin`, `Choose ${min}`, `Выберите ${min}`);
+  if (min > 0 && max === min)
+    return pickLang(language, {
+      tr: `${min} seçin`,
+      en: `Choose ${min}`,
+      ru: `Выберите ${min}`,
+      de: `${min} auswählen`,
+      fr: `Choisissez ${min}`,
+      es: `Elija ${min}`,
+      it: `Scegli ${min}`,
+      uk: `Оберіть ${min}`,
+      zh: `选择 ${min} 项`,
+      az: `${min} seçin`,
+    });
   if (min > 0 && max != null)
-    return t(`${min}–${max} arası seçin`, `Choose ${min}–${max}`, `Выберите ${min}–${max}`);
-  if (min > 0) return t(`en az ${min} seçin`, `Choose at least ${min}`, `Выберите не менее ${min}`);
-  if (max != null) return t(`en fazla ${max}`, `Up to ${max}`, `До ${max}`);
-  return t("isteğe bağlı", "Optional", "По желанию");
+    return pickLang(language, {
+      tr: `${min}–${max} arası seçin`,
+      en: `Choose ${min}–${max}`,
+      ru: `Выберите ${min}–${max}`,
+      de: `${min}–${max} auswählen`,
+      fr: `Choisissez ${min} à ${max}`,
+      es: `Elija entre ${min} y ${max}`,
+      it: `Scegli da ${min} a ${max}`,
+      uk: `Оберіть ${min}–${max}`,
+      zh: `选择 ${min}–${max} 项`,
+      az: `${min}–${max} arası seçin`,
+    });
+  if (min > 0)
+    return pickLang(language, {
+      tr: `en az ${min} seçin`,
+      en: `Choose at least ${min}`,
+      ru: `Выберите не менее ${min}`,
+      de: `Mindestens ${min} auswählen`,
+      fr: `Choisissez au moins ${min}`,
+      es: `Elija al menos ${min}`,
+      it: `Scegli almeno ${min}`,
+      uk: `Оберіть щонайменше ${min}`,
+      zh: `至少选择 ${min} 项`,
+      az: `ən azı ${min} seçin`,
+    });
+  if (max != null)
+    return pickLang(language, {
+      tr: `en fazla ${max}`,
+      en: `Up to ${max}`,
+      ru: `До ${max}`,
+      de: `Bis zu ${max}`,
+      fr: `Jusqu'à ${max}`,
+      es: `Hasta ${max}`,
+      it: `Fino a ${max}`,
+      uk: `До ${max}`,
+      zh: `最多 ${max} 项`,
+      az: `ən çoxu ${max}`,
+    });
+  return pickLang(language, {
+    tr: "isteğe bağlı",
+    en: "Optional",
+    ru: "По желанию",
+    de: "Optional",
+    fr: "Facultatif",
+    es: "Opcional",
+    it: "Facoltativo",
+    uk: "За бажанням",
+    zh: "可选",
+    az: "istəyə bağlı",
+  });
 }
 
 /** Seçenek fiyat farkı: "+15" / "15" / "15 TL" → "+15₺"; boş ya da sıfır → "". */
@@ -230,17 +324,21 @@ export async function loadProductExtras(
       .from("product_pairings")
       .select("product_id, paired_product_id, sort_order")
       .eq("restaurant_id", restaurantId),
-    supabase
-      .from("modifier_groups")
-      .select("id, name, name_en, name_ru, min_select, max_select, sort_order")
-      .eq("restaurant_id", restaurantId)
-      .order("sort_order", { ascending: true }),
-    supabase
-      .from("modifier_options")
-      .select("id, group_id, name, name_en, name_ru, price_delta, calories, sort_order")
-      .eq("restaurant_id", restaurantId)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true }),
+    selectWithOptionalTranslations((translationsColumn) =>
+      supabase
+        .from("modifier_groups")
+        .select("id, name, name_en, name_ru, min_select, max_select, sort_order" + translationsColumn)
+        .eq("restaurant_id", restaurantId)
+        .order("sort_order", { ascending: true })
+    ),
+    selectWithOptionalTranslations((translationsColumn) =>
+      supabase
+        .from("modifier_options")
+        .select("id, group_id, name, name_en, name_ru, price_delta, calories, sort_order" + translationsColumn)
+        .eq("restaurant_id", restaurantId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+    ),
   ]);
 
   const firstError = links.error || pairings.error || groups.error || options.error;
@@ -261,7 +359,7 @@ export async function loadProductExtras(
 
   const usedGroupIds = new Set(linkRows.map((r) => r.group_id));
   const optionsByGroup = new Map<string, unknown[]>();
-  for (const o of (options.data ?? []) as { group_id: string }[]) {
+  for (const o of (options.data ?? []) as unknown as { group_id: string }[]) {
     if (!usedGroupIds.has(o.group_id)) continue;
     const list = optionsByGroup.get(o.group_id) ?? [];
     if (list.length < MAX_OPTIONS_PER_GROUP) list.push(o);
@@ -269,7 +367,7 @@ export async function loadProductExtras(
   }
 
   const publicGroups = normalizePublicModifierGroups(
-    ((groups.data ?? []) as { id: string }[])
+    ((groups.data ?? []) as unknown as { id: string }[])
       .filter((g) => usedGroupIds.has(g.id))
       .map((g) => ({ ...g, options: optionsByGroup.get(g.id) ?? [] }))
   );

@@ -4,24 +4,21 @@
  * Tarayıcıya giden her bağlantı burada doğrulanır (yalnızca https/http → javascript: vb. reddedilir).
  */
 
-export type MenuLanguage = "tr" | "en" | "ru";
+import { intlLocale, pickLang, type LocalizedString } from "@/lib/i18n/languages";
 
-export function pickLang(language: string, text: { tr: string; en: string; ru: string }): string {
-  if (language === "en") return text.en;
-  if (language === "ru") return text.ru;
-  return text.tr;
-}
+export type { MenuLanguage } from "@/lib/i18n/languages";
+export { pickLang };
 
 // ---------------------------------------------------------------------------
 // Rozetler
 // ---------------------------------------------------------------------------
 export const PRODUCT_BADGES = [
-  { id: "vegan", icon: "🌱", tr: "Vegan", en: "Vegan", ru: "Веган" },
-  { id: "vegetarian", icon: "🥬", tr: "Vejetaryen", en: "Vegetarian", ru: "Вегетарианское" },
-  { id: "spicy", icon: "🌶️", tr: "Acı", en: "Spicy", ru: "Острое" },
-  { id: "new", icon: "✨", tr: "Yeni", en: "New", ru: "Новинка" },
-  { id: "chef_pick", icon: "👨‍🍳", tr: "Şef önerisi", en: "Chef's pick", ru: "Выбор шефа" },
-  { id: "popular", icon: "🔥", tr: "Popüler", en: "Popular", ru: "Популярное" },
+  { id: "vegan", icon: "🌱", tr: "Vegan", en: "Vegan", ru: "Веган", de: "Vegan", fr: "Végan", es: "Vegano", it: "Vegano", uk: "Веган", zh: "纯素", az: "Vegan" },
+  { id: "vegetarian", icon: "🥬", tr: "Vejetaryen", en: "Vegetarian", ru: "Вегетарианское", de: "Vegetarisch", fr: "Végétarien", es: "Vegetariano", it: "Vegetariano", uk: "Вегетаріанське", zh: "素食", az: "Vegetarian" },
+  { id: "spicy", icon: "🌶️", tr: "Acı", en: "Spicy", ru: "Острое", de: "Scharf", fr: "Épicé", es: "Picante", it: "Piccante", uk: "Гостре", zh: "辣", az: "Acılı" },
+  { id: "new", icon: "✨", tr: "Yeni", en: "New", ru: "Новинка", de: "Neu", fr: "Nouveau", es: "Nuevo", it: "Novità", uk: "Новинка", zh: "新品", az: "Yeni" },
+  { id: "chef_pick", icon: "👨‍🍳", tr: "Şef önerisi", en: "Chef's pick", ru: "Выбор шефа", de: "Empfehlung des Küchenchefs", fr: "Choix du chef", es: "Recomendación del chef", it: "Scelta dello chef", uk: "Вибір шефа", zh: "主厨推荐", az: "Şefin seçimi" },
+  { id: "popular", icon: "🔥", tr: "Popüler", en: "Popular", ru: "Популярное", de: "Beliebt", fr: "Populaire", es: "Popular", it: "Popolare", uk: "Популярне", zh: "人气", az: "Populyar" },
 ] as const;
 
 export type ProductBadgeId = (typeof PRODUCT_BADGES)[number]["id"];
@@ -146,14 +143,14 @@ export function cleanSocialLinksForSave(raw: SocialLinks): SocialLinks {
 export const WEEK_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type WeekDay = (typeof WEEK_DAYS)[number];
 
-export const WEEK_DAY_LABELS: Record<WeekDay, { tr: string; en: string; ru: string }> = {
-  mon: { tr: "Pazartesi", en: "Monday", ru: "Понедельник" },
-  tue: { tr: "Salı", en: "Tuesday", ru: "Вторник" },
-  wed: { tr: "Çarşamba", en: "Wednesday", ru: "Среда" },
-  thu: { tr: "Perşembe", en: "Thursday", ru: "Четверг" },
-  fri: { tr: "Cuma", en: "Friday", ru: "Пятница" },
-  sat: { tr: "Cumartesi", en: "Saturday", ru: "Суббота" },
-  sun: { tr: "Pazar", en: "Sunday", ru: "Воскресенье" },
+export const WEEK_DAY_LABELS: Record<WeekDay, LocalizedString> = {
+  mon: { tr: "Pazartesi", en: "Monday", ru: "Понедельник", de: "Montag", fr: "Lundi", es: "Lunes", it: "Lunedì", uk: "Понеділок", zh: "星期一", az: "Bazar ertəsi" },
+  tue: { tr: "Salı", en: "Tuesday", ru: "Вторник", de: "Dienstag", fr: "Mardi", es: "Martes", it: "Martedì", uk: "Вівторок", zh: "星期二", az: "Çərşənbə axşamı" },
+  wed: { tr: "Çarşamba", en: "Wednesday", ru: "Среда", de: "Mittwoch", fr: "Mercredi", es: "Miércoles", it: "Mercoledì", uk: "Середа", zh: "星期三", az: "Çərşənbə" },
+  thu: { tr: "Perşembe", en: "Thursday", ru: "Четверг", de: "Donnerstag", fr: "Jeudi", es: "Jueves", it: "Giovedì", uk: "Четвер", zh: "星期四", az: "Cümə axşamı" },
+  fri: { tr: "Cuma", en: "Friday", ru: "Пятница", de: "Freitag", fr: "Vendredi", es: "Viernes", it: "Venerdì", uk: "Пʼятниця", zh: "星期五", az: "Cümə" },
+  sat: { tr: "Cumartesi", en: "Saturday", ru: "Суббота", de: "Samstag", fr: "Samedi", es: "Sábado", it: "Sabato", uk: "Субота", zh: "星期六", az: "Şənbə" },
+  sun: { tr: "Pazar", en: "Sunday", ru: "Воскресенье", de: "Sonntag", fr: "Dimanche", es: "Domingo", it: "Domenica", uk: "Неділя", zh: "星期日", az: "Bazar" },
 };
 
 export type DayHours = { closed: boolean; open: string; close: string };
@@ -250,8 +247,32 @@ export function isOpenNow(hours: OpeningHours, now: Date, timeZone = "Europe/Ist
 }
 
 export function formatDayHours(day: DayHours, language: string): string {
-  if (day.closed) return pickLang(language, { tr: "Kapalı", en: "Closed", ru: "Закрыто" });
-  if (day.open === day.close) return pickLang(language, { tr: "24 saat açık", en: "Open 24 hours", ru: "Круглосуточно" });
+  if (day.closed)
+    return pickLang(language, {
+      tr: "Kapalı",
+      en: "Closed",
+      ru: "Закрыто",
+      de: "Geschlossen",
+      fr: "Fermé",
+      es: "Cerrado",
+      it: "Chiuso",
+      uk: "Зачинено",
+      zh: "休息",
+      az: "Bağlıdır",
+    });
+  if (day.open === day.close)
+    return pickLang(language, {
+      tr: "24 saat açık",
+      en: "Open 24 hours",
+      ru: "Круглосуточно",
+      de: "24 Stunden geöffnet",
+      fr: "Ouvert 24 h/24",
+      es: "Abierto 24 horas",
+      it: "Aperto 24 ore su 24",
+      uk: "Цілодобово",
+      zh: "24小时营业",
+      az: "24 saat açıqdır",
+    });
   return `${day.open} – ${day.close}`;
 }
 
@@ -275,8 +296,7 @@ export function latestPriceUpdate(products: { price_updated_at?: string | null }
 }
 
 export function formatPriceDate(iso: string, language: string, timeZone = "Europe/Istanbul"): string {
-  const locale = language === "en" ? "en-GB" : language === "ru" ? "ru-RU" : "tr-TR";
-  return new Intl.DateTimeFormat(locale, {
+  return new Intl.DateTimeFormat(intlLocale(language), {
     timeZone,
     day: "2-digit",
     month: "2-digit",

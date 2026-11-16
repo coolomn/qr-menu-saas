@@ -337,6 +337,7 @@ describe("full payload backward compatibility", () => {
       restaurant: {
         slug: "demo",
         name: "Demo",
+        menu_languages: ["tr", "en", "ru"],
         logo_url: null,
         primary_color: "#111",
         slider_images: [],
