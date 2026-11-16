@@ -15,11 +15,17 @@ import {
 import { ImageCropModal } from "@/app/admin/_components/images/ImageCropModal";
 import { ScheduleEditor } from "@/app/admin/_components/schedule/ScheduleEditor";
 import { emptyScheduleDraft, type Schedule } from "@/lib/public-menu/schedule";
+import type { TranslationLanguage } from "@/lib/i18n/languages";
+import type { TranslationMap } from "@/lib/i18n/translations";
+import { getTranslationField, setTranslationField } from "@/lib/i18n/edit-translations";
+import { applyAiResults, entitiesTranslationStatus, type TranslatableEntity } from "@/lib/admin-menu/form-ai-translate";
+import { TranslationSection, translationInputClass } from "@/app/admin/_components/i18n/TranslationTabs";
+import { useFormAiTranslate } from "@/app/admin/_components/i18n/useFormAiTranslate";
 
 export type MenuCollectionFormValues = {
   name: string;
-  name_en: string;
-  name_ru: string;
+  /** Faz 2.5b: ad + açıklama çevirileri. */
+  translations: TranslationMap;
   description: string;
   start_time: string;
   end_time: string;
@@ -38,8 +44,7 @@ export type MenuCollectionFormValues = {
 export function emptyMenuCollectionForm(): MenuCollectionFormValues {
   return {
     name: "",
-    name_en: "",
-    name_ru: "",
+    translations: {},
     description: "",
     start_time: "",
     end_time: "",
@@ -55,8 +60,7 @@ export function emptyMenuCollectionForm(): MenuCollectionFormValues {
 export function formValuesFromItem(item: AdminMenuCollectionListItem): MenuCollectionFormValues {
   return {
     name: item.name,
-    name_en: item.name_en || "",
-    name_ru: item.name_ru || "",
+    translations: item.translations ?? {},
     description: item.description || "",
     start_time: toTimeInput(item.start_time),
     end_time: toTimeInput(item.end_time),
@@ -89,6 +93,9 @@ type MenuCollectionFormModalProps = {
   onChange: (values: MenuCollectionFormValues) => void;
   onClose: () => void;
   onSubmit: () => void;
+  restaurantId: string;
+  /** Menüde açık çeviri dilleri (TR hariç). */
+  translationLanguages: readonly TranslationLanguage[];
 };
 
 export function MenuCollectionFormModal({
@@ -100,7 +107,31 @@ export function MenuCollectionFormModal({
   onChange,
   onClose,
   onSubmit,
+  restaurantId,
+  translationLanguages,
 }: MenuCollectionFormModalProps) {
+  const ai = useFormAiTranslate(restaurantId);
+  const resetAi = ai.reset;
+  useEffect(() => {
+    if (!open) resetAi();
+  }, [open, resetAi]);
+  const menuEntity = (): TranslatableEntity => ({
+    id: "menu",
+    kind: "menu",
+    source: { name: values.name, description: values.description },
+    translations: values.translations,
+  });
+  // AI yanıtı gelene kadar form değişmiş olabilir: sonucu en güncel değere uygula.
+  const valuesRef = useRef(values);
+  useEffect(() => {
+    valuesRef.current = values;
+  }, [values]);
+  const fillWithAi = () => {
+    void ai.run([menuEntity()], translationLanguages, (results) => {
+      const latest = valuesRef.current;
+      onChange({ ...latest, translations: applyAiResults(latest.translations, results, "menu") });
+    });
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cropSession, setCropSession] = useState<{
     imageSrc: string;
@@ -238,29 +269,6 @@ export function MenuCollectionFormModal({
               />
             </label>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  EN
-                </span>
-                <input
-                  value={values.name_en}
-                  onChange={(e) => set({ name_en: e.target.value })}
-                  className="mt-1 w-full max-w-full min-w-0 min-h-11 border-2 border-gray-100 rounded-xl px-4 py-3 font-medium outline-none focus:border-blue-500"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  RU
-                </span>
-                <input
-                  value={values.name_ru}
-                  onChange={(e) => set({ name_ru: e.target.value })}
-                  className="mt-1 w-full max-w-full min-w-0 min-h-11 border-2 border-gray-100 rounded-xl px-4 py-3 font-medium outline-none focus:border-blue-500"
-                />
-              </label>
-            </div>
-
             <label className="block">
               <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
                 Açıklama
@@ -272,6 +280,42 @@ export function MenuCollectionFormModal({
                 className="mt-1 w-full max-w-full min-w-0 min-h-11 box-border resize-y border-2 border-gray-100 rounded-xl px-4 py-3 font-medium outline-none focus:border-blue-500"
               />
             </label>
+
+            <TranslationSection
+              languages={translationLanguages}
+              statusFor={(lang) => entitiesTranslationStatus([menuEntity()], lang)}
+              onAiFill={fillWithAi}
+              aiBusy={ai.busy}
+              aiMessage={ai.message}
+            >
+              {(lang) => (
+                <>
+                  <input
+                    className={translationInputClass}
+                    placeholder={values.name || "Menü adı"}
+                    aria-label="Menü adı çevirisi"
+                    maxLength={120}
+                    value={getTranslationField(values.translations, lang, "name")}
+                    onChange={(e) =>
+                      set({ translations: setTranslationField(values.translations, lang, "name", e.target.value) })
+                    }
+                  />
+                  {values.description.trim() && (
+                    <textarea
+                      className={`${translationInputClass} resize-y font-medium`}
+                      rows={2}
+                      placeholder={values.description}
+                      aria-label="Açıklama çevirisi"
+                      maxLength={500}
+                      value={getTranslationField(values.translations, lang, "description")}
+                      onChange={(e) =>
+                        set({ translations: setTranslationField(values.translations, lang, "description", e.target.value) })
+                      }
+                    />
+                  )}
+                </>
+              )}
+            </TranslationSection>
 
             {values.start_time && values.end_time && !values.schedule && (
               <div className="rounded-2xl border-2 border-gray-100 bg-gray-50 p-3 space-y-2">

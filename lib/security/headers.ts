@@ -39,7 +39,7 @@ export function buildContentSecurityPolicy(params: {
     "style-src": "'self' 'unsafe-inline'",
     "img-src": `'self' data: blob: ${supabaseHosts} https://images.unsplash.com https://api.qrserver.com`,
     "font-src": "'self' data:",
-    "connect-src": `'self' ${supabaseHosts} ${supabaseWs} https://api.mymemory.translated.net`,
+    "connect-src": `'self' ${supabaseHosts} ${supabaseWs}`,
     "media-src": `'self' blob: ${supabaseHosts}`,
     "worker-src": "'self' blob:",
     "object-src": "'none'",

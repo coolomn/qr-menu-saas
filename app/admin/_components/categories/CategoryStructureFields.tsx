@@ -5,8 +5,6 @@ type CategoryOption = { id: string; name: string; parent_id?: string | null };
 export type CategoryStructureValue = {
   parent_id: string;
   note: string;
-  note_en: string;
-  note_ru: string;
 };
 
 type Props = {
@@ -71,26 +69,6 @@ export function CategoryStructureFields({ value, onChange, categories, editingCa
           onChange={(e) => onChange({ note: e.target.value })}
           className="w-full bg-white p-3 rounded-xl text-sm font-medium outline-none shadow-sm"
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <textarea
-            aria-label="Kategori notu (İngilizce)"
-            rows={2}
-            maxLength={NOTE_MAX}
-            placeholder="🇬🇧 Note"
-            value={value.note_en}
-            onChange={(e) => onChange({ note_en: e.target.value })}
-            className="w-full bg-white p-3 rounded-xl text-xs md:text-sm font-medium outline-none"
-          />
-          <textarea
-            aria-label="Kategori notu (Rusça)"
-            rows={2}
-            maxLength={NOTE_MAX}
-            placeholder="🇷🇺 Примечание"
-            value={value.note_ru}
-            onChange={(e) => onChange({ note_ru: e.target.value })}
-            className="w-full bg-white p-3 rounded-xl text-xs md:text-sm font-medium outline-none"
-          />
-        </div>
       </div>
     </div>
   );

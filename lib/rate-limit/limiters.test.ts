@@ -14,6 +14,8 @@ const EXPECTED_NAMES: RateLimitName[] = [
   "masterAdminPasswordResetByAdmin",
   "masterAdminPasswordResetByRestaurant",
   "menuCacheRefresh",
+  "aiTranslateShort",
+  "aiTranslateDaily",
 ];
 
 describe("RATE_LIMIT_CONFIG", () => {

@@ -16,10 +16,15 @@ import {
   type MenuCollectionFormValues,
 } from "@/app/admin/_components/menu-collections/MenuCollectionFormModal";
 
+import type { TranslationLanguage } from "@/lib/i18n/languages";
+import { cleanTranslationsForSave } from "@/lib/i18n/edit-translations";
+import { saveLimits } from "@/lib/i18n/translatable";
+
 const supabase = getBrowserSupabase();
 
 type MenuCollectionsTabProps = {
   restaurantId: string;
+  translationLanguages: readonly TranslationLanguage[];
 };
 
 function formatHours(item: AdminMenuCollectionListItem): string | null {
@@ -33,7 +38,7 @@ function formatHours(item: AdminMenuCollectionListItem): string | null {
   return item.description?.trim() || null;
 }
 
-export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
+export function MenuCollectionsTab({ restaurantId, translationLanguages }: MenuCollectionsTabProps) {
   const [items, setItems] = useState<AdminMenuCollectionListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -157,8 +162,7 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
 
       const payload = {
         name: formValues.name.trim(),
-        name_en: formValues.name_en.trim() || null,
-        name_ru: formValues.name_ru.trim() || null,
+        translations: cleanTranslationsForSave(formValues.translations, saveLimits("menu")),
         description: formValues.description.trim() || null,
         start_time: formValues.start_time || null,
         end_time: formValues.end_time || null,
@@ -414,6 +418,8 @@ export function MenuCollectionsTab({ restaurantId }: MenuCollectionsTabProps) {
         onChange={setFormValues}
         onClose={closeModal}
         onSubmit={() => void handleSubmit()}
+        restaurantId={restaurantId}
+        translationLanguages={translationLanguages}
       />
 
       {deleteConfirmItem && (

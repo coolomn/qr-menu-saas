@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { sanitizeScheduleForSave } from "@/lib/public-menu/schedule";
+import { cleanTranslationsForSave } from "@/lib/i18n/edit-translations";
+import { parseTranslations } from "@/lib/i18n/translations";
+import { saveLimits } from "@/lib/i18n/translatable";
 
 const optionalText = (max: number) =>
   z
@@ -80,10 +83,17 @@ const storageImageUrl = storageImageUrlInput.optional().transform((v) => {
 
 const cardVisualType = z.enum(["icon", "image", "none"]);
 
+/** Faz 2.5b: menü adı/açıklaması çevirileri; bilinmeyen dil/alan atılır, sınırlar uygulanır. Yoksa dokunulmaz. */
+const menuTranslationsField = z
+  .unknown()
+  .optional()
+  .transform((v) => (v === undefined ? undefined : cleanTranslationsForSave(parseTranslations(v), saveLimits("menu"))));
+
 const menuCollectionFields = {
   name: z.string().trim().min(1, "Menü adı zorunlu.").max(120),
   name_en: optionalText(120),
   name_ru: optionalText(120),
+  translations: menuTranslationsField,
   description: optionalText(500),
   start_time: optionalTime,
   end_time: optionalTime,
@@ -104,6 +114,7 @@ export const patchMenuCollectionSchema = z
     name: z.string().trim().min(1, "Menü adı zorunlu.").max(120).optional(),
     name_en: patchText(120),
     name_ru: patchText(120),
+    translations: menuTranslationsField,
     description: patchText(500),
     start_time: patchTime,
     end_time: patchTime,

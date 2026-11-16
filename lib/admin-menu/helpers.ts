@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { translationsFromRow } from "@/lib/i18n/edit-translations";
 import type {
   AdminMenuCollection,
   AdminMenuCollectionListItem,
@@ -9,7 +10,7 @@ import { normalizeMenuCollectionCardVisualType } from "@/lib/admin-menu/types";
 import { parseSchedule } from "@/lib/public-menu/schedule";
 
 export const MENU_COLLECTION_ADMIN_SELECT =
-  "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, schedule, created_at, updated_at";
+  "id, restaurant_id, name, name_en, name_ru, translations, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, schedule, created_at, updated_at";
 
 type DbMenuRow = {
   id: string;
@@ -17,6 +18,7 @@ type DbMenuRow = {
   name: string;
   name_en: string | null;
   name_ru: string | null;
+  translations?: unknown;
   description: string | null;
   start_time: string | null;
   end_time: string | null;
@@ -122,6 +124,7 @@ export function toListItem(
     name: row.name,
     name_en: row.name_en,
     name_ru: row.name_ru,
+    translations: translationsFromRow(row as unknown as Record<string, unknown>, ["name", "description"]),
     description: row.description,
     start_time: row.start_time,
     end_time: row.end_time,
@@ -671,6 +674,7 @@ export function toAdminMenuCollection(row: DbMenuRow): AdminMenuCollection {
     name: row.name,
     name_en: row.name_en,
     name_ru: row.name_ru,
+    translations: translationsFromRow(row as unknown as Record<string, unknown>, ["name", "description"]),
     description: row.description,
     start_time: row.start_time,
     end_time: row.end_time,

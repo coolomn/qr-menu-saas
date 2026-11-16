@@ -40,7 +40,8 @@ describe("security headers", () => {
     assert.match(csp, /img-src [^;]*https:\/\/custom\.example\.com/);
     assert.match(csp, /connect-src [^;]*https:\/\/custom\.example\.com/);
     assert.match(csp, /connect-src [^;]*wss:\/\/custom\.example\.com/);
-    assert.match(csp, /connect-src [^;]*api\.mymemory\.translated\.net/);
+    // Faz 2.5b: çeviri sunucuda (OpenAI); tarayıcı üçüncü taraf çeviri servisine bağlanmaz.
+    assert.doesNotMatch(csp, /mymemory/);
   });
 
   it("only allows unsafe-eval in development", () => {

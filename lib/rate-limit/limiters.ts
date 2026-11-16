@@ -13,7 +13,9 @@ export type RateLimitName =
   | "masterAdminMutation"
   | "masterAdminPasswordResetByAdmin"
   | "masterAdminPasswordResetByRestaurant"
-  | "menuCacheRefresh";
+  | "menuCacheRefresh"
+  | "aiTranslateShort"
+  | "aiTranslateDaily";
 
 export type RateLimitConfig =
   | { algorithm: "slidingWindow"; tokens: number; window: Duration; prefix: string }
@@ -102,6 +104,20 @@ export const RATE_LIMIT_CONFIG: Record<RateLimitName, RateLimitConfig> = {
     interval: "1 m",
     maxTokens: 30,
     prefix: "ratelimit:menu-cache-refresh",
+  },
+  // Faz 2.5b: AI çeviri (istek başına en çok 30 öğe × 1 dil). Tam menü 10 dile ≈ 150–250 istek.
+  aiTranslateShort: {
+    algorithm: "tokenBucket",
+    refillRate: 30,
+    interval: "1 m",
+    maxTokens: 30,
+    prefix: "ratelimit:ai-translate:short",
+  },
+  aiTranslateDaily: {
+    algorithm: "fixedWindow",
+    tokens: 800,
+    window: "1 d",
+    prefix: "ratelimit:ai-translate:daily",
   },
 };
 

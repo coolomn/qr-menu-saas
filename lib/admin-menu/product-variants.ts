@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatPriceForDisplay } from "@/lib/format-price";
 import { withCompactTranslations, type TranslationMap } from "@/lib/i18n/translations";
+import { cleanTranslationsForSave } from "@/lib/i18n/edit-translations";
+import { saveLimits } from "@/lib/i18n/translatable";
 
 export const MAX_PRODUCT_VARIANTS = 20;
 
@@ -10,6 +12,8 @@ export type PricingMode = "single" | "variants";
 export type EditableProductVariant = {
   label: string;
   price: string;
+  /** Faz 2.5b: seçenek adı çevirileri ({ "en": { "label": "Large" } }). */
+  translations?: TranslationMap;
 };
 
 /** Owner panel / DB katmanı — tam varyant satırı. */
@@ -219,8 +223,9 @@ export async function replaceProductVariants(
     product_id: productId,
     restaurant_id: restaurantId,
     label: v.label.trim(),
-    label_en: null as string | null,
-    label_ru: null as string | null,
+    // Varyantlar silinip yeniden yazıldığı için çeviriler de taşınır (önceden kayboluyordu).
+    // Eski label_en/label_ru kolonlarını DB tetikleyicisi translations'tan doldurur.
+    translations: cleanTranslationsForSave(v.translations, saveLimits("variant")),
     price: v.price.trim(),
     sort_order: index,
     is_active: true,
@@ -239,6 +244,7 @@ export async function replaceProductVariants(
         label: row.label,
         label_en: row.label_en,
         label_ru: row.label_ru,
+        ...(row.translations !== undefined ? { translations: row.translations } : {}),
         price: row.price,
         sort_order: row.sort_order,
         is_active: row.is_active,

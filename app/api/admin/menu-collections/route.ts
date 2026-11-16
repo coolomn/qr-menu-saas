@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  MENU_COLLECTION_ADMIN_SELECT,
   getNextMenuCollectionSortOrder,
   getOwnerRestaurant,
   listMenuCollectionsForRestaurant,
@@ -96,6 +97,8 @@ export async function POST(request: Request) {
           name: fields.name,
           name_en: fields.name_en,
           name_ru: fields.name_ru,
+          // Faz 2.5b: verilirse translations kazanır (DB tetikleyicisi name_en/name_ru'yu eşitler).
+          ...(fields.translations ? { translations: fields.translations } : {}),
           description: fields.description,
           start_time: fields.start_time,
           end_time: fields.end_time,
@@ -107,7 +110,7 @@ export async function POST(request: Request) {
         },
       ])
       .select(
-        "id, restaurant_id, name, name_en, name_ru, description, start_time, end_time, is_active, sort_order, card_visual_type, card_image_url, schedule, created_at, updated_at"
+        MENU_COLLECTION_ADMIN_SELECT
       )
       .single();
 
