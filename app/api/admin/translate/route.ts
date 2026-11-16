@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { aiTranslateRequestSchema, compactAiTranslateItems } from "@/lib/i18n/ai-translate-request";
-import { translateMenuItemsWithOpenAI } from "@/lib/i18n/ai-translate-openai";
+import { isAiTranslateConfigured, translateMenuItemsWithOpenAI } from "@/lib/i18n/ai-translate-openai";
 import { evaluateAiTranslateRateLimit } from "@/lib/rate-limit/ai-translate";
 import { rateLimitedResponse } from "@/lib/rate-limit/respond";
 import { getUserFromBearer } from "@/lib/supabase/route-auth";
@@ -8,6 +8,8 @@ import { tryCreateServiceSupabase } from "@/lib/supabase/service";
 import { requireActiveOwnedRestaurant } from "@/lib/tenant/active-tenant";
 
 export const runtime = "nodejs";
+// OpenAI zaman aşımı (45 sn) bunun altında; parça yarıda kesilmesin.
+export const maxDuration = 60;
 
 const UNAVAILABLE = "AI çeviri şu anda kullanılamıyor. Çevirileri elle yazabilir ya da birazdan tekrar deneyebilirsiniz.";
 
@@ -46,6 +48,11 @@ export async function POST(request: Request) {
     const tenant = await requireActiveOwnedRestaurant(svc.client, { userId: user.id, restaurantId });
     if (!tenant.ok) {
       return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+    }
+
+    // Anahtar yoksa kota yakmadan çık.
+    if (!isAiTranslateConfigured()) {
+      return NextResponse.json({ error: UNAVAILABLE }, { status: 503 });
     }
 
     // Kota, sahiplik/abonelik kontrolünden sonra: askıdaki veya hatalı istekler kota yakmasın.

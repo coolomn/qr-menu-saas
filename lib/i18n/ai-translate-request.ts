@@ -93,8 +93,8 @@ function sourceChars(item: AiTranslateItem): number {
 }
 
 /**
- * Öğeleri istek sınırlarına göre parçalar (sıra korunur). Tek başına sınırı aşan öğe
- * (çok uzun açıklama) alan sınırına kırpılmış olarak tek başına gönderilir.
+ * Öğeleri istek sınırlarına göre parçalar (sıra korunur). Alan sınırından uzun kaynak metin
+ * gönderilmez (kırpılmış metnin çevirisi "tam" çeviri gibi kaydedilmesin); elle çevrilmeli.
  */
 export function chunkAiTranslateItems(items: AiTranslateItem[]): AiTranslateItem[][] {
   const chunks: AiTranslateItem[][] = [];
@@ -103,8 +103,9 @@ export function chunkAiTranslateItems(items: AiTranslateItem[]): AiTranslateItem
   for (const raw of items) {
     const fields: Record<string, string> = {};
     for (const [field, text] of Object.entries(raw.fields)) {
-      fields[field] = text.slice(0, AI_TRANSLATE_MAX_FIELD_CHARS);
+      if (text.length <= AI_TRANSLATE_MAX_FIELD_CHARS) fields[field] = text;
     }
+    if (Object.keys(fields).length === 0) continue;
     const item = { ...raw, fields };
     const size = sourceChars(item);
     if (
@@ -141,7 +142,7 @@ export function parseAiTranslateResponse(raw: unknown, requested: AiTranslateIte
     if (!source) continue;
     const kept: Record<string, string> = {};
     for (const [field, value] of Object.entries(fields as Record<string, unknown>)) {
-      if (!(field in source.fields) || typeof value !== "string") continue;
+      if (!Object.hasOwn(source.fields, field) || typeof value !== "string") continue;
       const max = fieldMaxLength(source.kind, field);
       const text = value.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, max).trim();
       if (text) kept[field] = text;

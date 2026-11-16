@@ -14,7 +14,7 @@ import {
 import { TRANSLATABLE_KIND_INFO, TRANSLATABLE_KINDS } from "@/lib/i18n/translatable";
 
 export const AI_TRANSLATE_MODEL = process.env.AI_TRANSLATE_MODEL?.trim() || "gpt-4.1-mini";
-const AI_TRANSLATE_TIMEOUT_MS = 60_000;
+const AI_TRANSLATE_TIMEOUT_MS = 45_000;
 
 /** İngilizce dil adı (istemde). */
 const ENGLISH_LANGUAGE_NAME: Record<TranslationLanguage, string> = {
@@ -85,10 +85,14 @@ function fromModelResponse(raw: unknown): unknown {
   };
 }
 
+export function isAiTranslateConfigured(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY?.trim());
+}
+
 function getClient(): OpenAI | null {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) return null;
-  return new OpenAI({ apiKey: key, timeout: AI_TRANSLATE_TIMEOUT_MS, maxRetries: 1 });
+  return new OpenAI({ apiKey: key, timeout: AI_TRANSLATE_TIMEOUT_MS, maxRetries: 0 });
 }
 
 export type AiTranslateOutcome =

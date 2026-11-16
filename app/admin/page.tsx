@@ -929,6 +929,7 @@ export default function AdminDashboard() {
   };
 
   const closeProductModal = () => {
+    productAi.reset();
     resetProductExtras();
     setIsProductModalOpen(false);
     setEditingProductId(null);
@@ -1539,6 +1540,7 @@ export default function AdminDashboard() {
         setEditingCategoryId(null);
         setCategoryMenuSelectedIds([]);
         setIsCategoryModalOpen(false);
+        categoryAi.reset();
       } else if (error) {
         alert(error.message || "Kategori güncellenemedi.");
       }
@@ -1591,6 +1593,7 @@ export default function AdminDashboard() {
       setEditingCategoryId(null);
       setCategoryMenuSelectedIds([]);
       setIsCategoryModalOpen(false);
+      categoryAi.reset();
     } else if (error) {
       alert(error.message || "Kategori eklenemedi.");
     }
@@ -1623,6 +1626,7 @@ export default function AdminDashboard() {
   };
 
   const closeCategoryModal = () => {
+    categoryAi.reset();
     setIsCategoryModalOpen(false);
     setEditingCategoryId(null);
     setNewCategory({ ...EMPTY_CATEGORY_FORM });

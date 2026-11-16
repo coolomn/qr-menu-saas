@@ -50,3 +50,14 @@ describe("createMenuCollectionSchema", () => {
     assert.equal(parsed.name_en, null);
   });
 });
+
+describe("menü çevirileri (Faz 2.5b)", () => {
+  it("PATCH'te geçersiz biçimi reddeder, yoksa dokunmaz, geçerliyi temizler", () => {
+    assert.equal(patchMenuCollectionSchema.safeParse({ translations: "junk" }).success, false);
+    assert.equal(patchMenuCollectionSchema.safeParse({ translations: [1] }).success, false);
+    const absent = patchMenuCollectionSchema.parse({ name: "A" });
+    assert.equal("translations" in absent && absent.translations !== undefined, false);
+    const ok = patchMenuCollectionSchema.parse({ translations: { de: { name: " Abend ", junk: "x" }, ar: { name: "y" } } });
+    assert.deepEqual(ok.translations, { de: { name: "Abend" } });
+  });
+});

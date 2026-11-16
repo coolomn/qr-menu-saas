@@ -16,9 +16,9 @@ import {
   fillBlankTranslationFields,
   getTranslationField,
   missingTranslationFields,
-  pickTranslationFields,
   setTranslationField,
   translationTabsFor,
+  translationsFromRow,
   withFieldFrom,
 } from "@/lib/i18n/edit-translations";
 import {
@@ -26,7 +26,6 @@ import {
   buildCenterEntries,
   ingredientKey,
   languageCoverage,
-  mainGroupKey,
   type CenterEntry,
   type CenterEntryType,
 } from "@/lib/admin-menu/translation-center";
@@ -261,32 +260,41 @@ function TranslationCenter({
   /** Kayıt / AI için güncel değer (yalnız olay ve eşzamansız kodda). */
   const currentTranslations = (entry: CenterEntry): TranslationMap =>
     overridesRef.current[entry.key] ?? entry.translations;
-  const effectiveByKey = (key: string): TranslationMap =>
-    overridesRef.current[key] ?? latest.current.entriesByKey.get(key)?.translations ?? {};
 
-  /** Kategorinin kaydedilecek tam haritası: kendi ad/not + ortak ana grup. */
-  const composeCategory = (category: Row): TranslationMap => {
-    const own = pickTranslationFields(effectiveByKey(`category:${category.id}`), ["name", "note"]);
-    const mainGroup = String(category.main_group || "").trim();
-    return mainGroup ? withFieldFrom(own, effectiveByKey(mainGroupKey(mainGroup)), "main_group") : own;
-  };
-
-  const saveCategory = async (categoryId: string) => {
-    const category = latest.current.categories.find((c) => c.id === categoryId);
-    if (!category) return;
-    const translations = cleanTranslationsForSave(composeCategory(category), saveLimits("category"));
+  /**
+   * Kategori çevirisini yazar: güncel satır DB'den okunur ve yalnız `fields` alanları değiştirilir
+   * (kategori satırı → ad/not; ana grup satırı → yalnız main_group). Böylece kategorinin kendine
+   * özgü ana grup çevirisi, ad kaydedilirken ortak değere eşitlenmez.
+   */
+  const saveCategoryFields = async (categoryId: string, source: TranslationMap, fields: readonly string[]) => {
+    const { data: fresh, error: readErr } = await supabase
+      .from("categories")
+      .select("id, translations, name_en, name_ru, main_group_en, main_group_ru, note_en, note_ru")
+      .eq("id", categoryId)
+      .single();
+    if (readErr || !fresh) throw new Error(readErr?.message || "Kategori okunamadı.");
+    let next = translationsFromRow(fresh, ["name", "main_group", "note"]);
+    for (const field of fields) next = withFieldFrom(next, source, field);
+    const translations = cleanTranslationsForSave(next, saveLimits("category"));
     const { data, error } = await supabase.from("categories").update({ translations }).eq("id", categoryId).select("*").single();
     if (error) throw new Error(error.message);
     onCategoriesChanged((prev) => prev.map((c) => (c.id === categoryId ? { ...c, ...data } : c)));
   };
 
-  const saveIngredientsOf = async (productId: string) => {
-    const product = latest.current.products.find((p) => p.id === productId);
-    if (!product) return;
-    const list = parseRemovableIngredients(product.removable_ingredients).map((item) => ({
-      name: item.name,
-      translations: overridesRef.current[ingredientKey(item.name)] ?? latest.current.entriesByKey.get(ingredientKey(item.name))?.translations ?? {},
-    }));
+  /**
+   * Bir malzemenin çevirisini ürüne yazar: malzeme listesi yazmadan hemen önce DB'den okunur
+   * (panelde başka sekmede yapılan değişiklik ezilmez) ve yalnız bu malzemenin çevirisi değişir.
+   */
+  const saveIngredientOf = async (productId: string, key: string, map: TranslationMap) => {
+    const { data: fresh, error: readErr } = await supabase
+      .from("products")
+      .select("id, removable_ingredients")
+      .eq("id", productId)
+      .single();
+    if (readErr || !fresh) throw new Error(readErr?.message || "Ürün okunamadı.");
+    const list = parseRemovableIngredients(fresh.removable_ingredients).map((item) =>
+      ingredientKey(item.name) === key ? { name: item.name, translations: map } : item
+    );
     const removable_ingredients = sanitizeIngredientsForSave(list);
     const { data, error } = await supabase
       .from("products")
@@ -331,13 +339,13 @@ function TranslationCenter({
         return;
       }
       case "category":
-        await saveCategory(entry.targetIds[0]);
+        await saveCategoryFields(entry.targetIds[0], map, ["name", "note"]);
         return;
       case "main_group":
-        for (const id of entry.targetIds) await saveCategory(id);
+        for (const id of entry.targetIds) await saveCategoryFields(id, map, ["main_group"]);
         return;
       case "ingredient":
-        for (const id of entry.targetIds) await saveIngredientsOf(id);
+        for (const id of entry.targetIds) await saveIngredientOf(id, entry.key, map);
         return;
       case "menu": {
         const {
@@ -373,19 +381,40 @@ function TranslationCenter({
     }
   };
 
-  const save = async (key: string) => {
-    const entry = latest.current.entriesByKey.get(key);
-    if (!entry) return;
-    dirtyRef.current.delete(key);
-    setSaveState((s) => ({ ...s, [key]: "saving" }));
-    try {
-      await persist(entry);
-      setSaveState((s) => ({ ...s, [key]: "saved" }));
-    } catch (e) {
-      dirtyRef.current.add(key);
-      setSaveState((s) => ({ ...s, [key]: "error" }));
-      setSaveError(e instanceof Error ? e.message : "Kaydedilemedi.");
-    }
+  // Aynı satırın kayıtları sırayla yapılır (eski istek yenisinin üzerine yazmasın).
+  const saveQueueRef = useRef(new Map<string, Promise<boolean>>());
+  const unmountedRef = useRef(false);
+
+  /** Kirli (kaydedilmemiş) satırı kaydeder; sonuç: kayıt başarılı mı. */
+  const save = (key: string): Promise<boolean> => {
+    const run = async (): Promise<boolean> => {
+      if (unmountedRef.current) return false;
+      if (!dirtyRef.current.has(key)) return true; // daha önceki sıradaki kayıt zaten yazdı
+      const entry = latest.current.entriesByKey.get(key);
+      if (!entry) return false;
+      dirtyRef.current.delete(key);
+      setSaveState((s) => ({ ...s, [key]: "saving" }));
+      try {
+        await persist(entry);
+        // Kayıt sürerken yeniden yazıldıysa "Kaydedildi" deme; sıradaki kayıt (blur) yazacak.
+        setSaveState((s) => {
+          const next = { ...s };
+          if (dirtyRef.current.has(key)) delete next[key];
+          else next[key] = "saved";
+          return next;
+        });
+        return true;
+      } catch (e) {
+        dirtyRef.current.add(key);
+        setSaveState((s) => ({ ...s, [key]: "error" }));
+        setSaveError(e instanceof Error ? e.message : "Kaydedilemedi.");
+        return false;
+      }
+    };
+    const previous = saveQueueRef.current.get(key) ?? Promise.resolve(true);
+    const next = previous.then(run, run);
+    saveQueueRef.current.set(key, next);
+    return next;
   };
 
   const editField = (entry: CenterEntry, field: string, value: string) => {
@@ -435,16 +464,27 @@ function TranslationCenter({
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const cancelRef = useRef({ cancelled: false });
 
+  // Sekmeden çıkılınca (bileşen kaldırılınca) süren AI işi ve kayıtlar durur: bayat listeyle yazılmasın.
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      cancelRef.current.cancelled = true;
+    };
+  }, []);
+
   const runAi = async (targetLanguages: TranslationLanguage[]) => {
     if (aiRunning) return;
     const list = [...latest.current.entriesByKey.values()];
+    // AI isteğinde kısa kimlik (uzun ana grup / malzeme adları kimlik sınırını aşmasın).
+    const keyById = new Map(list.map((e, i) => [`e${i}`, e.key]));
     const jobs = targetLanguages
       .map((language) => ({
         language,
-        items: list.flatMap((e) => {
+        items: list.flatMap((e, i) => {
           const missing = missingTranslationFields(e.source, currentTranslations(e), language);
           if (missing.length === 0) return [];
-          return [{ id: e.key, kind: e.kind, fields: Object.fromEntries(missing.map((f) => [f, e.source[f]])) }];
+          return [{ id: `e${i}`, kind: e.kind, fields: Object.fromEntries(missing.map((f) => [f, e.source[f]])) }];
         }),
       }))
       .filter((j) => j.items.length > 0);
@@ -467,21 +507,29 @@ function TranslationCenter({
       onChunk: (language, results) => {
         // Kayıtlar sırayla (parça parça) yapılır: ortak satırlar (malzeme, ana grup) birbirini ezmesin.
         chain = chain.then(async () => {
+          if (cancelRef.current.cancelled || unmountedRef.current) return;
           const keys: string[] = [];
-          for (const [key, fields] of Object.entries(results)) {
-            const entry = latest.current.entriesByKey.get(key);
-            if (!entry) continue;
+          for (const [id, fields] of Object.entries(results)) {
+            const key = keyById.get(id);
+            const entry = key ? latest.current.entriesByKey.get(key) : undefined;
+            if (!key || !entry) continue;
             setOverride(key, fillBlankTranslationFields(currentTranslations(entry), language, fields));
+            dirtyRef.current.add(key);
             keys.push(key);
           }
-          for (let i = 0; i < keys.length; i += SAVE_CONCURRENCY) {
-            await Promise.all(
-              keys.slice(i, i + SAVE_CONCURRENCY).map(async (key) => {
-                await save(key);
-                if (dirtyRef.current.has(key)) failed += 1;
-                else saved += 1;
-              })
-            );
+          const count = (ok: boolean) => (ok ? (saved += 1) : (failed += 1));
+          // Tekil satırlar paralel; aynı kategori/ürün satırına yazan ortak satırlar (ana grup,
+          // malzeme) en sonda tek tek — birbirlerinin okuduğu güncel değeri ezmesinler.
+          const isShared = (key: string) => key.startsWith("main_group:") || key.startsWith("ingredient:");
+          const single = keys.filter((k) => !isShared(k));
+          for (let i = 0; i < single.length; i += SAVE_CONCURRENCY) {
+            if (cancelRef.current.cancelled || unmountedRef.current) return;
+            const results = await Promise.all(single.slice(i, i + SAVE_CONCURRENCY).map((key) => save(key)));
+            results.forEach(count);
+          }
+          for (const key of keys.filter(isShared)) {
+            if (cancelRef.current.cancelled || unmountedRef.current) return;
+            count(await save(key));
           }
         });
         return chain;

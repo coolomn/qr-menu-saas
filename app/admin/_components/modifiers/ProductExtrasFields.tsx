@@ -86,6 +86,11 @@ export function ProductExtrasFields({
   const [showIngredientTranslations, setShowIngredientTranslations] = useState(false);
   const [pairingQuery, setPairingQuery] = useState("");
   const ai = useFormAiTranslate(restaurantId);
+  // Başka ürüne geçilince bekleyen malzeme çevirisi yeni ürüne uygulanmasın.
+  const resetAi = ai.reset;
+  useEffect(() => {
+    resetAi();
+  }, [editingProductId, resetAi]);
 
   // Malzeme adları formda benzersiz (aynı ad iki kez eklenemez) → AI anahtarı ad.
   const ingredientEntities = (): TranslatableEntity[] =>

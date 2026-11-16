@@ -83,9 +83,12 @@ const storageImageUrl = storageImageUrlInput.optional().transform((v) => {
 
 const cardVisualType = z.enum(["icon", "image", "none"]);
 
-/** Faz 2.5b: menü adı/açıklaması çevirileri; bilinmeyen dil/alan atılır, sınırlar uygulanır. Yoksa dokunulmaz. */
+/**
+ * Faz 2.5b: menü adı/açıklaması çevirileri. Biçim bozuksa 400 (sessizce {} yazıp tüm çevirileri
+ * silmesin); bilinmeyen dil/alan atılır, sınırlar uygulanır. Alan yoksa dokunulmaz.
+ */
 const menuTranslationsField = z
-  .unknown()
+  .record(z.string(), z.record(z.string(), z.string().max(2000)))
   .optional()
   .transform((v) => (v === undefined ? undefined : cleanTranslationsForSave(parseTranslations(v), saveLimits("menu"))));
 

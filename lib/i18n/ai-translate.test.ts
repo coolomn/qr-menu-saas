@@ -63,10 +63,16 @@ describe("parçalama", () => {
     const chunks = chunkAiTranslateItems(items);
     assert.deepEqual(chunks.map((c) => c.length), [30, 30, 10]);
 
+    const tooLong = chunkAiTranslateItems([
+      { id: "x", kind: "product", fields: { name: "Çorba", description: "y".repeat(5000) } },
+      { id: "z", kind: "product", fields: { description: "y".repeat(5000) } },
+    ]);
+    assert.deepEqual(tooLong, [[{ id: "x", kind: "product", fields: { name: "Çorba" } }]], "uzun alan kırpılmaz, atlanır");
+
     const big: AiTranslateItem[] = Array.from({ length: 10 }, (_, i) => ({
       id: `d${i}`,
       kind: "product",
-      fields: { description: "y".repeat(5000) },
+      fields: { description: "y".repeat(1990) },
     }));
     for (const chunk of chunkAiTranslateItems(big)) {
       const chars = chunk.reduce((n, it) => n + Object.values(it.fields).join("").length, 0);
