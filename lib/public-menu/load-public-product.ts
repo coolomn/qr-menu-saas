@@ -8,11 +8,15 @@ import {
   type PublicRestaurantPayload,
 } from "@/lib/public-menu/load-public-menu";
 import { normalizePublicProduct, type PublicProduct } from "@/lib/public-menu/product-variants";
+import type { PublicModifierGroup } from "@/lib/public-menu/product-extras";
 
 export type PublicProductPageData = {
   restaurant: PublicRestaurantPayload;
   category: PublicCategoryPayload | null;
   product: PublicProduct;
+  /** Faz 2.4: ürüne bağlı seçenek grupları ve önerilen ürünler (yalnız bu ürün için). */
+  modifierGroups: PublicModifierGroup[];
+  pairingProducts: PublicProduct[];
 };
 
 export type LoadPublicProductResult =
@@ -47,7 +51,16 @@ export const loadPublicProduct = cache(
       const product = found ? normalizePublicProduct(found) : null;
       if (!product) return { ok: false, reason: "not_found" };
       const category = full.categories.find((c) => c.id === product.category_id) ?? null;
-      return { ok: true, data: { restaurant: full.restaurant, category, product } };
+      const groupIds = new Set(product.modifier_group_ids ?? []);
+      const modifierGroups = (full.modifier_groups ?? []).filter((g) => groupIds.has(g.id));
+      const pairingProducts = (product.pairing_ids ?? [])
+        .map((id) => full.products.find((p) => p.id === id))
+        .map((p) => (p ? normalizePublicProduct(p) : null))
+        .filter((p): p is PublicProduct => p !== null);
+      return {
+        ok: true,
+        data: { restaurant: full.restaurant, category, product, modifierGroups, pairingProducts },
+      };
     } catch (error) {
       console.error(error);
       return { ok: false, reason: "error" };

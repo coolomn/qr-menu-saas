@@ -6,6 +6,7 @@ import { ChevronLeft } from "lucide-react";
 import { MenuFontLoader } from "@/app/menu/[slug]/_components/menu-font-loader";
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { ProductDetailCard } from "@/app/menu/[slug]/_components/ProductImageLightbox";
+import { ProductExtrasProvider } from "@/app/menu/[slug]/_components/product-extras-context";
 import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-restaurant-logo";
 import { usePublicMenuUrl, usePublicProductUrl } from "@/lib/domains/use-public-menu-url";
 import type { PublicProductPageData } from "@/lib/public-menu/load-public-product";
@@ -18,7 +19,8 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
   const { restaurant, category, product } = data;
   const [language, setLanguage] = useState<string>("tr");
   const menuUrl = usePublicMenuUrl()(slug);
-  const shareUrl = usePublicProductUrl()(slug, product.id);
+  const productUrlOf = usePublicProductUrl();
+  const shareUrl = productUrlOf(slug, product.id);
 
   const theme = resolveMenuPresentation(
     restaurant.theme_id,
@@ -80,14 +82,17 @@ export function ProductPageClient({ slug, data }: { slug: string; data: PublicPr
         </header>
 
         <main className="mx-auto flex w-full max-w-[420px] flex-col items-center gap-4 px-4 py-6">
-          <ProductDetailCard
-            product={product}
-            theme={theme}
-            getText={getText}
-            language={language}
-            categoryLabel={categoryLabel}
-            shareUrl={shareUrl}
-          />
+          <ProductExtrasProvider groups={data.modifierGroups} products={data.pairingProducts}>
+            <ProductDetailCard
+              product={product}
+              theme={theme}
+              getText={getText}
+              language={language}
+              categoryLabel={categoryLabel}
+              shareUrl={shareUrl}
+              pairingHref={(id) => productUrlOf(slug, id)}
+            />
+          </ProductExtrasProvider>
           <Link href={menuUrl} className={tc.emptyStateLink}>
             {pickLang(language, {
               tr: "Tüm menüyü gör",

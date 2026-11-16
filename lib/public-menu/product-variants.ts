@@ -8,6 +8,7 @@ import {
 } from "@/lib/admin-menu/product-variants";
 
 import { parseSchedule, type Schedule } from "@/lib/public-menu/schedule";
+import { parseRemovableIngredients, type RemovableIngredient } from "@/lib/public-menu/product-extras";
 
 export { hasProductVariants };
 export type { PublicProductVariant };
@@ -111,7 +112,17 @@ export type PublicProduct = {
   price_updated_at?: string | null;
   /** Faz 2.3 zamanlaması; yok/null = her zaman. */
   schedule?: Schedule | null;
+  /** Faz 2.4 (yalnız doluysa gelir). */
+  removable_ingredients?: RemovableIngredient[];
+  modifier_group_ids?: string[];
+  pairing_ids?: string[];
 };
+
+function stringIds(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const ids = raw.filter((v): v is string => typeof v === "string" && v.length > 0);
+  return ids.length > 0 ? ids : undefined;
+}
 
 function isPublicProductVariant(value: unknown): value is PublicProductVariant {
   if (typeof value !== "object" || value === null) return false;
@@ -162,7 +173,16 @@ export function normalizePublicProduct(raw: unknown): PublicProduct | null {
     schedule: parseSchedule(row.schedule),
   };
 
-  return variants ? { ...base, variants } : base;
+  const ingredients = parseRemovableIngredients(row.removable_ingredients);
+  const groupIds = stringIds(row.modifier_group_ids);
+  const pairingIds = stringIds(row.pairing_ids);
+  return {
+    ...base,
+    ...(variants ? { variants } : {}),
+    ...(ingredients.length > 0 ? { removable_ingredients: ingredients } : {}),
+    ...(groupIds ? { modifier_group_ids: groupIds } : {}),
+    ...(pairingIds ? { pairing_ids: pairingIds } : {}),
+  };
 }
 
 export function normalizePublicProducts(raw: unknown): PublicProduct[] {

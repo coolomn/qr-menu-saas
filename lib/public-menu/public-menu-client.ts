@@ -3,6 +3,7 @@ import {
   publicMenuBootstrapApiPath,
 } from "@/lib/public-menu/cache-headers";
 import type { PublicMenuBootstrapPayload, PublicMenuContentPayload } from "@/lib/public-menu/load-public-menu";
+import { normalizePublicModifierGroups } from "@/lib/public-menu/product-extras";
 import type { PublicMenuCollection, PublicMenuPicker } from "@/lib/public-menu/menu-collections";
 
 /** Default fetch: browser honors max-age=0 on responses; CDN caches via s-maxage. */
@@ -54,6 +55,7 @@ export async function getPublicMenuContent(slug: string): Promise<{
     data: {
       categories: data.categories ?? [],
       products: data.products ?? [],
+      modifier_groups: normalizePublicModifierGroups(data.modifier_groups),
     },
   };
 }

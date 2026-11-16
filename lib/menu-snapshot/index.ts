@@ -19,6 +19,11 @@ export type MenuSnapshotData = {
   products: Row[];
   product_variants: Row[];
   product_menu_collections: Row[];
+  /** Faz 2.4 (eski yedeklerde yok). Gruplar işletme düzeyindedir; sıfırlamada silinmez. */
+  modifier_groups?: Row[];
+  modifier_options?: Row[];
+  product_modifier_groups?: Row[];
+  product_pairings?: Row[];
 };
 
 export type MenuSnapshotCounts = {
@@ -72,6 +77,17 @@ async function fetchAll(
   return { ok: true, rows };
 }
 
+function isMissingTable(error: { code?: string; message?: string } | null): boolean {
+  return error?.code === "42P01" || /relation .* does not exist|schema cache/i.test(error?.message || "");
+}
+
+/** Faz 2.4 tabloları: migration henüz yoksa boş sayılır (sıfırlama engellenmesin). */
+async function fetchAllOptional(admin: SupabaseClient, table: string, restaurantId: string, orderBy: string[]) {
+  const { error } = await admin.from(table).select("restaurant_id", { count: "exact", head: true }).eq("restaurant_id", restaurantId);
+  if (error && isMissingTable(error)) return { ok: true as const, rows: [] as Row[] };
+  return fetchAll(admin, table, { column: "restaurant_id", value: restaurantId }, orderBy);
+}
+
 function countsOf(data: MenuSnapshotData): MenuSnapshotCounts {
   return {
     categories: data.categories.length,
@@ -103,6 +119,15 @@ export async function createMenuSnapshot(
   const collections = await fetchAll(admin, "menu_collections", { column: "restaurant_id", value: restaurantId }, ["id"]);
   if (!collections.ok) return collections;
 
+  const groups = await fetchAllOptional(admin, "modifier_groups", restaurantId, ["id"]);
+  if (!groups.ok) return groups;
+  const options = await fetchAllOptional(admin, "modifier_options", restaurantId, ["id"]);
+  if (!options.ok) return options;
+  const groupLinks = await fetchAllOptional(admin, "product_modifier_groups", restaurantId, ["product_id", "group_id"]);
+  if (!groupLinks.ok) return groupLinks;
+  const pairings = await fetchAllOptional(admin, "product_pairings", restaurantId, ["product_id", "paired_product_id"]);
+  if (!pairings.ok) return pairings;
+
   const collectionIds = ids(collections.rows);
   let categoryJunctions: Row[] = [];
   let productJunctions: Row[] = [];
@@ -133,6 +158,10 @@ export async function createMenuSnapshot(
     products: products.rows,
     product_variants: variants.rows,
     product_menu_collections: productJunctions,
+    modifier_groups: groups.rows,
+    modifier_options: options.rows,
+    product_modifier_groups: groupLinks.rows,
+    product_pairings: pairings.rows,
   };
 
   // Silinecek bir şey yoksa yedeğe gerek yok.
@@ -190,6 +219,7 @@ async function writeRows(
   mode: "insert" | "upsert-ignore",
   conflict?: string
 ): Promise<string | null> {
+  if (rows.length === 0) return null;
   for (const part of chunk(rows)) {
     const { error } =
       mode === "insert"
@@ -209,6 +239,12 @@ async function rollbackRestore(admin: SupabaseClient, restaurantId: string, data
   for (const part of chunk(productIds)) {
     await admin.from("product_menu_collections").delete().in("product_id", part);
     await admin.from("product_variants").delete().in("product_id", part);
+    if ((data.product_modifier_groups ?? []).length > 0) {
+      await admin.from("product_modifier_groups").delete().in("product_id", part);
+    }
+    if ((data.product_pairings ?? []).length > 0) {
+      await admin.from("product_pairings").delete().in("product_id", part);
+    }
   }
   await admin.from("products").delete().eq("restaurant_id", restaurantId);
   await admin.from("categories").delete().eq("restaurant_id", restaurantId);
@@ -271,6 +307,11 @@ export async function restoreMenuSnapshot(
     ["products", data.products, "insert"],
     ["product_variants", data.product_variants ?? [], "insert"],
     ["product_menu_collections", data.product_menu_collections ?? [], "upsert-ignore", "product_id,menu_collection_id"],
+    // Faz 2.4: gruplar sıfırlamada silinmediği için çoğunlukla zaten vardır (varsa atlanır).
+    ["modifier_groups", data.modifier_groups ?? [], "upsert-ignore", "id"],
+    ["modifier_options", data.modifier_options ?? [], "upsert-ignore", "id"],
+    ["product_modifier_groups", data.product_modifier_groups ?? [], "upsert-ignore", "product_id,group_id"],
+    ["product_pairings", data.product_pairings ?? [], "upsert-ignore", "product_id,paired_product_id"],
   ];
 
   for (const [table, rows, mode, conflict] of steps) {

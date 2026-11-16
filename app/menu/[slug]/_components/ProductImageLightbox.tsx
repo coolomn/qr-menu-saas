@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Link2, X } from "lucide-react";
+import { Check, ChevronLeft, Link2, X } from "lucide-react";
 import {
   hasProductVariants,
   type PublicProduct,
@@ -16,6 +16,7 @@ import {
 } from "@/lib/public-menu/themes/resolve";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
+import { ProductDetailExtras } from "@/app/menu/[slug]/_components/product-detail-extras";
 import { hasNutrition, pickLang, readNutrition, resolveProductBadges } from "@/lib/public-menu/venue-info";
 
 const OPTIONAL_META_FIELDS = [
@@ -30,6 +31,11 @@ type ProductImageLightboxProps = {
   getText: (item: Record<string, unknown>, field: string) => string;
   language?: string;
   shareUrl?: string;
+  /** Faz 2.4: "Yanında iyi gider"den bir ürüne geçiş (geçmişi kart yönetir). */
+  onOpenPairing?: (product: PublicProduct) => void;
+  /** Faz 2.4: önceki ürüne dön (yalnız önerilen bir ürüne geçildiyse). */
+  onBack?: () => void;
+  backLabel?: string;
 };
 
 function getVariantLabel(variant: PublicProductVariant, language: string): string {
@@ -113,6 +119,13 @@ type ProductDetailCardProps = {
   categoryLabel?: string;
   /** Ürünün paylaşılabilir adresi; verilirse "Linki kopyala" düğmesi çıkar. */
   shareUrl?: string;
+  /** Faz 2.4: önerilen ürüne dokununca (menü penceresi). */
+  onOpenPairing?: (product: PublicProduct) => void;
+  /** Faz 2.4: önerilen ürünün adresi (ürün sayfası). */
+  pairingHref?: (productId: string) => string;
+  /** Faz 2.4: önceki ürüne dönüş düğmesi (sol üst). */
+  onBack?: () => void;
+  backLabel?: string;
 };
 
 function CopyLinkButton({
@@ -165,6 +178,10 @@ export function ProductDetailCard({
   onClose,
   categoryLabel,
   shareUrl,
+  onOpenPairing,
+  pairingHref,
+  onBack,
+  backLabel,
 }: ProductDetailCardProps) {
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
   const c = resolvedTheme.classes;
@@ -188,7 +205,22 @@ export function ProductDetailCard({
       onClick={(event) => event.stopPropagation()}
     >
       {onClose ? (
-        <div className="flex shrink-0 justify-end px-4 pt-4 sm:px-5 sm:pt-5">
+        <div className="flex shrink-0 items-center justify-between gap-3 px-4 pt-4 sm:px-5 sm:pt-5">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className={`inline-flex min-h-11 min-w-0 items-center gap-1 rounded-full border py-2 pl-2 pr-3.5 text-sm font-bold shadow-md transition-colors ${lightboxCloseButtonClasses(appearance)}`}
+              aria-label={pickLang(language, { tr: "Önceki ürüne dön", en: "Back to previous item", ru: "Назад к предыдущему" })}
+            >
+              <ChevronLeft size={20} className="shrink-0" aria-hidden />
+              <span className="truncate max-w-[12rem]">
+                {backLabel || pickLang(language, { tr: "Geri", en: "Back", ru: "Назад" })}
+              </span>
+            </button>
+          ) : (
+            <span aria-hidden />
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -275,6 +307,15 @@ export function ProductDetailCard({
           </div>
         )}
 
+        <ProductDetailExtras
+          product={product}
+          theme={resolvedTheme}
+          getText={getText}
+          language={language}
+          onOpenPairing={onOpenPairing}
+          pairingHref={pairingHref}
+        />
+
         {hasNutrition(nutrition) && (
           <dl className="flex flex-wrap gap-x-5 gap-y-3">
             {[
@@ -327,9 +368,18 @@ export function ProductImageLightbox({
   getText,
   language = "tr",
   shareUrl,
+  onOpenPairing,
+  onBack,
+  backLabel,
 }: ProductImageLightboxProps) {
   const productRecord = product as unknown as Record<string, unknown>;
   const name = getText(productRecord, "name");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Başka ürüne geçince (öneri ya da geri) pencerenin başına dön.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [product.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -363,14 +413,21 @@ export function ProductImageLightbox({
       aria-label={name ? `${name} — ürün detayı` : "Ürün detayı"}
       onClick={onClose}
     >
-      <div className="flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[420px] overflow-y-auto rounded-3xl">
+      <div
+        ref={scrollRef}
+        className="flex items-start max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[420px] overflow-y-auto rounded-3xl"
+      >
         <ProductDetailCard
+          key={product.id}
           product={product}
           theme={theme}
           getText={getText}
           language={language}
           onClose={onClose}
           shareUrl={shareUrl}
+          onOpenPairing={onOpenPairing}
+          onBack={onBack}
+          backLabel={backLabel}
         />
       </div>
     </div>,

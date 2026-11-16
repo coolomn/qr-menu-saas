@@ -3,13 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { ConfirmDialog } from "@/app/admin/_components/ConfirmDialog";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
 import { ProductCardQuickImage } from "@/app/admin/_components/products/ProductCardQuickImage";
 import { ProductBasicsFields } from "@/app/admin/_components/products/ProductBasicsFields";
 import { ScheduleEditor } from "@/app/admin/_components/schedule/ScheduleEditor";
+import { ModifierGroupsPanel } from "@/app/admin/_components/modifiers/ModifierGroupsPanel";
+import {
+  ProductExtrasFields,
+  emptyProductExtras,
+  type ProductExtrasValue,
+} from "@/app/admin/_components/modifiers/ProductExtrasFields";
+import { loadProductLinks, sanitizeIngredientsForSave, saveProductLinks } from "@/lib/admin-menu/modifiers";
+import { parseRemovableIngredients } from "@/lib/public-menu/product-extras";
 import { describeSchedule, parseSchedule, sanitizeScheduleForSave, type Schedule } from "@/lib/public-menu/schedule";
 import { VenueInfoSettings } from "@/app/admin/_components/settings/VenueInfoSettings";
 import {
@@ -314,6 +322,11 @@ export default function AdminDashboard() {
     pricing_mode: "single" as PricingMode,
     variants: [] as EditableProductVariant[],
   });
+
+  // Faz 2.4: seçenek grupları / çıkarılabilir malzemeler / önerilen ürünler (ürün formu)
+  const [productExtras, setProductExtras] = useState<ProductExtrasValue>(emptyProductExtras());
+  const [productExtrasLoading, setProductExtrasLoading] = useState(false);
+  const productExtrasRequestRef = useRef(0);
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const newProductRef = useRef(newProduct);
@@ -840,6 +853,7 @@ export default function AdminDashboard() {
     });
     setProductMenuError(null);
     setIsProductModalOpen(true);
+    void loadProductExtrasForEdit(product);
     if (getActiveRestaurantMenus().length >= 2 && product.category_id) {
       void loadProductMenuSelections(product.id);
     } else {
@@ -847,7 +861,33 @@ export default function AdminDashboard() {
     }
   };
 
+  /** Faz 2.4: düzenlenen ürünün bağlantılarını yükler (hızlı ürün değişiminde eski yanıt yok sayılır). */
+  const loadProductExtrasForEdit = async (product: { id: string; removable_ingredients?: unknown }) => {
+    const requestId = ++productExtrasRequestRef.current;
+    setProductExtras({
+      ingredients: parseRemovableIngredients(product.removable_ingredients),
+      groupIds: [],
+      pairingIds: [],
+    });
+    setProductExtrasLoading(true);
+    const res = await loadProductLinks(supabase, product.id);
+    if (requestId !== productExtrasRequestRef.current) return;
+    setProductExtrasLoading(false);
+    if (res.ok) {
+      setProductExtras((prev) => ({ ...prev, groupIds: res.groupIds, pairingIds: res.pairingIds }));
+    } else {
+      console.warn("product links load failed:", res.error);
+    }
+  };
+
+  const resetProductExtras = () => {
+    productExtrasRequestRef.current += 1;
+    setProductExtras(emptyProductExtras());
+    setProductExtrasLoading(false);
+  };
+
   const openNewProductModal = () => {
+    resetProductExtras();
     setEditingProductId(null);
     setAllergenSuggestMessage(null);
     setAllergenSuggestions([]);
@@ -876,6 +916,7 @@ export default function AdminDashboard() {
   };
 
   const closeProductModal = () => {
+    resetProductExtras();
     setIsProductModalOpen(false);
     setEditingProductId(null);
     setAllergenSuggestMessage(null);
@@ -916,6 +957,11 @@ export default function AdminDashboard() {
       return;
     }
     setProductMenuError(null);
+
+    if (productExtrasLoading) {
+      alert("Ürünün seçenekleri yükleniyor, lütfen birkaç saniye sonra tekrar kaydedin.");
+      return;
+    }
 
     const pricingValidationError = validateProductVariantsForSave(
       newProduct.pricing_mode,
@@ -990,6 +1036,7 @@ export default function AdminDashboard() {
         is_sold_out: newProduct.is_sold_out,
         badges: normalizeBadgeIds(newProduct.badges),
         schedule: sanitizeScheduleForSave(newProduct.schedule),
+        removable_ingredients: sanitizeIngredientsForSave(productExtras.ingredients),
         calories, protein_g: protein, carbs_g: carbs, fat_g: fat,
         ...(variantPricesChanged ? { price_updated_at: new Date().toISOString() } : {}),
       };
@@ -1081,6 +1128,19 @@ export default function AdminDashboard() {
         if (!synced) {
           alert(
             "Ürün kaydedildi ancak menü bağlantıları güncellenemedi. Ürünü düzenleyip menüleri tekrar seçin."
+          );
+          return;
+        }
+
+        const linksSaved = await saveProductLinks(supabase, {
+          productId: savedProductId,
+          restaurantId: restaurant.id,
+          groupIds: productExtras.groupIds,
+          pairingIds: productExtras.pairingIds,
+        });
+        if (!linksSaved.ok) {
+          alert(
+            `Ürün kaydedildi ancak seçenek grupları / önerilen ürünler güncellenemedi: ${linksSaved.error}\n\nÜrünü düzenleyip tekrar kaydedin.`
           );
           return;
         }
@@ -2165,6 +2225,7 @@ export default function AdminDashboard() {
           <button onClick={() => {setActiveTab("products"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'products' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><UtensilsCrossed size={20} /> Ürünler</button>
           <button onClick={() => {setActiveTab("categories"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'categories' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><List size={20} /> Kategoriler</button>
           <button onClick={() => {setActiveTab("menus"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'menus' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><LayoutGrid size={20} /> Menüler</button>
+          <button onClick={() => {setActiveTab("modifiers"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'modifiers' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><SlidersHorizontal size={20} /> Seçenek Grupları</button>
           <button onClick={() => {setActiveTab("qr"); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all ${activeTab === 'qr' ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'}`}><QrCode size={20} /> QR Kod Üretici</button>
           <Link
             href="/admin/import"
@@ -2860,6 +2921,10 @@ export default function AdminDashboard() {
               </div>
             )}
 
+            {activeTab === "modifiers" && restaurant?.id && (
+              <ModifierGroupsPanel restaurantId={restaurant.id} />
+            )}
+
             {activeTab === "qr" && (
               <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-12 max-w-md mx-auto text-center"><div className="w-16 h-16 md:w-20 md:h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6 md:mb-8 shadow-inner"><QrCode size={32} /></div><h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-2 tracking-tighter">QR Üretici</h2><input type="text" placeholder="Masa No (Örn: 5)" className="w-full border-2 border-gray-100 p-4 md:p-5 rounded-2xl mb-4 md:mb-6 text-center text-xl md:text-2xl font-black text-gray-900 focus:border-blue-500 outline-none transition-all" value={tableNumber} onChange={e => setTableNumber(e.target.value)} /><button onClick={downloadQRCode} className="w-full bg-gray-900 text-white py-4 md:py-5 rounded-2xl font-black shadow-xl hover:bg-black transition-all">QR Kodu Aç / İndir</button></div>
             )}
@@ -3272,6 +3337,18 @@ export default function AdminDashboard() {
                       value={newProduct.schedule}
                       onChange={(schedule) => setNewProduct((prev) => ({ ...prev, schedule }))}
                     />
+
+                    {restaurant?.id && (
+                      <ProductExtrasFields
+                        restaurantId={restaurant.id}
+                        editingProductId={editingProductId}
+                        value={productExtras}
+                        onChange={setProductExtras}
+                        products={products}
+                        categories={categories}
+                        loading={productExtrasLoading}
+                      />
+                    )}
 
                     <div className="p-3 md:p-5 border-2 border-gray-50 rounded-2xl space-y-3">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
