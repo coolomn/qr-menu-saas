@@ -58,9 +58,9 @@ as $$
       select 1
       from jsonb_each(rates) as e(k, v)
       where not (e.k = any (public.currency_allowed_codes()))
-         or jsonb_typeof(e.v) <> 'number'
-         or (e.v)::numeric <= 0
-         or (e.v)::numeric > 100000
+         or not (case when jsonb_typeof(e.v) = 'number'
+                      then (e.v)::numeric > 0 and (e.v)::numeric < 100000
+                      else false end)
     )
 $$;
 

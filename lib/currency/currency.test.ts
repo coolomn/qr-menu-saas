@@ -246,3 +246,31 @@ describe("approx text", async () => {
     assert.equal(rateLabel({ code: "RUB", try_per_unit: 0.61479, fixed: false, rate_date: null }, "en"), "₽1 = 0.6148 ₺");
   });
 });
+
+describe("review fixes", async () => {
+  const { approxText, parseTryAmount } = await import("./approx");
+  const eur = { code: "EUR" as const, try_per_unit: 50, fixed: false, rate_date: "2026-11-13" };
+  it("free text with a leading letter/symbol is not treated as a price", () => {
+    for (const raw of ["A12", "x5", "€12", "~12", "12a"]) {
+      assert.equal(parseTryAmount(raw), null, raw);
+    }
+    assert.equal(parseTryAmount("−15"), -15);
+  });
+  it("tiny converted amounts are hidden", () => {
+    assert.equal(approxText("+0,20", eur, "en", { signed: true }), null);
+  });
+  it("TCMB values with a comma or junk are skipped, not misread", () => {
+    const xml = SAMPLE_XML.replace("<ForexSelling>55.6033</ForexSelling>", "<ForexSelling>55,6033</ForexSelling>");
+    const parsed = parseTcmbXml(xml);
+    assert.ok(parsed);
+    assert.equal("EUR" in parsed.rates, false);
+    assert.equal(parsed.rates.USD, 50.283);
+  });
+  it("live rate from an old bulletin is hidden even if fetched recently", () => {
+    const now = new Date("2026-11-30T12:00:00Z");
+    const rows = [{ currency: "EUR", try_per_unit: 55, rate_date: "2026-11-13", fetched_at: "2026-11-30T03:00:00Z" }];
+    assert.equal(resolvePublicCurrencyRates({ displayCurrencies: ["EUR"], fixedRates: {}, liveRates: rows, now }).length, 0);
+    const holiday = [{ ...rows[0], rate_date: "2026-11-21" }];
+    assert.equal(resolvePublicCurrencyRates({ displayCurrencies: ["EUR"], fixedRates: {}, liveRates: holiday, now }).length, 1);
+  });
+});

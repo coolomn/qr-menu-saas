@@ -33,9 +33,13 @@ export function parseTcmbXml(xml: string): ParsedTcmbRates | null {
   for (const block of blocks) {
     const code = block.match(/\bCurrencyCode="([A-Z]{3})"/)?.[1];
     if (!code || !wanted.has(code)) continue;
-    const unit = Number.parseInt(tagValue(block, "Unit") ?? "", 10);
-    const selling = Number.parseFloat(tagValue(block, "ForexSelling") ?? "");
-    if (!Number.isFinite(unit) || unit <= 0 || !Number.isFinite(selling) || selling <= 0) continue;
+    // Sıkı biçim: "55.6033" — virgüllü/bozuk değer sessizce yanlış okunmasın.
+    const unitRaw = tagValue(block, "Unit") ?? "";
+    const sellingRaw = tagValue(block, "ForexSelling") ?? "";
+    if (!/^\d+$/.test(unitRaw) || !/^\d+(\.\d+)?$/.test(sellingRaw)) continue;
+    const unit = Number.parseInt(unitRaw, 10);
+    const selling = Number.parseFloat(sellingRaw);
+    if (unit <= 0 || selling <= 0) continue;
     const perUnit = selling / unit;
     if (perUnit > 0 && perUnit < 100000) rates[code as CurrencyCode] = Number(perUnit.toFixed(6));
   }

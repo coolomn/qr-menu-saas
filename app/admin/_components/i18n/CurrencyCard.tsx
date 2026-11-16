@@ -43,7 +43,8 @@ function formatDate(isoDate: string): string {
 export function CurrencyCard({ restaurantId, displayCurrencies, fixedRates, onSaved }: Props) {
   const [selected, setSelected] = useState<Set<CurrencyCode>>(() => new Set(displayCurrencies));
   const [fixedInputs, setFixedInputs] = useState<Partial<Record<CurrencyCode, string>>>(() =>
-    Object.fromEntries(Object.entries(fixedRates).map(([k, v]) => [k, trNumber(v as number)]))
+    // Ham değer (yuvarlamadan): başka bir döviz kaydedilirken sabit kur sessizce değişmesin.
+    Object.fromEntries(Object.entries(fixedRates).map(([k, v]) => [k, String(v).replace(".", ",")]))
   );
   // Yalnız son 72 saatte çekilmiş (müşteri menüsünde gösterilebilir) günlük kurlar.
   const [liveRates, setLiveRates] = useState<Map<string, ExchangeRateRow>>(new Map());

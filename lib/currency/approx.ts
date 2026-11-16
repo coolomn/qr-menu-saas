@@ -12,7 +12,7 @@ const TRY_MARKS = /₺|\bTL\b|\bTRY\b/gi;
 export function parseTryAmount(raw: string | number | null | undefined): number | null {
   if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
   const s = (raw ?? "").replace(TRY_MARKS, "").replace(/\s+/g, "");
-  if (!/^[+-−]?\d[\d.,]*$/.test(s)) return null;
+  if (!/^[+\-−]?\d[\d.,]*$/.test(s)) return null;
   const n = parsePriceNumber(s);
   if (n === null) return null;
   return /^[-−]/.test(s) ? -n : n;
@@ -28,6 +28,8 @@ export function approxText(
   const tl = parseTryAmount(raw);
   if (tl === null || tl === 0) return null;
   const converted = convertFromTry(Math.abs(tl), rate);
+  // "≈ €0.00" gibi anlamsız küçük tutarlar gösterilmez.
+  if (converted < 0.01) return null;
   const formatted = formatApproxAmount(converted, rate.code, language);
   const sign = opts.signed ? (tl < 0 ? "−" : "+") : tl < 0 ? "−" : "";
   return `≈ ${sign}${formatted}`;

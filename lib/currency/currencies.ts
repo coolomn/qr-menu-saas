@@ -15,6 +15,12 @@ export const MAX_DISPLAY_CURRENCIES = 5;
 /** Son başarılı kur çekiminden bu kadar saat sonra günlük kur gösterilmez (cron bozulursa eski kur kalmasın). */
 export const RATE_MAX_AGE_HOURS = 72;
 
+/**
+ * TCMB bülten tarihi bundan eskiyse de gösterilmez (cron çalışsa bile TCMB eski bülten döndürürse).
+ * Uzun bayram tatillerinde (≈9 gün) kur değişmediği için sınır 10 gün.
+ */
+export const RATE_MAX_BULLETIN_AGE_DAYS = 10;
+
 export const CURRENCY_INFO: Record<CurrencyCode, { symbol: string; turkishName: string }> = {
   EUR: { symbol: "€", turkishName: "Euro" },
   USD: { symbol: "$", turkishName: "ABD doları" },
@@ -101,6 +107,8 @@ export function resolvePublicCurrencyRates(args: {
     const fetchedAt = Date.parse(row.fetched_at);
     if (!Number.isFinite(rate) || rate <= 0 || !Number.isFinite(fetchedAt)) continue;
     if (now - fetchedAt > RATE_MAX_AGE_HOURS * 3600 * 1000) continue;
+    const bulletin = Date.parse(`${row.rate_date}T00:00:00Z`);
+    if (!Number.isFinite(bulletin) || now - bulletin > RATE_MAX_BULLETIN_AGE_DAYS * 86400 * 1000) continue;
     out.push({ code, try_per_unit: rate, fixed: false, rate_date: row.rate_date });
   }
   return out;
