@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
-import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight } from "lucide-react";
+import { LogOut, UtensilsCrossed, QrCode, Plus, X, List, LayoutGrid, Power, PowerOff, Sparkles, Palette, Edit3, Info, ImageIcon, Menu, Image as ImageIcon2, Trash2, FileUp, AlertTriangle, GripVertical, Copy, Eye, EyeOff, Search, ExternalLink, Banknote, ArrowLeftRight, ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/app/admin/_components/ConfirmDialog";
 import { BulkPriceEditPanel } from "@/app/admin/_components/products/BulkPriceEditPanel";
 import { BulkProductMenuToolbar } from "@/app/admin/_components/products/BulkProductMenuToolbar";
@@ -85,6 +85,12 @@ import {
   runRestaurantSettingsAssetCleanup,
   saveRestaurantSettings,
 } from "@/lib/admin-menu/save-restaurant-settings";
+import {
+  categorySiblingPosition,
+  dropCategoryInTree,
+  moveCategoryInTree,
+  orderCategoryTree,
+} from "@/lib/admin-menu/category-order";
 
 const supabase = getBrowserSupabase();
 
@@ -1616,13 +1622,19 @@ export default function AdminDashboard() {
     const sourceId = e.dataTransfer.getData("text/category-id") || e.dataTransfer.getData("text/plain");
     setCategoryDragOverId(null);
     setCategoryDragId(null);
-    if (!sourceId || sourceId === targetId) return;
-    const list = [...categories];
-    const si = list.findIndex((c: any) => c.id === sourceId);
-    const ti = list.findIndex((c: any) => c.id === targetId);
-    if (si < 0 || ti < 0) return;
-    const [removed] = list.splice(si, 1);
-    list.splice(ti, 0, removed);
+    if (!sourceId || sourceId === targetId || categoryReorderBusy) return;
+    // Yalnız aynı üst kategorinin kardeşleri arasında; üst kategori alt kategorileriyle birlikte taşınır.
+    const list = dropCategoryInTree(categories, sourceId, targetId);
+    if (!list) return;
+    setCategories(list);
+    await persistCategoryOrder(list);
+  };
+
+  /** Ok düğmeleri: dokunmatik ekranda da çalışır (sürükle-bırak telefonda çalışmaz). */
+  const handleCategoryMove = async (id: string, direction: -1 | 1) => {
+    if (categoryReorderBusy) return;
+    const list = moveCategoryInTree(categories, id, direction);
+    if (!list) return;
     setCategories(list);
     await persistCategoryOrder(list);
   };
@@ -2662,7 +2674,7 @@ export default function AdminDashboard() {
                   Yalnızca boş kategori adı çevirileri doldurulur (menü başlığı sözlüğü). Dolu EN/RU ve Türkçe adlar korunur.
                 </p>
                 <p className="text-[10px] text-gray-500 font-medium mb-4 leading-relaxed">
-                  Sırayı sol tutacak simgeden sürükleyip başka bir kartın üzerine bırakın. Müşteri menüsündeki kategori şeridi bu sırayı kullanır.
+                  Sırayı ok düğmeleriyle ya da sol tutacak simgeden sürükleyerek değiştirin. Müşteri menüsündeki kategori şeridi bu sırayı kullanır. Alt kategoriler üst kategorinin hemen altında durur ve yalnız kendi aralarında sıralanır.
                 </p>
                 {categoryReorderBusy && (
                   <p className="text-xs font-bold text-blue-600 mb-3" role="status">
@@ -2670,7 +2682,10 @@ export default function AdminDashboard() {
                   </p>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                  {categories.map((c: any) => {
+                  {orderCategoryTree(categories).map((c: any) => {
+                    const siblingPos = categorySiblingPosition(categories, c.id);
+                    const isSubcategory =
+                      !!c.parent_id && categories.some((x: any) => x.id === c.parent_id);
                     const productCount = products.filter((p: any) => p.category_id === c.id).length;
                     const productPreview = buildCategoryProductPreview(c.id, products);
                     const menuHidden = c.is_active === false;
@@ -2688,7 +2703,9 @@ export default function AdminDashboard() {
                           categoryDragOverId === c.id && categoryDragId && categoryDragId !== c.id
                             ? "ring-2 ring-blue-400 border-blue-200 bg-blue-50/40"
                             : "border-gray-100"
-                        } ${menuHidden ? "opacity-75" : ""}`}
+                        } ${menuHidden ? "opacity-75" : ""} ${
+                          isSubcategory ? "border-l-4 border-l-emerald-300 bg-emerald-50/30" : ""
+                        }`}
                       >
                         <button
                           type="button"
@@ -2812,6 +2829,28 @@ export default function AdminDashboard() {
                             >
                               <Trash2 size={15} aria-hidden />
                             </button>
+                            <span className="ml-auto flex items-center gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => void handleCategoryMove(c.id, -1)}
+                                disabled={categoryReorderBusy || siblingPos.index <= 0}
+                                title="Yukarı taşı"
+                                aria-label={`${categoryDisplayName} yukarı taşı`}
+                                className="text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-white"
+                              >
+                                <ChevronUp size={15} aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleCategoryMove(c.id, 1)}
+                                disabled={categoryReorderBusy || siblingPos.index >= siblingPos.count - 1}
+                                title="Aşağı taşı"
+                                aria-label={`${categoryDisplayName} aşağı taşı`}
+                                className="text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-white"
+                              >
+                                <ChevronDown size={15} aria-hidden />
+                              </button>
+                            </span>
                           </div>
                         </div>
                       </div>
