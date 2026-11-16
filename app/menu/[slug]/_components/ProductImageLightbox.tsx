@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Link2, X } from "lucide-react";
 import {
@@ -16,6 +16,7 @@ import {
 } from "@/lib/public-menu/themes/resolve";
 import type { ThemeId } from "@/lib/public-menu/themes/ids";
 import { PublicProductAllergens } from "@/app/menu/[slug]/_components/public-product-allergens";
+import { ProductDetailExtras } from "@/app/menu/[slug]/_components/product-detail-extras";
 import { hasNutrition, pickLang, readNutrition, resolveProductBadges } from "@/lib/public-menu/venue-info";
 
 const OPTIONAL_META_FIELDS = [
@@ -30,6 +31,8 @@ type ProductImageLightboxProps = {
   getText: (item: Record<string, unknown>, field: string) => string;
   language?: string;
   shareUrl?: string;
+  /** Faz 2.4: önerilen ürüne geçince adres çubuğu ve paylaşım linki bu adrese döner. */
+  productUrlFor?: (productId: string) => string;
 };
 
 function getVariantLabel(variant: PublicProductVariant, language: string): string {
@@ -113,6 +116,10 @@ type ProductDetailCardProps = {
   categoryLabel?: string;
   /** Ürünün paylaşılabilir adresi; verilirse "Linki kopyala" düğmesi çıkar. */
   shareUrl?: string;
+  /** Faz 2.4: önerilen ürüne dokununca (menü penceresi). */
+  onOpenPairing?: (product: PublicProduct) => void;
+  /** Faz 2.4: önerilen ürünün adresi (ürün sayfası). */
+  pairingHref?: (productId: string) => string;
 };
 
 function CopyLinkButton({
@@ -165,6 +172,8 @@ export function ProductDetailCard({
   onClose,
   categoryLabel,
   shareUrl,
+  onOpenPairing,
+  pairingHref,
 }: ProductDetailCardProps) {
   const resolvedTheme = theme ?? resolveMenuPresentation("classic", "classic");
   const c = resolvedTheme.classes;
@@ -275,6 +284,15 @@ export function ProductDetailCard({
           </div>
         )}
 
+        <ProductDetailExtras
+          product={product}
+          theme={resolvedTheme}
+          getText={getText}
+          language={language}
+          onOpenPairing={onOpenPairing}
+          pairingHref={pairingHref}
+        />
+
         {hasNutrition(nutrition) && (
           <dl className="flex flex-wrap gap-x-5 gap-y-3">
             {[
@@ -327,9 +345,29 @@ export function ProductImageLightbox({
   getText,
   language = "tr",
   shareUrl,
+  productUrlFor,
 }: ProductImageLightboxProps) {
-  const productRecord = product as unknown as Record<string, unknown>;
+  // Faz 2.4: "Yanında iyi gider"den seçilen ürün aynı pencerede gösterilir. Kart, pencereyi yalnız
+  // açıkken bağladığı için bu durum her açılışta sıfırdan başlar.
+  const [pairedProduct, setPairedProduct] = useState<PublicProduct | null>(null);
+  const shown = pairedProduct ?? product;
+  const productRecord = shown as unknown as Record<string, unknown>;
   const name = getText(productRecord, "name");
+  const shownShareUrl = pairedProduct && productUrlFor ? productUrlFor(pairedProduct.id) : shareUrl;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const openPairing = (next: PublicProduct) => {
+    setPairedProduct(next);
+    scrollRef.current?.scrollTo({ top: 0 });
+    if (productUrlFor) {
+      try {
+        // replaceState: geri tuşu yine menüye döner (pencereyi açan tek pushState kalır).
+        window.history.replaceState(window.history.state, "", productUrlFor(next.id));
+      } catch {
+        /* adres güncellenemezse pencere yine çalışır */
+      }
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -363,14 +401,19 @@ export function ProductImageLightbox({
       aria-label={name ? `${name} — ürün detayı` : "Ürün detayı"}
       onClick={onClose}
     >
-      <div className="flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[420px] overflow-y-auto rounded-3xl">
+      <div
+        ref={scrollRef}
+        className="flex items-start max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[420px] overflow-y-auto rounded-3xl"
+      >
         <ProductDetailCard
-          product={product}
+          key={shown.id}
+          product={shown}
           theme={theme}
           getText={getText}
           language={language}
           onClose={onClose}
-          shareUrl={shareUrl}
+          shareUrl={shownShareUrl}
+          onOpenPairing={openPairing}
         />
       </div>
     </div>,

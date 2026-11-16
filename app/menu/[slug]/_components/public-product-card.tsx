@@ -58,7 +58,9 @@ export function PublicProductCard({
   const params = useParams();
   const slugParam = params?.slug;
   const slug = Array.isArray(slugParam) ? slugParam[0] : slugParam;
-  const productUrl = usePublicProductUrl()(slug ?? "", product.id);
+  const productUrlOf = usePublicProductUrl();
+  const productUrl = productUrlOf(slug ?? "", product.id);
+  const productUrlFor = useCallback((id: string) => productUrlOf(slug ?? "", id), [productUrlOf, slug]);
   // Pencereyi biz açtıysak adres çubuğuna ürün linki yazılır; geri tuşu pencereyi kapatır.
   const pushedRef = useRef(false);
 
@@ -214,15 +216,18 @@ export function PublicProductCard({
         </div>
       </a>
 
+      {detailOpen && (
       <ProductImageLightbox
         open={detailOpen}
         onClose={closeDetail}
         shareUrl={productUrl}
+        productUrlFor={slug ? productUrlFor : undefined}
         product={product}
         theme={resolvedTheme}
         getText={getText}
         language={language}
       />
+      )}
     </>
   );
 }

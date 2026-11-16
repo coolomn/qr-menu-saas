@@ -14,6 +14,11 @@ export const PUBLIC_MENU_TABLES: ReadonlySet<string> = new Set([
   "menu_collections",
   "category_menu_collections",
   "product_menu_collections",
+  // Faz 2.4
+  "modifier_groups",
+  "modifier_options",
+  "product_modifier_groups",
+  "product_pairings",
 ]);
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);

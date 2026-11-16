@@ -19,6 +19,8 @@ import { PublicRestaurantLogo } from "@/app/menu/[slug]/_components/public-resta
 import { PublicMenuSlider } from "@/app/menu/[slug]/_components/public-menu-slider";
 import { MenuThemeShell } from "@/app/menu/[slug]/_components/menu-theme-shell";
 import { PublicProductCard } from "@/app/menu/[slug]/_components/public-product-card";
+import { ProductExtrasProvider } from "@/app/menu/[slug]/_components/product-extras-context";
+import type { PublicModifierGroup } from "@/lib/public-menu/product-extras";
 import { MenuFilterBar } from "@/app/menu/[slug]/_components/menu-filter-bar";
 import { childrenByParent, isTopLevelCategory } from "@/lib/public-menu/category-tree";
 import {
@@ -285,6 +287,7 @@ export default function CustomerMenu() {
   const [restaurant, setRestaurant] = useState<any>(null);
   const [categories, setCategories] = useState<PublicCategory[]>([]);
   const [products, setProducts] = useState<PublicProduct[]>([]);
+  const [modifierGroups, setModifierGroups] = useState<PublicModifierGroup[]>([]);
   const [menuCollections, setMenuCollections] = useState<PublicMenuCollection[]>([]);
   const [menuPicker, setMenuPicker] = useState<PublicMenuPicker | null>(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
@@ -350,6 +353,7 @@ export default function CustomerMenu() {
 
       setCategories(result.data.categories);
       setProducts(normalizePublicProducts(result.data.products));
+      setModifierGroups(result.data.modifier_groups ?? []);
       menuDataLoadedRef.current = true;
       setMenuDataLoaded(true);
       return true;
@@ -378,6 +382,7 @@ export default function CustomerMenu() {
     setPendingNavigation(null);
     setCategories([]);
     setProducts([]);
+    setModifierGroups([]);
     setView("welcome");
     setSelectedMenuCollectionId(null);
     setMenuMainGroup(null);
@@ -878,6 +883,7 @@ export default function CustomerMenu() {
   const hasAnyShownProducts = shownProducts.length > 0 || shownSubsections.length > 0;
 
   return wrapWithMenuFonts(
+    <ProductExtrasProvider groups={modifierGroups} products={products}>
     <MenuThemeShell theme={menuTheme} entered={menuViewEntered}>
       <header className={tc.header}>
         <div className={tc.headerInner}>
@@ -1069,5 +1075,6 @@ export default function CustomerMenu() {
       />
       <PublicVenueActions restaurant={restaurant} language={language} accentColor={themeColor} />
     </MenuThemeShell>
+    </ProductExtrasProvider>
   );
 }

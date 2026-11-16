@@ -104,11 +104,21 @@ function seedMenu(): Db {
     menu_collections: [{ id: "m1", restaurant_id: R, name: "Ana Menü" }],
     category_menu_collections: [{ category_id: "c1", menu_collection_id: "m1" }],
     product_menu_collections: [{ product_id: "p1", menu_collection_id: "m1" }],
+    modifier_groups: [
+      { id: "g1", restaurant_id: R, name: "Soslar" },
+      { id: "gx", restaurant_id: "other", name: "Başka" },
+    ],
+    modifier_options: [{ id: "o1", restaurant_id: R, group_id: "g1", name: "Ranch" }],
+    product_modifier_groups: [{ product_id: "p1", group_id: "g1", restaurant_id: R }],
+    product_pairings: [{ product_id: "p1", paired_product_id: "p2", restaurant_id: R }],
     menu_snapshots: [],
   };
 }
 
 function wipeMenu(db: Db) {
+  // Ürün silinince bağlantılar cascade ile gider; gruplar (işletme düzeyi) kalır.
+  db.product_modifier_groups = db.product_modifier_groups.filter((r) => r.restaurant_id !== R);
+  db.product_pairings = db.product_pairings.filter((r) => r.restaurant_id !== R);
   db.product_menu_collections = [];
   db.category_menu_collections = [];
   db.product_variants = [];
@@ -129,6 +139,10 @@ describe("createMenuSnapshot", () => {
     assert.deepEqual(snap.data.products.map((p) => p.id).sort(), ["p1", "p2"]);
     assert.equal(snap.data.category_menu_collections.length, 1);
     assert.equal(snap.data.product_menu_collections.length, 1);
+    assert.deepEqual(snap.data.modifier_groups.map((g) => g.id), ["g1"]);
+    assert.equal(snap.data.modifier_options.length, 1);
+    assert.equal(snap.data.product_modifier_groups.length, 1);
+    assert.equal(snap.data.product_pairings.length, 1);
   });
 
   it("skips the snapshot when the menu is empty", async () => {
@@ -172,6 +186,32 @@ describe("restoreMenuSnapshot", () => {
     assert.equal(db.menu_collections.length, 1, "existing collection is not duplicated");
     assert.equal(db.product_menu_collections.length, 1);
     assert.equal(db.category_menu_collections.length, 1);
+    assert.equal(db.modifier_groups.filter((g) => g.restaurant_id === R).length, 1, "existing group is not duplicated");
+    assert.equal(db.product_modifier_groups.length, 1);
+    assert.equal(db.product_pairings.length, 1);
+  });
+
+  it("recreates option groups deleted after the reset", async () => {
+    const { db, snapshotId } = await snapshotThenWipe();
+    db.modifier_options = [];
+    db.modifier_groups = db.modifier_groups.filter((g) => g.restaurant_id !== R);
+    const res = await restoreMenuSnapshot(fakeDb(db), snapshotId, R);
+    assert.equal(res.ok, true);
+    assert.deepEqual(db.modifier_groups.filter((g) => g.restaurant_id === R).map((g) => g.id), ["g1"]);
+    assert.equal(db.modifier_options.length, 1);
+    assert.equal(db.product_modifier_groups.length, 1);
+  });
+
+  it("restores old snapshots that have no option data", async () => {
+    const { db, snapshotId } = await snapshotThenWipe();
+    const snap = db.menu_snapshots[0] as { data: Record<string, unknown> };
+    delete snap.data.modifier_groups;
+    delete snap.data.modifier_options;
+    delete snap.data.product_modifier_groups;
+    delete snap.data.product_pairings;
+    const res = await restoreMenuSnapshot(fakeDb(db), snapshotId, R);
+    assert.equal(res.ok, true);
+    assert.equal(db.product_pairings.length, 0);
   });
 
   it("refuses to overwrite a non-empty menu", async () => {

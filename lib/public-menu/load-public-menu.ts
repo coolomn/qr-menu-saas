@@ -19,6 +19,14 @@ import {
   type PublicProduct,
 } from "@/lib/public-menu/product-variants";
 import { parseSchedule, type Schedule } from "@/lib/public-menu/schedule";
+import {
+  attachProductExtras,
+  loadProductExtras,
+  parseRemovableIngredients,
+  type ProductExtras,
+  type PublicModifierGroup,
+  type RemovableIngredient,
+} from "@/lib/public-menu/product-extras";
 import { isPublicMenuBlocked } from "@/lib/public-menu/subscription-gate";
 import { normalizeLogoDisplayMode } from "@/lib/public-menu/logo-display";
 import { normalizeFontStyleId } from "@/lib/public-menu/themes/font-normalize";
@@ -117,6 +125,8 @@ type ProductRow = {
   fat_g?: number | null;
   price_updated_at?: string | null;
   schedule?: Schedule | null;
+  /** Faz 2.4: boşsa alan yok. */
+  removable_ingredients?: RemovableIngredient[];
 };
 
 export type PublicMenuBootstrapPayload = {
@@ -128,6 +138,8 @@ export type PublicMenuBootstrapPayload = {
 export type PublicMenuContentPayload = {
   categories: PublicCategoryPayload[];
   products: PublicProduct[];
+  /** Faz 2.4: ürünlere bağlı seçenek grupları (ürünler modifier_group_ids ile işaret eder). */
+  modifier_groups?: PublicModifierGroup[];
 };
 
 export type PublicMenuFullPayload = PublicMenuBootstrapPayload & PublicMenuContentPayload;
@@ -190,6 +202,9 @@ const CATEGORY_STRUCTURE_COLUMNS = ["parent_id", "note", "note_en", "note_ru"].j
 /** Faz 2.3 kolonu (kategori + ürün); migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
 const SCHEDULE_COLUMN = "schedule";
 
+/** Faz 2.4 kolonu; migration uygulanmadıysa sorgu bunsuz tekrarlanır. */
+const REMOVABLE_INGREDIENTS_COLUMN = "removable_ingredients";
+
 const PRODUCT_COLUMNS_BASE = [
   "id",
   "category_id",
@@ -249,9 +264,20 @@ function toCategoryRows(value: unknown): CategoryRow[] {
   return value.filter(isCategoryRow).map(withParsedSchedule);
 }
 
+/** removable_ingredients'ı doğrular; boşsa alanı tamamen çıkarır (menü JSON'u küçük kalır). */
+function withParsedIngredients<T extends { removable_ingredients?: unknown }>(
+  row: T
+): Omit<T, "removable_ingredients"> & { removable_ingredients?: RemovableIngredient[] } {
+  const { removable_ingredients: raw, ...rest } = row;
+  const list = parseRemovableIngredients(raw);
+  return list.length > 0 ? { ...rest, removable_ingredients: list } : rest;
+}
+
 function toProductRows(value: unknown): ProductRow[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(isProductRow).map(withParsedSchedule);
+  return value
+    .filter(isProductRow)
+    .map((row) => withParsedIngredients(withParsedSchedule(row as ProductRow & { removable_ingredients?: unknown })));
 }
 
 export function toPublicRestaurantPayload(restaurantRow: RestaurantRow): PublicRestaurantPayload {
@@ -441,11 +467,21 @@ async function loadProductRows(
 
   let { data: productRows, error: productsError } = await supabase
     .from("products")
-    .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS, SCHEDULE_COLUMN].join(","))
+    .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS, SCHEDULE_COLUMN, REMOVABLE_INGREDIENTS_COLUMN].join(","))
     .in("category_id", categoryIds)
     .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
+
+  if (productsError && isMissingColumn(productsError)) {
+    ({ data: productRows, error: productsError } = await supabase
+      .from("products")
+      .select([PRODUCT_COLUMNS, PRODUCT_BASICS_COLUMNS, SCHEDULE_COLUMN].join(","))
+      .in("category_id", categoryIds)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }));
+  }
 
   if (productsError && isMissingColumn(productsError)) {
     ({ data: productRows, error: productsError } = await supabase
@@ -515,6 +551,8 @@ export function assemblePublicMenuCatalog(args: {
     productsWithJunction: Set<string>;
   };
   variantsByProduct: Map<string, PublicProductVariant[]>;
+  /** Faz 2.4; verilmezse ürünlere ek alan eklenmez. */
+  extras?: ProductExtras;
 }): PublicMenuCatalogPayload {
   const publicCategories = attachMenuCollectionIds(args.categoryRows, args.menuIdsByCategory);
 
@@ -526,11 +564,15 @@ export function assemblePublicMenuCatalog(args: {
     args.menuData.menu_picker.default_menu_collection_id
   );
 
-  const publicProducts = attachProductVariants(productsWithMenus, args.variantsByProduct);
+  const withVariants = attachProductVariants(productsWithMenus, args.variantsByProduct);
+  const publicProducts = args.extras
+    ? attachProductExtras(withVariants, args.extras, new Set(withVariants.map((p) => p.id)))
+    : withVariants;
 
   return {
     categories: publicCategories,
     products: publicProducts,
+    ...(args.extras && args.extras.groups.length > 0 ? { modifier_groups: args.extras.groups } : {}),
     menu_collections: args.menuData.menu_collections,
     menu_picker: args.menuData.menu_picker,
   };
@@ -567,9 +609,10 @@ async function loadPublicMenuCatalog(
 
   const productIds = products.map((product) => product.id);
 
-  const [productJunctionMaps, variantsByProduct] = await Promise.all([
+  const [productJunctionMaps, variantsByProduct, extras] = await Promise.all([
     buildProductMenuCollectionsMaps(supabase, productIds, menuData.activeMenuIdSet),
     buildActivePublicVariantsMap(supabase, productIds),
+    loadProductExtras(supabase, restaurantId, productIds),
   ]);
 
   return assemblePublicMenuCatalog({
@@ -579,6 +622,7 @@ async function loadPublicMenuCatalog(
     menuIdsByCategory,
     productJunctionMaps,
     variantsByProduct,
+    extras,
   });
 }
 
@@ -591,6 +635,7 @@ export async function buildPublicMenuContent(
   return {
     categories: catalog.categories,
     products: catalog.products,
+    ...(catalog.modifier_groups ? { modifier_groups: catalog.modifier_groups } : {}),
   };
 }
 
@@ -605,6 +650,7 @@ export async function buildPublicMenuFull(
     menu_picker: catalog.menu_picker,
     categories: catalog.categories,
     products: catalog.products,
+    ...(catalog.modifier_groups ? { modifier_groups: catalog.modifier_groups } : {}),
   };
 }
 
