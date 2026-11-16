@@ -107,9 +107,11 @@ export function LanguageSwitcher({
           {languages.map((lang) => {
             const selected = value === lang;
             return (
-              <li key={lang} role="option" aria-selected={selected}>
+              <li key={lang} role="presentation">
                 <button
                   type="button"
+                  role="option"
+                  aria-selected={selected}
                   lang={lang}
                   onClick={() => {
                     onChange(lang);

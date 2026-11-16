@@ -48,6 +48,10 @@ export function useMenuLanguage(rawLanguages: unknown | undefined) {
       browserLanguages: typeof navigator !== "undefined" ? navigator.languages : [],
     });
     setLanguageState(initial);
+    // ?lang= ile gelindiyse ürün sayfasına geçişte / geri dönüşte de aynı dil kalsın.
+    if (urlLang && initial === urlLang.trim().toLowerCase().split(/[-_]/)[0]) {
+      writeStoredLanguage(initial);
+    }
   }, [availableKey]);
 
   useEffect(() => {

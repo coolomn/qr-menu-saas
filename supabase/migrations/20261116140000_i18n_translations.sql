@@ -17,6 +17,10 @@
 --   drop function if exists public.i18n_sync_legacy_columns(), public.i18n_translations_ok(jsonb, text[], int),
 --     public.i18n_normalize(jsonb), public.i18n_allowed_languages(), public.i18n_menu_languages_ok(text[]);
 --   (restaurants_guard_owner_update: 'menu_languages' satırını listeden çıkarmak yeterli)
+--   DİKKAT: geri almadan SONRA, bu migration'dan sonra alınmış menu_snapshots geri yüklenemez
+--   (yedekte translations alanı var, tabloda kolon yok). Migration öncesi yedekler sorunsuz yüklenir.
+--
+-- Tetikleyiciler yalnız ilgili kolonlar UPDATE edildiğinde çalışır (sıralama/fiyat/aktiflik güncellemeleri etkilenmez).
 
 -- ---------------------------------------------------------------------------
 -- Yardımcı fonksiyonlar
@@ -279,27 +283,34 @@ alter table public.modifier_options add constraint modifier_options_translations
 -- ---------------------------------------------------------------------------
 
 drop trigger if exists products_i18n_sync on public.products;
-create trigger products_i18n_sync before insert or update on public.products
+create trigger products_i18n_sync
+  before insert or update of translations, name_en, name_ru, description_en, description_ru on public.products
   for each row execute function public.i18n_sync_legacy_columns('name', 'description');
 
 drop trigger if exists categories_i18n_sync on public.categories;
-create trigger categories_i18n_sync before insert or update on public.categories
+create trigger categories_i18n_sync
+  before insert or update of translations, name_en, name_ru, main_group_en, main_group_ru, note_en, note_ru
+  on public.categories
   for each row execute function public.i18n_sync_legacy_columns('name', 'main_group', 'note');
 
 drop trigger if exists menu_collections_i18n_sync on public.menu_collections;
-create trigger menu_collections_i18n_sync before insert or update on public.menu_collections
+create trigger menu_collections_i18n_sync
+  before insert or update of translations, name_en, name_ru on public.menu_collections
   for each row execute function public.i18n_sync_legacy_columns('name');
 
 drop trigger if exists product_variants_i18n_sync on public.product_variants;
-create trigger product_variants_i18n_sync before insert or update on public.product_variants
+create trigger product_variants_i18n_sync
+  before insert or update of translations, label_en, label_ru on public.product_variants
   for each row execute function public.i18n_sync_legacy_columns('label');
 
 drop trigger if exists modifier_groups_i18n_sync on public.modifier_groups;
-create trigger modifier_groups_i18n_sync before insert or update on public.modifier_groups
+create trigger modifier_groups_i18n_sync
+  before insert or update of translations, name_en, name_ru on public.modifier_groups
   for each row execute function public.i18n_sync_legacy_columns('name');
 
 drop trigger if exists modifier_options_i18n_sync on public.modifier_options;
-create trigger modifier_options_i18n_sync before insert or update on public.modifier_options
+create trigger modifier_options_i18n_sync
+  before insert or update of translations, name_en, name_ru on public.modifier_options
   for each row execute function public.i18n_sync_legacy_columns('name');
 
 -- ---------------------------------------------------------------------------
