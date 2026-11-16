@@ -11,6 +11,7 @@ export const TRANSLATABLE_KINDS = [
   "modifier_group",
   "modifier_option",
   "ingredient",
+  "announcement",
 ] as const;
 
 export type TranslatableKind = (typeof TRANSLATABLE_KINDS)[number];
@@ -58,6 +59,12 @@ export const TRANSLATABLE_KIND_INFO: Record<TranslatableKind, TranslatableKindIn
     fields: ["name"],
     maxLength: { name: 80 },
     promptHint: "single ingredient the guest can ask to remove, e.g. Onion, Pickles",
+  },
+  announcement: {
+    fields: ["text"],
+    maxLength: { text: 200 },
+    promptHint:
+      "short announcement banner at the top of a restaurant menu (promotion, event, notice); keep it brief, keep dates, numbers and emoji as they are",
   },
 };
 
