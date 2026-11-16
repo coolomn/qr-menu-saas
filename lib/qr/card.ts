@@ -3,7 +3,7 @@
  * aynı SVG ekranda önizlenir, PNG olarak indirilir ve yazdırma sayfasında vektör olarak basılır.
  * Yazı tipi: kullanıcının sisteminde olan sans-serif (SVG indirildiğinde yazı tipi gömülemez).
  */
-import { buildQrSvg, contrastRatio, normalizeHexColor, type QrSvgOptions } from "./svg";
+import { buildQrSvg, contrastRatio, isSafeLogoHref, normalizeHexColor, type QrSvgOptions } from "./svg";
 
 export const CARD_WIDTH = 1050;
 export const CARD_HEIGHT = 1480;
@@ -29,8 +29,15 @@ export type CardOptions = {
 
 const FONT = `Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif`;
 
-export function xmlEscape(text: string): string {
+/** XML 1.0'da geçersiz kontrol karakterleri ve yarım vekiller SVG'yi bozar; atılır. */
+function stripInvalidXml(text: string): string {
   return text
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "")
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
+export function xmlEscape(text: string): string {
+  return stripInvalidXml(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -40,12 +47,14 @@ export function xmlEscape(text: string): string {
 
 /** Boşluğa göre en çok `maxLines` satıra böler; sığmayanı "…" ile keser. */
 export function wrapText(text: string, maxChars: number, maxLines: number): string[] {
+  const len = (t: string) => Array.from(t).length;
+  const cut = (t: string, n: number) => Array.from(t).slice(0, Math.max(1, n)).join("").trimEnd();
   const words = text.trim().split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
   for (const word of words) {
     const next = current ? `${current} ${word}` : word;
-    if (next.length <= maxChars || !current) {
+    if (len(next) <= maxChars || !current) {
       current = next;
     } else {
       lines.push(current);
@@ -55,11 +64,10 @@ export function wrapText(text: string, maxChars: number, maxLines: number): stri
   if (current) lines.push(current);
   if (lines.length > maxLines) {
     const kept = lines.slice(0, maxLines);
-    const last = kept[maxLines - 1] ?? "";
-    kept[maxLines - 1] = `${last.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+    kept[maxLines - 1] = `${cut(kept[maxLines - 1] ?? "", maxChars - 1)}…`;
     return kept;
   }
-  return lines.map((l) => (l.length > maxChars ? `${l.slice(0, maxChars - 1).trimEnd()}…` : l));
+  return lines.map((l) => (len(l) > maxChars ? `${cut(l, maxChars - 1)}…` : l));
 }
 
 /** Zemin rengine göre okunur yazı rengi (siyah/beyaz). */
@@ -83,7 +91,7 @@ export function buildCardSvg(options: CardOptions): string {
 
   // Üst blok: logo (varsa) + işletme adı
   let y = 96;
-  const logoHref = options.logoHref && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(options.logoHref) ? options.logoHref : null;
+  const logoHref = isSafeLogoHref(options.logoHref) ? options.logoHref : null;
   if (logoHref) {
     parts.push(`<image xlink:href="${logoHref}" x="${(CARD_WIDTH - 240) / 2}" y="${y}" width="240" height="130" preserveAspectRatio="xMidYMid meet"/>`);
     y += 130 + 60;
@@ -130,10 +138,11 @@ export function buildCardSvg(options: CardOptions): string {
   // Alt etiket bandı: "MASA 5"
   if (options.label) {
     parts.push(`<rect x="120" y="${bandY}" width="${CARD_WIDTH - 240}" height="${bandH}" rx="65" fill="${accent}"/>`);
-    const word = xmlEscape(options.label.word.toLocaleUpperCase("tr-TR"));
-    const value = xmlEscape(options.label.value);
+    const raw = `${options.label.word.toLocaleUpperCase("tr-TR")} ${options.label.value}`;
+    // Bant içinde kalsın: ~0.62 em/harf (kalın, geniş harfler dahil) → yazı uzunluğuna göre küçül.
+    const size = Math.max(40, Math.min(76, Math.floor((CARD_WIDTH - 240 - 80) / (Array.from(raw).length * 0.66))));
     parts.push(
-      `<text x="${CARD_WIDTH / 2}" y="${bandY + 88}" text-anchor="middle" font-family="${FONT}" font-size="76" font-weight="800" fill="${labelText}" letter-spacing="2">${word} ${value}</text>`
+      `<text x="${CARD_WIDTH / 2}" y="${bandY + bandH / 2 + size * 0.35}" text-anchor="middle" font-family="${FONT}" font-size="${size}" font-weight="800" fill="${labelText}" letter-spacing="1">${xmlEscape(raw)}</text>`
     );
   }
 

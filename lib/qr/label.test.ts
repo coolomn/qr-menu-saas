@@ -61,3 +61,10 @@ test("expandLabelInput: hatalı aralık ve üst sınır", () => {
   assert.equal(expandLabelInput("1-200").values.length, 200);
   assert.match(expandLabelInput("1-150, 300-400").error ?? "", /en fazla 200/);
 });
+
+test("sanitizeLabelValue: astral karakter ortadan bölünmez (encodeURIComponent patlamaz)", () => {
+  const value = sanitizeLabelValue("𝒜".repeat(20)); // \p{L}, UTF-16'da 2 birim
+  assert.equal(Array.from(value).length, QR_LABEL_MAX_LENGTH);
+  assert.doesNotThrow(() => encodeURIComponent(value));
+  assert.doesNotThrow(() => encodeURIComponent(withLabelParam("https://x/a", "masa", "𝒜".repeat(20))));
+});

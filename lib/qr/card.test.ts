@@ -89,3 +89,41 @@ test("kart SVG'si PNG için yeniden boyutlandırıldığında geçerli kalır (t
   assert.equal((root.match(/\swidth=/g) ?? []).length, 1);
   assert.equal((root.match(/\sheight=/g) ?? []).length, 1);
 });
+
+test("kart: emoji/yarım vekil ve XML'de geçersiz karakterler SVG'yi bozmaz", () => {
+  const name = "Cafe 🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔🍔";
+  const svg = buildCardSvg({ ...base(), restaurantName: name, headline: "x\u0000y\u0008z \uD83D lone", label: { word: "Masa", value: "A\u0001B" } });
+  assert.doesNotThrow(() => encodeURIComponent(svg));
+  assert.ok(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(svg));
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(svg));
+});
+
+test("wrapText: emoji ortadan kesilmez", () => {
+  const lines = wrapText("🍔".repeat(30), 10, 2);
+  for (const l of lines) assert.doesNotThrow(() => encodeURIComponent(l));
+});
+
+test("kart: uzun etiket yazı boyutunu küçültür, bandın içinde kalır", () => {
+  const short = buildCardSvg({ ...base(), label: { word: "Oda", value: "101" } });
+  const long = buildCardSvg({ ...base(), label: { word: "Masa", value: "WWWWWWWWWWWWWWWW" } });
+  const size = (svg: string) => Number(/font-size="(\d+)"[^>]*letter-spacing/.exec(svg)?.[1]);
+  assert.equal(size(short), 76);
+  assert.ok(size(long) < 76 && size(long) >= 40);
+});
+
+test("kart: küçük baskı boyutunda ve hafif bulanıklıkta da okunur", async () => {
+  const svg = buildCardSvg(base());
+  const px = 260; // ~2.6 cm kod ≈ kartın tamamı bu boyutta küçültülürse
+  const w = px;
+  const h = Math.round((px * CARD_HEIGHT) / CARD_WIDTH);
+  const image = await loadImage(Buffer.from(setSvgSize(svg, w, h)));
+  const canvas = createCanvas(w, h);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.filter = "blur(0.6px)";
+  ctx.drawImage(image, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h);
+  const out = jsQR(new Uint8ClampedArray(d.data), w, h);
+  assert.equal(out?.data, URL_TEXT);
+});

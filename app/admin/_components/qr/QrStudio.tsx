@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, Download, Printer, QrCode } from "lucide-react";
-import { findHostSet, publicMenuUrl } from "@/lib/domains/hosts";
 import { downloadBlob, downloadSvg, fileSlug, loadLogoDataUrl, printHtml, svgToPngBlob } from "@/lib/qr/browser";
 import {
   buildCardSvg,
@@ -12,7 +11,8 @@ import {
   SHEET_LAYOUTS,
   type SheetLayout,
 } from "@/lib/qr/card";
-import { expandLabelInput, labelKindWord, QR_LABEL_BATCH_MAX, withLabelParam, type QrLabelKind } from "@/lib/qr/label";
+import { expandLabelInput, labelKindWord, QR_LABEL_BATCH_MAX, type QrLabelKind } from "@/lib/qr/label";
+import { buildQrTargetUrl, isProductionHost } from "@/lib/qr/target";
 import {
   buildQrSvg,
   DEFAULT_QR_BACKGROUND,
@@ -71,6 +71,7 @@ function ColorField({ label, value, onChange, allowTransparent }: { label: strin
         {allowTransparent && (
           <button
             type="button"
+            aria-pressed={isTransparent}
             onClick={() => onChange(isTransparent ? "#ffffff" : "transparent")}
             className={`shrink-0 rounded-lg px-2 py-1 text-[11px] font-black ${isTransparent ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}
           >
@@ -131,11 +132,12 @@ export function QrStudio({ restaurantName, slug, logoUrl, brandColor }: Props) {
     };
   }, [logoUrl]);
 
+  const hostInfo = origin ?? { host: "", origin: "" };
   const baseUrl = useMemo(
-    () => (origin ? publicMenuUrl(slug, origin.host, origin.origin) : ""),
+    () => (origin ? buildQrTargetUrl({ slug, host: origin.host, origin: origin.origin }) : ""),
     [origin, slug]
   );
-  const isLiveHost = origin ? Boolean(findHostSet(origin.host)) : true;
+  const isLiveHost = origin ? isProductionHost(origin.host) : true;
 
   const expanded = useMemo(() => {
     if (labelMode === "none") return { values: [""], error: null as string | null };
@@ -148,9 +150,14 @@ export function QrStudio({ restaurantName, slug, logoUrl, brandColor }: Props) {
     () =>
       expanded.values.map((value) => ({
         value,
-        url: labelMode === "none" ? baseUrl : withLabelParam(baseUrl, labelMode, value),
+        url: buildQrTargetUrl({
+          slug,
+          host: hostInfo.host,
+          origin: hostInfo.origin,
+          label: labelMode === "none" ? null : { kind: labelMode, value },
+        }),
       })),
-    [expanded.values, labelMode, baseUrl]
+    [expanded.values, labelMode, slug, hostInfo.host, hostInfo.origin]
   );
 
   const safeIndex = Math.min(previewIndex, Math.max(0, items.length - 1));
@@ -355,6 +362,12 @@ export function QrStudio({ restaurantName, slug, logoUrl, brandColor }: Props) {
                   : "QR rengi ile arka plan arasındaki fark az. Okunmayabilir; daha koyu bir QR rengi seçin."}
               </p>
             )}
+            {background === "transparent" && (
+              <p className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-snug text-amber-800" role="status">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                Şeffaf QR&apos;ı yalnızca açık renkli bir zemine yerleştirin; koyu zeminde okunmaz. Kartta QR her zaman açık bir panelin üstündedir.
+              </p>
+            )}
             <div>
               <span className={labelClass}>Nokta şekli</span>
               <div role="radiogroup" aria-label="Nokta şekli" className="flex flex-wrap gap-2">
@@ -426,7 +439,7 @@ export function QrStudio({ restaurantName, slug, logoUrl, brandColor }: Props) {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(cardPreview)}`}
-                alt="Kart önizlemesi"
+                alt={current && labelMode !== "none" && current.value ? `${labelKindWord(labelMode, "tr")} ${current.value} kartı önizlemesi` : "Kart önizlemesi"}
                 width={CARD_WIDTH}
                 height={CARD_HEIGHT}
                 className="mx-auto h-auto w-full max-w-[260px] rounded-2xl border border-gray-200 bg-white shadow-sm"
@@ -468,6 +481,14 @@ export function QrStudio({ restaurantName, slug, logoUrl, brandColor }: Props) {
                 <Printer size={16} /> {items.length > 1 ? `${items.length} kartı yazdır / PDF` : "Yazdır / PDF"}
               </button>
             </div>
+            {items.length > 50 && (
+              <p className="text-[11px] font-bold leading-snug text-amber-700">
+                {items.length} kart hazırlanıyor; yazdırma penceresi birkaç saniye geç açılabilir. Çok kart için gruplara bölmek (örn. 1-50, 51-100) daha rahattır.
+              </p>
+            )}
+            <p className="text-[11px] font-bold leading-snug text-gray-500">
+              Çoğu yazıcı sayfa kenarına basamaz. Kart çerçevesi kesiliyorsa yazdırırken ölçeği %95 yapın veya “Sayfaya sığdır”ı seçin.
+            </p>
             {message && (
               <p className={`text-xs font-bold leading-snug ${message.ok ? "text-emerald-700" : "text-red-600"}`} role="status">{message.text}</p>
             )}

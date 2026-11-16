@@ -2,8 +2,8 @@ import { setSvgSize } from "./svg";
 
 /** Faz 2.6: yalnızca tarayıcıda çalışan yardımcılar (logo hazırlama, PNG/SVG indirme, yazdırma). */
 
-/** Logoyu 256 px'e küçültüp PNG data URL'e çevirir (SVG/WebP/JPEG fark etmez). Başarısızsa null. */
-export async function loadLogoDataUrl(url: string, maxSide = 256): Promise<string | null> {
+/** Logoyu 256 px'e küçültüp PNG data URL'e çevirir (SVG/WebP/JPEG fark etmez); 160 px: 200 kartlık sayfada dosya boyutunu küçük tutar. Başarısızsa null. */
+export async function loadLogoDataUrl(url: string, maxSide = 160): Promise<string | null> {
   try {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -77,7 +77,10 @@ export function printHtml(html: string): void {
   iframe.setAttribute("aria-hidden", "true");
   iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
   iframe.srcdoc = html;
+  let printed = false;
   iframe.onload = () => {
+    if (printed) return;
+    printed = true;
     const win = iframe.contentWindow;
     if (!win) return;
     win.focus();

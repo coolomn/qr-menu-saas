@@ -42,6 +42,8 @@ describe("security headers", () => {
     assert.match(csp, /connect-src [^;]*wss:\/\/custom\.example\.com/);
     // Faz 2.5b: çeviri sunucuda (OpenAI); tarayıcı üçüncü taraf çeviri servisine bağlanmaz.
     assert.doesNotMatch(csp, /mymemory/);
+    // Faz 2.6: QR kodları tarayıcıda üretilir; dış QR servisine izin yok.
+    assert.doesNotMatch(csp, /qrserver/);
   });
 
   it("only allows unsafe-eval in development", () => {

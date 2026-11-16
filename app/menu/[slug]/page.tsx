@@ -968,9 +968,7 @@ export default function CustomerMenu() {
       </header>
 
       <main className={tc.main}>
-        <div className="mb-3 flex justify-center empty:hidden">
-          <QrLabelBadge language={language} style={{ color: themeColor, borderColor: themeColor }} />
-        </div>
+        <QrLabelBadge language={language} style={{ color: themeColor, borderColor: themeColor }} centered />
         {menuCategories.length === 0 && filterByMenuCollection && (
           <div className="text-center py-12 px-4 space-y-4">
             <p className={tc.emptyStateText}>

@@ -115,10 +115,10 @@ export function buildQrSvg(options: QrSvgOptions): QrSvgResult {
     options.background === "transparent" ? "transparent" : normalizeHexColor(options.background, DEFAULT_QR_BACKGROUND);
   const shape: QrDotShape = QR_DOT_SHAPES.includes(options.shape as QrDotShape) ? (options.shape as QrDotShape) : "square";
   const logoHref = isSafeLogoHref(options.logoHref) ? options.logoHref : null;
-  const quiet = Math.min(8, Math.max(0, Math.round(options.quietZone ?? 3)));
+  const quiet = Math.min(8, Math.max(0, Math.round(options.quietZone ?? 4)));
 
   // Logo varsa hata düzeltmesi en yüksek seviyede (orta kısım örtülür).
-  const qr = qrcode(0, logoHref ? "H" : "M");
+  const qr = qrcode(0, logoHref ? "H" : "Q");
   qr.addData(options.text);
   qr.make();
   const count = qr.getModuleCount();

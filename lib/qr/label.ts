@@ -17,13 +17,13 @@ const DISALLOWED = /[^\p{L}\p{N} .\-_/#]/gu;
 /** Etiket değerini temizler; boş kalırsa "" döner. */
 export function sanitizeLabelValue(raw: string | null | undefined): string {
   if (!raw) return "";
-  return raw
+  const cleaned = raw
     .normalize("NFC")
     .replace(DISALLOWED, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, QR_LABEL_MAX_LENGTH)
     .trim();
+  // UTF-16 değil karakter (code point) bazında kes: yarım vekil çift encodeURIComponent'i patlatır.
+  return Array.from(cleaned).slice(0, QR_LABEL_MAX_LENGTH).join("").trim();
 }
 
 /** Menü adresine masa/oda parametresini ekler (varsa mevcut parametreler korunur). */
