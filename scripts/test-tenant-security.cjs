@@ -353,6 +353,40 @@ async function main() {
       }
     }
 
+    // 3a-3) Faz 2.11a: owner "Google'da görünsün" anahtarını değiştirebilmeli
+    //       (migration uygulanmamış ortamda kolon yok → atlanır).
+    {
+      const { data: prevSeo, error: prevSeoErr } = await admin
+        .from("restaurants")
+        .select("seo_indexable")
+        .eq("id", activeRestaurantId)
+        .single();
+      if (prevSeoErr) {
+        console.log("SKIP  owner seo_indexable (migration yok)");
+      } else {
+        try {
+          const { error } = await owner.from("restaurants").update({ seo_indexable: false }).eq("id", activeRestaurantId);
+          const { data: after } = await admin
+            .from("restaurants")
+            .select("seo_indexable")
+            .eq("id", activeRestaurantId)
+            .single();
+          record(
+            "active owner CAN toggle seo_indexable",
+            !error && after?.seo_indexable === false,
+            error ? error.message : ""
+          );
+        } finally {
+          // Test yarıda kalsa bile staging restoranı kapalı bırakılmasın.
+          const { error: restoreErr } = await admin
+            .from("restaurants")
+            .update({ seo_indexable: prevSeo.seo_indexable })
+            .eq("id", activeRestaurantId);
+          if (restoreErr) console.log(`WARN  seo_indexable geri alınamadı: ${restoreErr.message}`);
+        }
+      }
+    }
+
     // 3b) AKTİF restoranda da slug/abonelik alanları değiştirilememeli (tetikleyici, kilitten bağımsız)
     {
       const { error: slugErr } = await owner
